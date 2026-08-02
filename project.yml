@@ -1,0 +1,118 @@
+name: VideoLingo
+options:
+  bundleIdPrefix: com.vvv
+  deploymentTarget:
+    macOS: "26.0"
+  xcodeVersion: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    CODE_SIGN_STYLE: Automatic
+packages:
+  ArgmaxOSS:
+    url: https://github.com/argmaxinc/argmax-oss-swift.git
+    from: 0.9.0
+  MLXSwiftLM:
+    url: https://github.com/ml-explore/mlx-swift-lm.git
+    exactVersion: 2.30.6
+  SwiftTransformers:
+    url: https://github.com/huggingface/swift-transformers.git
+    exactVersion: 1.1.9
+targets:
+  VideoLingoCore:
+    type: framework
+    platform: macOS
+    sources: Sources/VideoLingoCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vvv.VideoLingoCore
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - sdk: libsqlite3.tbd
+      - sdk: AVFoundation.framework
+
+  VideoLingoAIService:
+    type: xpc-service
+    platform: macOS
+    sources: Sources/VideoLingoAIService
+    info:
+      path: Sources/VideoLingoAIService/Info.plist
+      properties:
+        CFBundleDisplayName: VideoLingo AI Service
+        CFBundlePackageType: XPC!
+        XPCService:
+          ServiceType: Application
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vvv.VideoLingo.AIService
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../../../../Frameworks"
+    dependencies:
+      - target: VideoLingoCore
+      - package: ArgmaxOSS
+        product: WhisperKit
+      - package: ArgmaxOSS
+        product: TTSKit
+      - package: ArgmaxOSS
+        product: SpeakerKit
+      - package: MLXSwiftLM
+        product: MLXLLM
+      - package: MLXSwiftLM
+        product: MLXLMCommon
+      - package: SwiftTransformers
+        product: Hub
+      - sdk: AVFoundation.framework
+      - sdk: FoundationModels.framework
+
+  VideoLingo:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/VideoLingo
+        excludes:
+          - DesignAssets
+    info:
+      path: Sources/VideoLingo/Info.plist
+      properties:
+        CFBundleDisplayName: VideoLingo
+        CFBundleName: VideoLingo
+        LSApplicationCategoryType: public.app-category.video
+        NSMicrophoneUsageDescription: 음성 인식 기능에 필요합니다.
+    entitlements:
+      path: Sources/VideoLingo/VideoLingo.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        PRODUCT_BUNDLE_IDENTIFIER: com.vvv.VideoLingo
+        PRODUCT_NAME: VideoLingo
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.video
+    dependencies:
+      - target: VideoLingoCore
+      - target: VideoLingoAIService
+        embed: true
+      - sdk: AVKit.framework
+      - sdk: UniformTypeIdentifiers.framework
+
+  VideoLingoCoreTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: Tests/VideoLingoCoreTests
+    dependencies:
+      - target: VideoLingoCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  VideoLingo:
+    build:
+      targets:
+        VideoLingo: all
+        VideoLingoCoreTests: [test]
+    test:
+      targets:
+        - VideoLingoCoreTests
