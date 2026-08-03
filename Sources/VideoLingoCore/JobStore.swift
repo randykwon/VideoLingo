@@ -96,6 +96,15 @@ public final class JobStore: @unchecked Sendable {
         }
     }
 
+    public func processingOptions(jobID: UUID) throws -> ProcessingOptions? {
+        try withStatement("SELECT options FROM jobs WHERE id=?;") { statement in
+            bind(jobID.uuidString, at: 1, to: statement)
+            guard try next(statement) == SQLITE_ROW,
+                  let optionData = data(statement, 0) else { return nil }
+            return try WireCodec.decode(ProcessingOptions.self, from: optionData)
+        }
+    }
+
     public func mostRecentJobID(for mediaURL: URL) throws -> UUID? {
         try withStatement("SELECT id FROM jobs WHERE media_url=? ORDER BY updated_at DESC LIMIT 1;") { statement in
             bind(mediaURL.absoluteString, at: 1, to: statement)

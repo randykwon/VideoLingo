@@ -63,6 +63,10 @@ final class AppModel {
     var resultDirectoryURL: URL?
 
     let languages = ["ko", "en", "ja", "zh", "es", "fr", "de", "pt", "it"]
+    let sourceLanguages = [
+        "", "ko", "ja", "en", "zh", "es", "fr", "de", "pt", "it",
+        "ru", "ar", "hi", "vi", "th", "id", "tr", "nl", "pl", "sv"
+    ]
     let models = ["large-v3-v20240930_626MB", "small", "base", "tiny"]
     let translationModels = [
         "apple-foundation-models",
@@ -147,6 +151,12 @@ final class AppModel {
             guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
             return GlossaryEntry(source: parts[0], target: parts[1])
         }
+    }
+
+    func sourceLanguageName(_ code: String) -> String {
+        guard !code.isEmpty else { return "자동 감지" }
+        let localized = Locale.current.localizedString(forLanguageCode: code) ?? code.uppercased()
+        return "\(localized) (\(code.uppercased()))"
     }
 
     func toggleTargetLanguage(_ language: String) {
@@ -236,32 +246,8 @@ final class AppModel {
                 snapshot = nil
             }
             currentJobID = jobID
-            databaseURL = paths.database
-            let workspace = paths.workspace(for: jobID)
-            workspaceURL = workspace
-            resultDirectoryURL = MediaSidecarStore.directoryURL(for: mediaURL)
-            try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
-            let bookmark = try? mediaURL.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
-            let options = ProcessingOptions(
-                sourceLanguage: sourceLanguage.isEmpty ? nil : sourceLanguage,
-                targetLanguages: targetLanguages,
-                chunkDuration: 30,
-                sttModel: sttModel,
-                translationModel: translationModel,
-                synthesizeSpeech: synthesizeSpeech,
-                qualityMode: qualityMode,
-                glossary: glossaryEntries,
-                continuousImprovement: continuousImprovement,
-                maximumRefinementPasses: maximumRefinementPasses
-            )
-            let request = StartJobRequest(
-                jobID: jobID,
-                mediaURL: mediaURL,
-                securityScopedBookmark: bookmark,
-                options: options,
-                databaseURL: paths.database,
-                workspaceURL: workspace
-            )
+            let options = currentProcessingOptions()
+            let request = try makeRequest(jobID: jobID, mediaURL: mediaURL, paths: paths, options: options)
             currentRequest = request
             let store = try store(at: paths.database)
             try store.createJob(id: jobID, mediaURL: mediaURL, options: options)
@@ -708,7 +694,15 @@ final class AppModel {
             if checkpointChanged { refreshResults() }
             if [.completed, .failed, .cancelled].contains(value.status) { statusTask?.cancel() }
         case .failure(let error):
-            if !isRestartingService { errorMessage = error.localizedDescription }
+            statusTask?.cancel()
+            guard !isRestartingService else { return }
+            if currentRequest != nil {
+                pendingResumeAfterRestart = true
+                serviceMessage = "저장된 작업 상태 복원 중"
+                refreshServiceStatus()
+            } else {
+                serviceMessage = "작업 상태 확인 실패 · 시작/재개 가능: \(error.localizedDescription)"
+            }
         }
     }
 
@@ -833,6 +827,8 @@ final class AppModel {
                 : discoveredSidecar?.jobID ?? databaseJobID ?? stableJobID(for: url)
             currentJobID = jobID
             workspaceURL = paths.workspace(for: jobID)
+            let storedOptions = try store.processingOptions(jobID: jobID)
+            if let storedOptions { applyProcessingOptions(storedOptions) }
             snapshot = try store.snapshot(jobID: jobID)
             refreshResults()
             if transcript.isEmpty, let discoveredSidecar {
@@ -841,8 +837,17 @@ final class AppModel {
                     ($0.transcriptID, $0)
                 })
             }
-            if snapshot.map({ activeStatuses.contains($0.status) }) == true {
-                beginPolling()
+            if snapshot.map({ activeStatuses.contains($0.status) }) == true,
+               let options = storedOptions {
+                currentRequest = try makeRequest(
+                    jobID: jobID,
+                    mediaURL: url,
+                    paths: paths,
+                    options: options
+                )
+                pendingResumeAfterRestart = true
+                serviceMessage = "저장된 작업을 내장 AI 서버에 복원 중"
+                if serviceIsAvailable { resumeAfterRestartIfNeeded() }
             }
             if remember {
                 UserDefaults.standard.set(url.path, forKey: "lastMediaPath")
@@ -868,6 +873,62 @@ final class AppModel {
         let id = UUID()
         UserDefaults.standard.set(id.uuidString, forKey: key)
         return id
+    }
+
+    private func currentProcessingOptions() -> ProcessingOptions {
+        ProcessingOptions(
+            sourceLanguage: sourceLanguage.isEmpty ? nil : sourceLanguage,
+            targetLanguages: targetLanguages,
+            chunkDuration: 30,
+            sttModel: sttModel,
+            translationModel: translationModel,
+            synthesizeSpeech: synthesizeSpeech,
+            qualityMode: qualityMode,
+            glossary: glossaryEntries,
+            continuousImprovement: continuousImprovement,
+            maximumRefinementPasses: maximumRefinementPasses
+        )
+    }
+
+    private func makeRequest(
+        jobID: UUID,
+        mediaURL: URL,
+        paths: AppPaths,
+        options: ProcessingOptions
+    ) throws -> StartJobRequest {
+        databaseURL = paths.database
+        let workspace = paths.workspace(for: jobID)
+        workspaceURL = workspace
+        resultDirectoryURL = MediaSidecarStore.directoryURL(for: mediaURL)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        let bookmark = try? mediaURL.bookmarkData(
+            options: [.withSecurityScope],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
+        return StartJobRequest(
+            jobID: jobID,
+            mediaURL: mediaURL,
+            securityScopedBookmark: bookmark,
+            options: options,
+            databaseURL: paths.database,
+            workspaceURL: workspace
+        )
+    }
+
+    private func applyProcessingOptions(_ options: ProcessingOptions) {
+        sourceLanguage = options.sourceLanguage ?? ""
+        targetLanguages = options.targetLanguages.isEmpty ? ["ko"] : options.targetLanguages
+        if !targetLanguages.contains(selectedLanguage) {
+            selectedLanguage = targetLanguages[0]
+        }
+        sttModel = options.sttModel
+        translationModel = options.translationModel
+        synthesizeSpeech = options.synthesizeSpeech
+        qualityMode = options.qualityMode ?? .fast
+        glossaryText = (options.glossary ?? []).map { "\($0.source)=\($0.target)" }.joined(separator: "\n")
+        continuousImprovement = options.continuousImprovement ?? false
+        maximumRefinementPasses = max(1, options.maximumRefinementPasses ?? 3)
     }
 
     private func stableJobKey(for url: URL) -> String {

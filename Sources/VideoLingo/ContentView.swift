@@ -29,6 +29,18 @@ struct ContentView: View {
                     }
                 }
                 Section("번역") {
+                    Picker("STT 원어", selection: $model.sourceLanguage) {
+                        ForEach(model.sourceLanguages, id: \.self) { language in
+                            Text(model.sourceLanguageName(language)).tag(language)
+                        }
+                    }
+                    .disabled(!model.canMutateStorage)
+                    .help("자동 감지 또는 영상에서 말하는 원어를 직접 지정합니다")
+                    Text(model.sourceLanguage.isEmpty
+                         ? "초반에 음악·무음이 길면 원어를 직접 지정하는 것이 정확합니다."
+                         : "\(model.sourceLanguageName(model.sourceLanguage))로 고정해 인식합니다. 변경 후 시작하면 기존 결과를 보존한 새 STT 작업으로 처리합니다.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                     Menu {
                         ForEach(model.languages, id: \.self) { language in
                             Button {
@@ -72,7 +84,6 @@ struct ContentView: View {
                         Picker("Whisper STT", selection: $model.sttModel) {
                             ForEach(model.models, id: \.self) { Text($0).tag($0) }
                         }
-                        TextField("원본 언어 (자동 감지)", text: $model.sourceLanguage)
                         Picker("번역 LLM", selection: $model.translationModel) {
                             ForEach(model.translationModels, id: \.self) { modelID in
                                 Text(translationModelName(modelID)).tag(modelID)

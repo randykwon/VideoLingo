@@ -107,6 +107,7 @@ import Testing
         maximumRefinementPasses: 4
     )
     let decoded = try WireCodec.decode(ProcessingOptions.self, from: WireCodec.encode(original))
+    #expect(decoded.sourceLanguage == "en")
     #expect(decoded.qualityMode == ProcessingQualityMode.maximum)
     #expect(decoded.glossary == original.glossary)
     #expect(decoded.continuousImprovement == true)
@@ -337,6 +338,27 @@ import Testing
     #expect(try store.completedChunkIndices(jobID: jobID) == [2])
     #expect(try store.transcript(jobID: jobID).first?.text == "Test")
     #expect(try store.translations(jobID: jobID, language: "ko")[segment.id]?.text == "시험")
+}
+
+@Test func storeRestoresProcessingOptionsForServerRestart() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = try JobStore(url: directory.appending(path: "restart.sqlite"))
+    let jobID = UUID()
+    let options = ProcessingOptions(
+        sourceLanguage: "ja",
+        targetLanguages: ["ko", "en"],
+        sttModel: "large-v3-v20240930_626MB",
+        translationModel: "mlx-community/Qwen3-4B-4bit",
+        qualityMode: .maximum,
+        continuousImprovement: true,
+        maximumRefinementPasses: 4
+    )
+    try store.createJob(id: jobID, mediaURL: URL(filePath: "/tmp/restart.mp4"), options: options)
+
+    let restored = try #require(try store.processingOptions(jobID: jobID))
+    #expect(restored == options)
 }
 
 @Test func storeRetriesConcurrentReadersAndWriters() async throws {
