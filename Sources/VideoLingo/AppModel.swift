@@ -71,7 +71,7 @@ final class AppModel {
     var translations: [UUID: TranslationSegment] = [:]
     var currentTime: TimeInterval = 0
     var errorMessage: String?
-    var serviceMessage = "서비스 확인 중"
+    var serviceMessage = String(localized: "서비스 확인 중")
     var serviceStatus: AIServiceStatus?
     var serviceIsAvailable = false
     var isRestartingService = false
@@ -114,6 +114,8 @@ final class AppModel {
         if !targetLanguages.contains(selectedLanguage) {
             targetLanguages.append(selectedLanguage)
         }
+        // 앱 시작 시 기본은 무음입니다. 사용자가 음량을 올리면 그때부터 소리가 납니다.
+        player.volume = 0
         setupPlayerObserver()
         connectService()
         beginServiceMonitoring()
@@ -177,7 +179,7 @@ final class AppModel {
     }
 
     func sourceLanguageName(_ code: String) -> String {
-        guard !code.isEmpty else { return "자동 감지" }
+        guard !code.isEmpty else { return String(localized: "자동 감지") }
         let localized = Locale.current.localizedString(forLanguageCode: code) ?? code.uppercased()
         return "\(localized) (\(code.uppercased()))"
     }
@@ -185,7 +187,7 @@ final class AppModel {
     func toggleTargetLanguage(_ language: String) {
         if targetLanguages.contains(language) {
             guard targetLanguages.count > 1 else {
-                errorMessage = "번역 언어는 하나 이상 선택해야 합니다."
+                errorMessage = String(localized: "번역 언어는 하나 이상 선택해야 합니다.")
                 return
             }
             targetLanguages.removeAll { $0 == language }
@@ -225,7 +227,7 @@ final class AppModel {
 
     func openVideo() {
         let panel = NSOpenPanel()
-        panel.title = "번역할 MP4 영상을 선택하세요"
+        panel.title = String(localized: "번역할 MP4 영상을 선택하세요")
         panel.allowedContentTypes = [.mpeg4Movie, .movie, .audiovisualContent]
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
@@ -278,7 +280,7 @@ final class AppModel {
             currentRequest = request
             let store = try store(at: paths.database)
             try store.createJob(id: jobID, mediaURL: mediaURL, options: options)
-            snapshot = JobSnapshot(id: jobID, status: .queued, message: "AI 서비스에 작업 전달 중")
+            snapshot = JobSnapshot(id: jobID, status: .queued, message: String(localized: "AI 서비스에 작업 전달 중"))
             sendStart(request)
         } catch {
             errorMessage = error.localizedDescription
@@ -309,7 +311,7 @@ final class AppModel {
             translations = [:]
             startOrResume()
         } catch {
-            errorMessage = "STT·번역 재생성 준비 실패: \(error.localizedDescription)"
+            errorMessage = String(localized: "STT·번역 재생성 준비 실패: \(error.localizedDescription)")
         }
     }
 
@@ -336,14 +338,57 @@ final class AppModel {
             if var currentSnapshot = snapshot {
                 currentSnapshot.translationProgress = 0
                 currentSnapshot.lastTranslationText = nil
-                currentSnapshot.message = "번역 재생성 준비 완료"
+                currentSnapshot.message = String(localized: "번역 재생성 준비 완료")
                 currentSnapshot.updatedAt = .now
                 try store(at: paths.database).save(snapshot: currentSnapshot)
                 snapshot = currentSnapshot
             }
             startOrResume()
         } catch {
-            errorMessage = "번역 재생성 준비 실패: \(error.localizedDescription)"
+            errorMessage = String(localized: "번역 재생성 준비 실패: \(error.localizedDescription)")
+        }
+    }
+
+    /// 현재 선택한 번역 언어 기준으로 아직 번역이 채워지지 않은 STT 구간들입니다.
+    var untranslatedSegments: [TranscriptSegment] {
+        transcript.filter { segment in
+            (translations[segment.id]?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    /// 번역이 안 된 구간만 STT 추출과 번역을 다시 시도합니다. 이미 번역된 구간은 그대로 보존합니다.
+    func retryUntranslatedSegments() {
+        guard canRegenerate, let mediaURL, let currentJobID else { return }
+        let pending = untranslatedSegments
+        guard !pending.isEmpty else {
+            errorMessage = String(localized: "번역이 안 된 항목이 없습니다.")
+            return
+        }
+        errorMessage = nil
+        do {
+            let paths = try AppPaths()
+            let store = try store(at: paths.database)
+            let sidecar = try MediaSidecarStore(
+                mediaURL: mediaURL,
+                jobID: currentJobID,
+                sttModel: sttModel,
+                sourceLanguage: sourceLanguage.isEmpty ? nil : sourceLanguage
+            )
+            for segment in pending {
+                try store.deleteTranscript(jobID: currentJobID, chunkIndex: segment.chunkIndex)
+            }
+            let remaining = try store.transcript(jobID: currentJobID)
+            try sidecar.saveTranscripts(remaining)
+            for language in targetLanguages {
+                try sidecar.deleteTranslationResults(language: language, modelID: translationModel)
+            }
+            transcript = remaining
+            for segment in pending {
+                translations.removeValue(forKey: segment.id)
+            }
+            startOrResume()
+        } catch {
+            errorMessage = String(localized: "미번역 항목 재시도 준비 실패: \(error.localizedDescription)")
         }
     }
 
@@ -368,7 +413,7 @@ final class AppModel {
             translations.removeValue(forKey: segment.id)
             startOrResume()
         } catch {
-            errorMessage = "선택 구간 STT 재생성 준비 실패: \(error.localizedDescription)"
+            errorMessage = String(localized: "선택 구간 STT 재생성 준비 실패: \(error.localizedDescription)")
         }
     }
 
@@ -391,14 +436,14 @@ final class AppModel {
             translations.removeValue(forKey: segment.id)
             startOrResume()
         } catch {
-            errorMessage = "선택 문장 번역 재생성 준비 실패: \(error.localizedDescription)"
+            errorMessage = String(localized: "선택 문장 번역 재생성 준비 실패: \(error.localizedDescription)")
         }
     }
 
     func refreshServiceStatus() {
         guard let connection, let service = remoteService(on: connection) else {
             serviceIsAvailable = false
-            serviceMessage = "내장 AI 서버 연결 안 됨"
+            serviceMessage = String(localized: "내장 AI 서버 연결 안 됨")
             scheduleReconnect()
             return
         }
@@ -408,20 +453,20 @@ final class AppModel {
                 guard let self, self.connection != nil, self.connectionGeneration == generation else { return }
                 if let error {
                     self.serviceIsAvailable = false
-                    self.serviceMessage = "상태 확인 실패: \(error)"
+                    self.serviceMessage = String(localized: "상태 확인 실패: \(error)")
                     return
                 }
                 guard let data, let status = try? WireCodec.decode(AIServiceStatus.self, from: data) else {
                     self.serviceIsAvailable = false
-                    self.serviceMessage = "내장 AI 서버 응답 오류"
+                    self.serviceMessage = String(localized: "내장 AI 서버 응답 오류")
                     return
                 }
                 self.serviceStatus = status
                 self.serviceIsAvailable = true
                 self.isRestartingService = false
                 self.serviceMessage = status.activeJobCount == 0
-                    ? "내장 AI 서버 정상"
-                    : "내장 AI 서버 정상 · 작업 \(status.activeJobCount)개 실행 중"
+                    ? String(localized: "내장 AI 서버 정상")
+                    : String(localized: "내장 AI 서버 정상 · 작업 \(status.activeJobCount)개 실행 중")
                 self.resumeAfterRestartIfNeeded()
                 if self.managedModels.contains(where: { $0.state == .downloading }) {
                     self.refreshModelManager()
@@ -435,7 +480,7 @@ final class AppModel {
         pendingResumeAfterRestart = wasProcessing && currentRequest != nil
         isRestartingService = true
         serviceIsAvailable = false
-        serviceMessage = "내장 AI 서버 재시작 중"
+        serviceMessage = String(localized: "내장 AI 서버 재시작 중")
         statusTask?.cancel()
 
         guard let connection, let service = remoteService(on: connection) else {
@@ -450,7 +495,7 @@ final class AppModel {
                     self.forceReconnect(after: .milliseconds(800))
                 } else {
                     self.isRestartingService = false
-                    self.serviceMessage = "내장 AI 서버 재시작 요청 실패"
+                    self.serviceMessage = String(localized: "내장 AI 서버 재시작 요청 실패")
                 }
             }
         }
@@ -474,14 +519,14 @@ final class AppModel {
 
     func optimizeDatabase() {
         guard canMutateStorage else {
-            settingsMessage = "실행 중인 작업을 완료하거나 취소한 후 DB를 최적화하세요."
+            settingsMessage = String(localized: "실행 중인 작업을 완료하거나 취소한 후 DB를 최적화하세요.")
             return
         }
         settingsIsBusy = true
         do {
             let paths = try AppPaths()
             try store(at: paths.database).optimize()
-            settingsMessage = "DB 체크포인트와 최적화를 완료했습니다."
+            settingsMessage = String(localized: "DB 체크포인트와 최적화를 완료했습니다.")
             refreshDatabaseStatistics()
         } catch {
             settingsMessage = error.localizedDescription
@@ -491,7 +536,7 @@ final class AppModel {
 
     func deleteAllDatabaseData() {
         guard canMutateStorage else {
-            settingsMessage = "실행 중인 작업이 있어 DB를 초기화할 수 없습니다."
+            settingsMessage = String(localized: "실행 중인 작업이 있어 DB를 초기화할 수 없습니다.")
             return
         }
         settingsIsBusy = true
@@ -501,7 +546,7 @@ final class AppModel {
             snapshot = nil
             transcript = []
             translations = [:]
-            settingsMessage = "모든 작업·STT·번역 DB 기록을 삭제했습니다."
+            settingsMessage = String(localized: "모든 작업·STT·번역 DB 기록을 삭제했습니다.")
             refreshDatabaseStatistics()
         } catch {
             settingsMessage = error.localizedDescription
@@ -533,7 +578,7 @@ final class AppModel {
 
     func downloadModel(kind: ManagedModelKind, modelID: String) {
         guard let paths = try? AppPaths(), let service = remoteService() else {
-            settingsMessage = "내장 AI 서버에 연결할 수 없습니다."
+            settingsMessage = String(localized: "내장 AI 서버에 연결할 수 없습니다.")
             return
         }
         do {
@@ -544,7 +589,7 @@ final class AppModel {
                     if let error, data == nil { self.settingsMessage = error; return }
                     if let data, let record = try? WireCodec.decode(ManagedModelRecord.self, from: data) {
                         self.upsertManagedModel(record)
-                        self.settingsMessage = "\(modelID) 다운로드를 시작했습니다."
+                        self.settingsMessage = String(localized: "\(modelID) 다운로드를 시작했습니다.")
                     }
                 }
             }
@@ -555,7 +600,7 @@ final class AppModel {
 
     func deleteModel(kind: ManagedModelKind, modelID: String) {
         guard canMutateStorage, let paths = try? AppPaths(), let service = remoteService() else {
-            settingsMessage = "실행 중인 작업을 중지하고 서버 연결을 확인하세요."
+            settingsMessage = String(localized: "실행 중인 작업을 중지하고 서버 연결을 확인하세요.")
             return
         }
         do {
@@ -566,7 +611,7 @@ final class AppModel {
                     if let error { self.settingsMessage = error; return }
                     if let data, let record = try? WireCodec.decode(ManagedModelRecord.self, from: data) {
                         self.upsertManagedModel(record)
-                        self.settingsMessage = "\(modelID) 모델 파일을 삭제했습니다."
+                        self.settingsMessage = String(localized: "\(modelID) 모델 파일을 삭제했습니다.")
                     }
                 }
             }
@@ -614,7 +659,7 @@ final class AppModel {
     func exportSRT() {
         refreshResults()
         guard !transcript.isEmpty else {
-            errorMessage = "내보낼 자막이 없습니다."
+            errorMessage = String(localized: "내보낼 자막이 없습니다.")
             return
         }
         let panel = NSSavePanel()
@@ -639,16 +684,16 @@ final class AppModel {
 
     private func connectService() {
         guard connection == nil else { return }
-        serviceMessage = "내장 AI 서버 연결 중"
+        serviceMessage = String(localized: "내장 AI 서버 연결 중")
         let connection = NSXPCConnection(serviceName: "com.vvv.VideoLingo.AIService")
         let generation = UUID()
         connectionGeneration = generation
         connection.remoteObjectInterface = NSXPCInterface(with: VideoLingoAIServiceProtocol.self)
         connection.interruptionHandler = { [weak self] in
-            Task { @MainActor in self?.handleConnectionLoss(generation, message: "내장 AI 서버 연결 중단") }
+            Task { @MainActor in self?.handleConnectionLoss(generation, message: String(localized: "내장 AI 서버 연결 중단")) }
         }
         connection.invalidationHandler = { [weak self] in
-            Task { @MainActor in self?.handleConnectionLoss(generation, message: "내장 AI 서버 연결 종료") }
+            Task { @MainActor in self?.handleConnectionLoss(generation, message: String(localized: "내장 AI 서버 연결 종료")) }
         }
         connection.resume()
         self.connection = connection
@@ -663,7 +708,7 @@ final class AppModel {
     private func remoteService(on connection: NSXPCConnection) -> VideoLingoAIServiceProtocol? {
         let generation = connectionGeneration
         return connection.remoteObjectProxyWithErrorHandler { [weak self] _ in
-            Task { @MainActor in self?.handleConnectionLoss(generation, message: "내장 AI 서버 응답 없음") }
+            Task { @MainActor in self?.handleConnectionLoss(generation, message: String(localized: "내장 AI 서버 응답 없음")) }
         } as? VideoLingoAIServiceProtocol
     }
 
@@ -725,10 +770,10 @@ final class AppModel {
             guard !isRestartingService else { return }
             if currentRequest != nil {
                 pendingResumeAfterRestart = true
-                serviceMessage = "저장된 작업 상태 복원 중"
+                serviceMessage = String(localized: "저장된 작업 상태 복원 중")
                 refreshServiceStatus()
             } else {
-                serviceMessage = "작업 상태 확인 실패 · 시작/재개 가능: \(error.localizedDescription)"
+                serviceMessage = String(localized: "작업 상태 확인 실패 · 시작/재개 가능: \(error.localizedDescription)")
             }
         }
     }
@@ -786,7 +831,7 @@ final class AppModel {
     private func resumeAfterRestartIfNeeded() {
         guard pendingResumeAfterRestart, let request = currentRequest else { return }
         pendingResumeAfterRestart = false
-        serviceMessage = "내장 AI 서버 정상 · 저장 지점에서 재개 중"
+        serviceMessage = String(localized: "내장 AI 서버 정상 · 저장 지점에서 재개 중")
         sendStart(request)
     }
 
@@ -816,7 +861,7 @@ final class AppModel {
     private func loadVideo(_ url: URL, remember: Bool) {
         guard FileManager.default.fileExists(atPath: url.path) else {
             if remember {
-                errorMessage = "영상 파일을 찾을 수 없습니다: \(url.lastPathComponent)"
+                errorMessage = String(localized: "영상 파일을 찾을 수 없습니다: \(url.lastPathComponent)")
             }
             return
         }
@@ -873,7 +918,7 @@ final class AppModel {
                     options: options
                 )
                 pendingResumeAfterRestart = true
-                serviceMessage = "저장된 작업을 내장 AI 서버에 복원 중"
+                serviceMessage = String(localized: "저장된 작업을 내장 AI 서버에 복원 중")
                 if serviceIsAvailable { resumeAfterRestartIfNeeded() }
             }
             if remember {

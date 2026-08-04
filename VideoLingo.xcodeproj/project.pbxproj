@@ -25,11 +25,13 @@
 		90D2545110A5EC29AB25B524 /* MediaSidecarStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 646E49E8FB61BA60715DD692 /* MediaSidecarStore.swift */; };
 		931EC3EA68A19A0BA6A68811 /* ServiceDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77000A3238B525A3BBEB590 /* ServiceDelegate.swift */; };
 		96D173351507CA322D5DBE16 /* VideoLingoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DD89FEABFD63CD5DDE25032 /* VideoLingoApp.swift */; };
+		9EB513A8FC7BA8E4E6779740 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = A9A5493549E0483F23505EDF /* Localizable.strings */; };
 		A5BDE1A2E1B2923093E32A58 /* VideoLingoCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; };
 		A61F1F9BDF5073A83EB01D09 /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4B5CA03129456DF44AEC88F4 /* FoundationModels.framework */; };
 		B839BBF2EF96D641D81AB093 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 79A156114B29D4BC57E93E1B /* libsqlite3.tbd */; };
 		BF025E77E1DEEB29DBBCB5A5 /* VideoLingoCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C8BE12B6F036CD694DEC0FA4 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = A3CBF9D6BA81D626EEA55469 /* MLXLLM */; };
+		C97B1CBA186832A181C6AC86 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 697523BC2EFF38888B491717 /* Localization.swift */; };
 		DAC357F9AA408A83FB9FEE02 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 31297E0EF82C7E7A4D6368C1 /* WhisperKit */; };
 		E07B0979885A14E8A676BAA7 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A5043D4A8F25D593601FB90 /* UniformTypeIdentifiers.framework */; };
 		E2BCBBE7D201D4443F063E55 /* VideoLingoCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2487691E3A520CDD89C03160 /* VideoLingoCoreTests.swift */; };
@@ -116,6 +118,7 @@
 		0DC3B7097938C5DC4805FCA5 /* ModelEngines.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelEngines.swift; sourceTree = "<group>"; };
 		0E827E047831CF98D776646F /* VideoLingoCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = VideoLingoCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A29A29F494EC232C80E8516 /* AVKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVKit.framework; path = System/Library/Frameworks/AVKit.framework; sourceTree = SDKROOT; };
+		1BB51EB5CBE7EA1BF5009ECD /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/Localizable.strings; sourceTree = "<group>"; };
 		1C1731F2F44296391874900D /* VideoLingoCoreTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VideoLingoCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1C2DCD3AC1DC0639EF79BA35 /* VideoLingoAIService.xpc */ = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; includeInIndex = 0; path = VideoLingoAIService.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
 		2487691E3A520CDD89C03160 /* VideoLingoCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoLingoCoreTests.swift; sourceTree = "<group>"; };
@@ -128,8 +131,10 @@
 		56255223A93BEE599B1BE55B /* KeyboardShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcuts.swift; sourceTree = "<group>"; };
 		62775C242691BCD4B3C8EDBD /* SpeakerLabelRewriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerLabelRewriter.swift; sourceTree = "<group>"; };
 		646E49E8FB61BA60715DD692 /* MediaSidecarStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaSidecarStore.swift; sourceTree = "<group>"; };
+		697523BC2EFF38888B491717 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
 		6F9FF3E1248A71F566050CF8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		706A159B88AE7E7F0E3B8EEE /* AppPaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPaths.swift; sourceTree = "<group>"; };
+		71B98405400F44F0D2FFE7EB /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		72ED8A6BCA7371F5C1F61EB0 /* VideoLingo.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VideoLingo.entitlements; sourceTree = "<group>"; };
 		79A156114B29D4BC57E93E1B /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
 		7A5043D4A8F25D593601FB90 /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
@@ -199,8 +204,10 @@
 				D4733F909A2286563C9BA2E3 /* ContentView.swift */,
 				C57EADFA1E673C871BB0BC1E /* Info.plist */,
 				56255223A93BEE599B1BE55B /* KeyboardShortcuts.swift */,
+				697523BC2EFF38888B491717 /* Localization.swift */,
 				72ED8A6BCA7371F5C1F61EB0 /* VideoLingo.entitlements */,
 				9DD89FEABFD63CD5DDE25032 /* VideoLingoApp.swift */,
+				B4EE507A9AE1E71FDCB1F7FC /* Resources */,
 			);
 			path = VideoLingo;
 			sourceTree = "<group>";
@@ -281,6 +288,14 @@
 				7A5043D4A8F25D593601FB90 /* UniformTypeIdentifiers.framework */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		B4EE507A9AE1E71FDCB1F7FC /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A9A5493549E0483F23505EDF /* Localizable.strings */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		D9CA6F5F5FED550E69A1524D /* VideoLingoCoreTests */ = {
@@ -404,11 +419,12 @@
 				};
 			};
 			buildConfigurationList = 35A8160B212515D29DDF2356 /* Build configuration list for PBXProject "VideoLingo" */;
-			developmentRegion = en;
+			developmentRegion = ko;
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				Base,
 				en,
+				ko,
 			);
 			mainGroup = 9CB364C5D641191C4143965D;
 			minimizedProjectReferenceProxies = 1;
@@ -436,6 +452,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				EFEBC93D9B1D7FF375B0B260 /* Assets.xcassets in Resources */,
+				9EB513A8FC7BA8E4E6779740 /* Localizable.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -483,6 +500,7 @@
 				FD76F04FE5F46E56BCE9CF22 /* AppModel.swift in Sources */,
 				8D6CA2AE2A754C6BF84565DE /* ContentView.swift in Sources */,
 				FD622FF84922BCF6A0AF6D4F /* KeyboardShortcuts.swift in Sources */,
+				C97B1CBA186832A181C6AC86 /* Localization.swift in Sources */,
 				96D173351507CA322D5DBE16 /* VideoLingoApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -511,6 +529,18 @@
 			targetProxy = 42922C04DF8731DF925A4490 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		A9A5493549E0483F23505EDF /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				71B98405400F44F0D2FFE7EB /* en */,
+				1BB51EB5CBE7EA1BF5009ECD /* ko */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
 		0414DA6964B2EF9C449ABCF2 /* Release */ = {

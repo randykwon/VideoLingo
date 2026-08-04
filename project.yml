@@ -5,6 +5,7 @@ options:
     macOS: "26.0"
   xcodeVersion: "26.0"
   createIntermediateGroups: true
+  developmentLanguage: ko
 settings:
   base:
     SWIFT_VERSION: "6.0"

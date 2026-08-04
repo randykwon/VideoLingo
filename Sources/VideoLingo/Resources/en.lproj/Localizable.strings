@@ -1,0 +1,259 @@
+/* VideoLingo — English localization. Keys are the Korean source strings. */
+
+/* App menus */
+"새 창" = "New Window";
+"영상 열기…" = "Open Video…";
+"재생 제어" = "Playback";
+"재생/일시 정지" = "Play / Pause";
+"10초 뒤로" = "Back 10s";
+"10초 앞으로" = "Forward 10s";
+"음량 크게" = "Volume Up";
+"음량 작게" = "Volume Down";
+"보기" = "View";
+"전체화면 전환" = "Toggle Full Screen";
+"전체 보기" = "Full View";
+"심플 보기" = "Simple View";
+"미니 뷰어 종료" = "Exit Mini Viewer";
+"미니 뷰어" = "Mini Viewer";
+"결과 패널 표시" = "Show Result Panel";
+"결과 패널 감추기" = "Hide Result Panel";
+"앱 숨기기" = "Hide App";
+"STT·번역" = "STT · Translation";
+"시작/재개" = "Start / Resume";
+"결과 새로 고침" = "Refresh Results";
+"SRT 내보내기" = "Export SRT";
+"결과 폴더 열기" = "Open Results Folder";
+"현재 작업 취소" = "Cancel Current Job";
+
+/* Toolbar */
+"전체화면" = "Full Screen";
+"전체화면 전환 (⌃⌘F)" = "Toggle full screen (⌃⌘F)";
+"설정" = "Settings";
+"설정 열기 (⌘,)" = "Open Settings (⌘,)";
+"아래 STT·번역 결과 패널 표시" = "Show the STT · translation panel below";
+"아래 STT·번역 결과 패널 감추기" = "Hide the STT · translation panel below";
+"일반 창 크기로 돌아가기" = "Return to normal window size";
+"작은 항상 위 영상 창으로 전환" = "Switch to a small always-on-top video window";
+"일반 모드" = "Normal Mode";
+"심플 모드" = "Simple Mode";
+"왼쪽 컨트롤과 자막 목록 표시" = "Show the sidebar controls and caption list";
+"영상과 재생 자막만 표시" = "Show only the video and live caption";
+
+/* Sidebar — Video */
+"영상" = "Video";
+"MP4 영상 열기…" = "Open MP4 Video…";
+"결과: %@" = "Results: %@";
+
+/* Sidebar — Translation */
+"번역" = "Translation";
+"STT 원어" = "STT Source Language";
+"자동 감지 또는 영상에서 말하는 원어를 직접 지정합니다" = "Auto-detect, or set the spoken source language directly";
+"초반에 음악·무음이 길면 원어를 직접 지정하는 것이 정확합니다." = "If the start has long music or silence, setting the source language is more accurate.";
+"%@로 고정해 인식합니다. 변경 후 시작하면 기존 결과를 보존한 새 STT 작업으로 처리합니다." = "Recognizing as %@. Starting after a change creates a new STT job while preserving existing results.";
+"번역 언어 · %@" = "Languages · %@";
+"화면에 볼 결과" = "Result to Show";
+"언어를 추가한 뒤 시작/재개하면 기존 STT로 추가 번역만 생성합니다." = "Add a language, then Start/Resume to generate only the extra translation from existing STT.";
+
+/* Sidebar — Advanced */
+"모델·고급 설정" = "Models · Advanced";
+"품질 모드" = "Quality Mode";
+"빠름" = "Fast";
+"품질 강화" = "Enhanced";
+"최고 품질" = "Maximum";
+"완료 후 자동 품질 개선" = "Auto quality refinement after completion";
+"앱 전체 반투명 모드" = "App-wide translucency";
+"Command+Shift+T로 전환" = "Toggle with Command+Shift+T";
+"최대 개선 회차" = "Max refinement passes";
+"%lld회" = "%lld passes";
+"완료 결과는 유지하며 백그라운드 후보가 더 좋을 때만 교체합니다." = "Keeps completed results and only replaces them when a background candidate is better.";
+"Whisper STT" = "Whisper STT";
+"번역 LLM" = "Translation LLM";
+"번역 음성 MP4 생성" = "Generate dubbed MP4";
+"용어집 · 원문=번역, 한 줄에 하나" = "Glossary · source=target, one per line";
+
+/* Sidebar — Job */
+"작업" = "Job";
+"STT·번역 시작/재개" = "Start / Resume STT · Translation";
+"결과 재생성" = "Regenerate Results";
+"번역만 재생성" = "Regenerate Translation Only";
+"STT·번역 모두 재생성" = "Regenerate STT and Translation";
+"화자 이름 분석 적용" = "Apply Speaker Name Analysis";
+"저장된 전체 스크립트에서 이름과 역할을 분석하고 STT·번역 결과에 반영합니다" = "Analyzes names and roles from the whole saved script and applies them to the STT · translation results";
+"진행 상세" = "Progress Details";
+"STT 추출" = "STT Extraction";
+"실시간 STT 추출 중" = "Extracting STT live";
+"다국어 번역" = "Multilingual Translation";
+"실시간 번역 생성 중" = "Translating live";
+"작업 취소" = "Cancel Job";
+"영상 옆 결과 폴더 열기" = "Open Results Folder Next to Video";
+
+/* Sidebar — Refinement / service */
+"STT·번역 품질 개선" = "STT · Translation Refinement";
+"상태 확인" = "Check Status";
+"서버 다시 시작" = "Restart Server";
+
+/* Player overlay */
+"영상을 선택하세요" = "Select a video";
+"MP4를 열면 재생과 동시에 로컬 STT·번역을 진행할 수 있습니다." = "Open an MP4 to play it while running local STT · translation.";
+"표시 중인 자막 없음" = "No caption shown";
+
+/* Regenerate dialogs */
+"결과를 재생성할까요?" = "Regenerate results?";
+"취소" = "Cancel";
+"확인" = "OK";
+"현재 언어 번역을 다시 생성할까요?" = "Regenerate the current language translation?";
+"STT와 모든 번역을 다시 생성할까요?" = "Regenerate STT and all translations?";
+"번역 재생성" = "Regenerate Translation";
+"STT·번역 재생성" = "Regenerate STT · Translation";
+"저장된 STT와 발화 타이밍은 유지하고 선택한 언어·모델의 번역만 삭제한 뒤 다시 생성합니다." = "Keeps saved STT and timing, deletes only the selected language/model translation, then regenerates it.";
+"현재 영상의 기존 STT·번역 체크포인트와 사이드카 파일을 삭제한 뒤 처음부터 다시 생성합니다." = "Deletes this video's existing STT · translation checkpoint and sidecar files, then regenerates from scratch.";
+
+/* Refinement status labels */
+"저장된 결과를 기다리는 중" = "Waiting for saved results";
+"번역 후보 검토 중" = "Reviewing translation candidate";
+"STT 후보 검토 중" = "Reviewing STT candidate";
+"자동 개선 꺼짐" = "Auto refinement off";
+"완료 후 자동 시작" = "Auto-start after completion";
+"품질 개선 진행 중" = "Refining quality";
+"오류 · 재개 가능" = "Error · can resume";
+"중지됨 · 재개 가능" = "Stopped · can resume";
+"품질 개선 완료" = "Refinement complete";
+"품질 개선 대기" = "Refinement pending";
+"STT·번역 완료 후 시작" = "Starts after STT · translation completes";
+"완료 결과 보호" = "Protecting completed results";
+"품질 개선 중지" = "Stop Refinement";
+"품질 개선 시작/재개" = "Start / Resume Refinement";
+"STT와 번역 품질 개선 상태" = "STT and translation refinement status";
+
+/* Result panel */
+"STT 원문" = "STT Source";
+"함께 보기" = "Both";
+"STT·번역 결과 확인" = "STT · Translation Results";
+"표시 내용" = "Display";
+"내용 검색" = "Search content";
+"현재 재생 위치" = "Current Position";
+"현재 영상 재생 위치의 STT·번역 결과로 이동" = "Jump to the STT · translation result at the current playback position";
+"새로 고침" = "Refresh";
+"저장된 STT·번역 결과 다시 불러오기" = "Reload saved STT · translation results";
+"번역이 안 된 항목만 STT 추출과 번역을 다시 시도" = "Retry STT extraction and translation for untranslated items only";
+"아직 확정된 결과가 없습니다" = "No confirmed results yet";
+"STT 청크가 확정되면 원문과 번역 내용이 여기에 추가됩니다." = "Once STT chunks are confirmed, source and translation appear here.";
+"번역 대기 중" = "Awaiting translation";
+"이동" = "Go";
+"이 구간 STT 재생성" = "Regenerate STT for This Segment";
+"이 문장 번역 재생성" = "Regenerate Translation for This Sentence";
+"양호" = "Good";
+"재검토됨" = "Reviewed";
+"확인 필요" = "Needs review";
+
+/* Settings — tabs */
+"일반" = "General";
+"데이터베이스" = "Database";
+"LLM 서버" = "LLM Server";
+"모델 파일" = "Model Files";
+"단축키" = "Shortcuts";
+
+/* Settings — General */
+"언어" = "Language";
+"표시 언어" = "Display Language";
+"앱 메뉴와 화면 문구에 사용할 언어입니다. 변경하면 즉시 적용됩니다." = "The language used for app menus and on-screen text. Changes apply immediately.";
+"시스템 언어" = "System Language";
+
+/* Settings — Shortcuts */
+"오른쪽 단축키 영역을 클릭한 다음 원하는 키 조합을 누르세요. 방향키와 Space는 보조키 없이 사용할 수 있습니다." = "Click the shortcut field on the right, then press the key combination. Arrow keys and Space work without modifiers.";
+"기본 단축키 복원" = "Restore Default Shortcuts";
+"앱·화면" = "App · Display";
+"재생" = "Playback";
+"새 단축키 입력…" = "Press new shortcut…";
+"영상 열기" = "Open Video";
+"재생/일시 정지" = "Play / Pause";
+"10초 뒤로" = "Back 10s";
+"10초 앞으로" = "Forward 10s";
+"심플 모드 전환" = "Toggle Simple Mode";
+"미니 뷰어 전환" = "Toggle Mini Viewer";
+"아래 결과 패널 전환" = "Toggle Result Panel";
+"앱 반투명 모드 전환" = "Toggle App Translucency";
+"STT·번역 시작/재개" = "Start / Resume STT · Translation";
+"모든 단축키를 기본값으로 복원했습니다." = "Restored all shortcuts to defaults.";
+
+/* Settings — Database */
+"경로를 확인할 수 없습니다." = "Path unavailable.";
+"DB 상태" = "Database Status";
+"작업" = "Jobs";
+"STT 문장" = "STT Sentences";
+"번역 문장" = "Translation Sentences";
+"사용 용량" = "Storage Used";
+"저장 위치" = "Location";
+"관리" = "Management";
+"Finder에서 보기" = "Reveal in Finder";
+"DB 최적화" = "Optimize DB";
+"모든 DB 기록 삭제" = "Delete All DB Records";
+"최적화는 WAL 체크포인트, VACUUM, SQLite 최적화를 순서대로 실행합니다." = "Optimization runs WAL checkpoint, VACUUM, and SQLite optimize in order.";
+"모든 DB 기록을 삭제할까요?" = "Delete all DB records?";
+"작업·STT·번역 기록 삭제" = "Delete Job · STT · Translation Records";
+"모델 파일과 원본 영상은 삭제되지 않지만 DB 기록은 복구할 수 없습니다." = "Model files and source videos are kept, but DB records cannot be recovered.";
+
+/* Settings — Server */
+"내장 LLM 서버" = "Built-in LLM Server";
+"프로세스 ID" = "Process ID";
+"실행 중 작업" = "Running Jobs";
+"시작 시간" = "Started At";
+"버전" = "Version";
+"서버 제어" = "Server Control";
+"재시작 중인 STT·번역 작업은 DB의 마지막 저장 지점부터 자동으로 이어집니다." = "STT · translation jobs resume automatically from the last saved checkpoint after a restart.";
+
+/* Settings — Model files */
+"Whisper STT 모델" = "Whisper STT Models";
+"음성 합성 모델" = "Speech Synthesis Model";
+"사용할 번역 모델" = "Translation Model";
+"macOS에서 관리" = "Managed by macOS";
+"번역 모델 파일은 Apple Intelligence 시스템 자산이므로 앱에서 직접 다운로드하거나 삭제하지 않습니다." = "Translation model files are Apple Intelligence system assets, so the app does not download or delete them directly.";
+"상태 새로 고침" = "Refresh Status";
+"모델 폴더 열기" = "Open Models Folder";
+"다운로드 파일은 Application Support/VideoLingo/Models에 저장되며 앱 재실행 후에도 유지됩니다." = "Downloads are stored in Application Support/VideoLingo/Models and persist across restarts.";
+"모델 파일을 삭제할까요?" = "Delete model file?";
+"삭제" = "Delete";
+"다운로드" = "Download";
+"다운로드되지 않음" = "Not downloaded";
+"다운로드 실패" = "Download failed";
+"최근 작업" = "Recent Jobs";
+"Apple Foundation Models" = "Apple Foundation Models";
+
+/* AppModel — status & error messages */
+"서비스 확인 중" = "Checking service";
+"자동 감지" = "Auto-detect";
+"번역 언어는 하나 이상 선택해야 합니다." = "Select at least one translation language.";
+"번역할 MP4 영상을 선택하세요" = "Select an MP4 video to translate";
+"AI 서비스에 작업 전달 중" = "Sending job to the AI service";
+"번역 재생성 준비 완료" = "Ready to regenerate translation";
+"번역이 안 된 항목이 없습니다." = "There are no untranslated items.";
+"내장 AI 서버 연결 안 됨" = "Built-in AI server not connected";
+"내장 AI 서버 응답 오류" = "Built-in AI server response error";
+"내장 AI 서버 정상" = "Built-in AI server OK";
+"내장 AI 서버 정상 · 작업 %lld개 실행 중" = "Built-in AI server OK · %lld job(s) running";
+"내장 AI 서버 재시작 중" = "Restarting built-in AI server";
+"내장 AI 서버 재시작 요청 실패" = "Failed to request built-in AI server restart";
+"실행 중인 작업을 완료하거나 취소한 후 DB를 최적화하세요." = "Complete or cancel running jobs before optimizing the DB.";
+"DB 체크포인트와 최적화를 완료했습니다." = "Completed DB checkpoint and optimization.";
+"실행 중인 작업이 있어 DB를 초기화할 수 없습니다." = "Cannot reset the DB while a job is running.";
+"모든 작업·STT·번역 DB 기록을 삭제했습니다." = "Deleted all job · STT · translation DB records.";
+"내장 AI 서버에 연결할 수 없습니다." = "Cannot connect to the built-in AI server.";
+"실행 중인 작업을 중지하고 서버 연결을 확인하세요." = "Stop the running job and check the server connection.";
+"내보낼 자막이 없습니다." = "There are no captions to export.";
+"내장 AI 서버 연결 중" = "Connecting to built-in AI server";
+"내장 AI 서버 연결 중단" = "Built-in AI server connection interrupted";
+"내장 AI 서버 연결 종료" = "Built-in AI server connection closed";
+"내장 AI 서버 응답 없음" = "No response from built-in AI server";
+"저장된 작업 상태 복원 중" = "Restoring saved job state";
+"내장 AI 서버 정상 · 저장 지점에서 재개 중" = "Built-in AI server OK · resuming from checkpoint";
+"저장된 작업을 내장 AI 서버에 복원 중" = "Restoring saved job to the built-in AI server";
+"STT·번역 재생성 준비 실패: %@" = "Failed to prepare STT · translation regeneration: %@";
+"번역 재생성 준비 실패: %@" = "Failed to prepare translation regeneration: %@";
+"미번역 항목 재시도 준비 실패: %@" = "Failed to prepare retry of untranslated items: %@";
+"선택 구간 STT 재생성 준비 실패: %@" = "Failed to prepare STT regeneration for the selected segment: %@";
+"선택 문장 번역 재생성 준비 실패: %@" = "Failed to prepare translation regeneration for the selected sentence: %@";
+"상태 확인 실패: %@" = "Status check failed: %@";
+"작업 상태 확인 실패 · 시작/재개 가능: %@" = "Job status check failed · you can Start/Resume: %@";
+"영상 파일을 찾을 수 없습니다: %@" = "Video file not found: %@";
+"%@ 다운로드를 시작했습니다." = "Started downloading %@.";
+"%@ 모델 파일을 삭제했습니다." = "Deleted the %@ model file.";

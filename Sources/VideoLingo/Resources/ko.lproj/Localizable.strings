@@ -1,0 +1,5 @@
+/* Korean identity table. Keys equal the in-source Korean literals. */
+"설정" = "설정";
+"새 창" = "새 창";
+"전체화면" = "전체화면";
+"시스템 언어" = "시스템 언어";

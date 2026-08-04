@@ -542,6 +542,14 @@ private struct TranscriptInspector: View {
                     }
                     .labelStyle(.iconOnly)
                     .help("저장된 STT·번역 결과 다시 불러오기")
+                    let pendingCount = model.untranslatedSegments.count
+                    Button {
+                        model.retryUntranslatedSegments()
+                    } label: {
+                        Label("미번역 재시도\(pendingCount > 0 ? " (\(pendingCount))" : "")", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
+                    }
+                    .help("번역이 안 된 항목만 STT 추출과 번역을 다시 시도")
+                    .disabled(!model.canRegenerate || pendingCount == 0)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
@@ -758,6 +766,8 @@ struct SettingsView: View {
 
     var body: some View {
         TabView {
+            GeneralSettingsView()
+                .tabItem { Label("일반", systemImage: "gearshape") }
             DatabaseSettingsView()
                 .tabItem { Label("데이터베이스", systemImage: "cylinder") }
             ServerSettingsView()
@@ -770,6 +780,27 @@ struct SettingsView: View {
         .frame(width: 680, height: 520)
         .task { model.refreshSettings() }
         .onAppear { model.applyWindowTransparency() }
+    }
+}
+
+private struct GeneralSettingsView: View {
+    @Environment(LocalizationManager.self) private var localization
+
+    var body: some View {
+        @Bindable var localization = localization
+        Form {
+            Section("언어") {
+                Picker("표시 언어", selection: $localization.language) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.displayName).tag(language)
+                    }
+                }
+                Text("앱 메뉴와 화면 문구에 사용할 언어입니다. 변경하면 즉시 적용됩니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 
