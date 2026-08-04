@@ -4,9 +4,6 @@ import VideoLingoCore
 
 struct ContentView: View {
     @Environment(AppModel.self) private var model
-    @AppStorage("simpleMode") private var isSimpleMode = false
-    @AppStorage("miniViewer") private var isMiniViewer = false
-    @AppStorage("hideTranscriptPanel") private var hideTranscriptPanel = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var regenerationRequest: RegenerationRequest?
     @State private var showAdvancedSettings = false
@@ -191,7 +188,7 @@ struct ContentView: View {
                 VideoPlayer(player: model.player)
                     .background(Color.black)
                 PlayerSubtitleView(text: model.activeSubtitle)
-                if !isSimpleMode && !hideTranscriptPanel {
+                if !model.isSimpleMode && !model.hideTranscriptPanel {
                     TranscriptInspector()
                         .frame(minHeight: 260, idealHeight: 320, maxHeight: 380)
                 }
@@ -206,46 +203,60 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    hideTranscriptPanel.toggle()
+                    model.toggleFullScreen()
                 } label: {
-                    Label(
-                        hideTranscriptPanel ? "결과 패널 표시" : "결과 패널 감추기",
-                        systemImage: hideTranscriptPanel ? "rectangle.bottomthird.inset.filled" : "rectangle.bottomthird.inset"
-                    )
+                    Label("전체화면", systemImage: "arrow.up.backward.and.arrow.down.forward")
                 }
-                .disabled(isSimpleMode)
-                .help(hideTranscriptPanel ? "아래 STT·번역 결과 패널 표시" : "아래 STT·번역 결과 패널 감추기")
+                .help("전체화면 전환 (⌃⌘F)")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                SettingsLink {
+                    Label("설정", systemImage: "gearshape")
+                }
+                .help("설정 열기 (⌘,)")
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    isMiniViewer.toggle()
+                    model.hideTranscriptPanel.toggle()
                 } label: {
-                    Label(isMiniViewer ? "미니 뷰어 종료" : "미니 뷰어", systemImage: isMiniViewer ? "arrow.up.left.and.arrow.down.right" : "pip")
+                    Label(
+                        model.hideTranscriptPanel ? "결과 패널 표시" : "결과 패널 감추기",
+                        systemImage: model.hideTranscriptPanel ? "rectangle.bottomthird.inset.filled" : "rectangle.bottomthird.inset"
+                    )
                 }
-                .help(isMiniViewer ? "일반 창 크기로 돌아가기" : "작은 항상 위 영상 창으로 전환")
+                .disabled(model.isSimpleMode)
+                .help(model.hideTranscriptPanel ? "아래 STT·번역 결과 패널 표시" : "아래 STT·번역 결과 패널 감추기")
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    isSimpleMode.toggle()
+                    model.isMiniViewer.toggle()
+                } label: {
+                    Label(model.isMiniViewer ? "미니 뷰어 종료" : "미니 뷰어", systemImage: model.isMiniViewer ? "arrow.up.left.and.arrow.down.right" : "pip")
+                }
+                .help(model.isMiniViewer ? "일반 창 크기로 돌아가기" : "작은 항상 위 영상 창으로 전환")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    model.isSimpleMode.toggle()
                 } label: {
                     Label(
-                        isSimpleMode ? "일반 모드" : "심플 모드",
-                        systemImage: isSimpleMode ? "rectangle.split.2x1" : "rectangle"
+                        model.isSimpleMode ? "일반 모드" : "심플 모드",
+                        systemImage: model.isSimpleMode ? "rectangle.split.2x1" : "rectangle"
                     )
                 }
-                .help(isSimpleMode ? "왼쪽 컨트롤과 자막 목록 표시" : "영상과 재생 자막만 표시")
+                .help(model.isSimpleMode ? "왼쪽 컨트롤과 자막 목록 표시" : "영상과 재생 자막만 표시")
             }
         }
         .onAppear {
-            columnVisibility = isSimpleMode ? .detailOnly : .all
+            columnVisibility = model.isSimpleMode ? .detailOnly : .all
         }
-        .onChange(of: isSimpleMode) { _, simpleMode in
+        .onChange(of: model.isSimpleMode) { _, simpleMode in
             withAnimation {
                 columnVisibility = simpleMode ? .detailOnly : .all
             }
         }
-        .onChange(of: isMiniViewer) { _, miniViewer in
-            if miniViewer { isSimpleMode = true }
+        .onChange(of: model.isMiniViewer) { _, miniViewer in
+            if miniViewer { model.isSimpleMode = true }
         }
         .confirmationDialog(
             regenerationRequest?.title ?? "결과를 재생성할까요?",
@@ -274,7 +285,7 @@ struct ContentView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
-        .background(WindowModeAccessor(mini: isMiniViewer, translucent: model.translucentMode))
+        .background(WindowModeAccessor(mini: model.isMiniViewer, opacity: model.windowOpacity))
     }
 }
 

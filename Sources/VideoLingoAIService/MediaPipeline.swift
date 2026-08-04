@@ -112,148 +112,57 @@ final class MediaPipeline: @unchecked Sendable {
             try store.save(snapshot: snapshot)
             publish(snapshot)
 
-            for index in 0..<total {
-                try Task.checkCancellation()
-                let start = Double(index) * chunkDuration
-                let end = min(duration, start + chunkDuration)
+            // STT와 번역을 동시에 실행합니다. 번역 태스크는 STT가 5% 진행된 뒤부터
+            // 준비된 청크를 순서대로 번역해, STT 완료를 기다리지 않고 곧바로 시작합니다.
+            let coordinator = PipelineCoordinator(
+                snapshot: snapshot,
+                transcripts: existingByChunk,
+                translations: existingTranslations,
+                completedTranslations: completedTranslations,
+                detectedLanguage: detectedLanguage,
+                total: total,
+                targetCount: targetCount,
+                translationModelID: request.options.translationModel,
+                store: store,
+                sidecar: sidecar,
+                publish: onSnapshot
+            )
 
-                let transcript: TranscriptSegment
-                if let existing = existingByChunk[index] {
-                    transcript = existing
-                } else {
-                    snapshot = update(snapshot, status: .extracting, index: index, total: total, message: "오디오 청크 \(index + 1)/\(total) 추출 중")
-                    try store.save(snapshot: snapshot)
-                    publish(snapshot)
-
-                    let overlap: TimeInterval = qualityMode == .fast ? 0 : (qualityMode == .maximum ? 2 : 1.25)
-                    let extractionStart = max(0, start - overlap)
-                    let extractionEnd = min(duration, end + overlap)
-                    let audioURL = chunksFolder.appending(path: String(format: "chunk-%@-%05d.m4a", qualityMode.rawValue, index))
-                    if !FileManager.default.fileExists(atPath: audioURL.path) {
-                        try await exportAudio(asset: asset, start: extractionStart, duration: extractionEnd - extractionStart, to: audioURL)
-                    }
-
-                    snapshot = update(snapshot, status: .transcribing, index: index, total: total, message: "STT \(index + 1)/\(total) 처리 중")
-                    try store.save(snapshot: snapshot)
-                    publish(snapshot)
-                    let sttOutput = try await stt.transcribe(
-                        audioURL: audioURL,
-                        model: request.options.sttModel,
-                        language: detectedLanguage,
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    try await self.runSTTStage(
+                        coordinator: coordinator,
+                        request: request,
+                        mediaURL: mediaURL,
+                        duration: duration,
+                        chunkDuration: chunkDuration,
+                        total: total,
+                        chunksFolder: chunksFolder,
                         modelsURL: modelsURL,
-                        prompt: sttPrompt(before: index, transcripts: existingByChunk, glossary: glossary),
+                        glossary: glossary,
+                        qualityMode: qualityMode
+                    )
+                }
+                group.addTask {
+                    try await self.runTranslationStage(
+                        coordinator: coordinator,
+                        request: request,
+                        total: total,
+                        speechFolder: speechFolder,
+                        modelsURL: modelsURL,
+                        glossary: glossary,
                         qualityMode: qualityMode,
-                        onPartialText: { [onLiveTranscript] text in
-                            onLiveTranscript(request.jobID, index, total, text)
-                        }
+                        targetCount: targetCount
                     )
-                    let timedCues = sttOutput.cues.compactMap { cue -> TranscriptCue? in
-                        let cueStart = max(start, min(end, extractionStart + cue.startTime))
-                        let cueEnd = max(cueStart, min(end, extractionStart + cue.endTime))
-                        guard cueEnd > cueStart, !cue.text.isEmpty else { return nil }
-                        return TranscriptCue(startTime: cueStart, endTime: cueEnd, text: cue.text)
-                    }
-                    transcript = TranscriptSegment(
-                        jobID: request.jobID,
-                        chunkIndex: index,
-                        startTime: timedCues.first?.startTime ?? start,
-                        endTime: timedCues.last?.endTime ?? end,
-                        text: timedCues.isEmpty ? sttOutput.text : timedCues.map(\.text).joined(separator: "\n"),
-                        language: request.options.sourceLanguage ?? sttOutput.language,
-                        confidence: sttOutput.confidence,
-                        cues: timedCues,
-                        qualityStatus: sttOutput.qualityNotes.contains(where: { $0.contains("검토 권장") }) ? .warning : (sttOutput.retryCount > 0 ? .reviewed : .good),
-                        retryCount: sttOutput.retryCount,
-                        qualityNotes: sttOutput.qualityNotes
-                    )
-                    if detectedLanguage == nil,
-                       (transcript.confidence ?? 0) >= 0.35 {
-                        detectedLanguage = transcript.language
-                    }
-                    existingByChunk[index] = transcript
-                    snapshot.sttProgress = stageProgress(completed: existingByChunk.count, total: total)
-                    snapshot.lastTranscriptText = transcript.text
-                    snapshot.liveTranscriptText = nil
-                    snapshot.status = .transcribing
-                    snapshot.message = "STT \(index + 1)/\(total) 저장 완료"
-                    snapshot.progress = combinedProgress(snapshot)
-                    snapshot.updatedAt = .now
-                    try store.saveTranscript(transcript, snapshot: snapshot)
-                    try sidecar.saveTranscripts(Array(existingByChunk.values))
-                    publish(snapshot)
                 }
-                if qualityMode == .fast {
-                for language in request.options.targetLanguages {
-                    try Task.checkCancellation()
-                    let translation: TranslationSegment
-                    if let existing = existingTranslations[language]?[transcript.id] {
-                        translation = existing
-                    } else {
-                        snapshot.liveTranslationText = nil
-                        snapshot = update(snapshot, status: .translating, index: index, total: total, message: "\(language) 번역 \(index + 1)/\(total)")
-                        try store.save(snapshot: snapshot)
-                        publish(snapshot)
-                        let translated = try await translator.translate(
-                            transcript.text,
-                            jobID: request.jobID,
-                            sourceLanguage: transcript.language ?? request.options.sourceLanguage,
-                            targetLanguage: language,
-                            modelID: request.options.translationModel,
-                            modelsURL: modelsURL,
-                            previousContext: translationContext(before: index, transcripts: existingByChunk),
-                            nextContext: translationContext(after: index, transcripts: existingByChunk),
-                            glossary: glossary,
-                            qualityMode: qualityMode,
-                            onPartialText: { [onLiveTranslation] text in
-                                onLiveTranslation(request.jobID, index, total, language, text)
-                            }
-                        )
-                        translation = TranslationSegment(
-                            transcriptID: transcript.id,
-                            jobID: request.jobID,
-                            targetLanguage: language,
-                            modelID: request.options.translationModel,
-                            text: translated.text,
-                            qualityStatus: translated.qualityStatus,
-                            qualityNotes: translated.qualityNotes
-                        )
-                        existingTranslations[language, default: [:]][transcript.id] = translation
-                        completedTranslations += 1
-                        snapshot.translationProgress = stageProgress(completed: completedTranslations, total: total * targetCount)
-                        snapshot.lastTranslationText = translation.text
-                        snapshot.liveTranslationText = nil
-                        snapshot.status = .translating
-                        snapshot.message = "\(language.uppercased()) 번역 \(index + 1)/\(total) 저장 완료"
-                        snapshot.progress = combinedProgress(snapshot)
-                        snapshot.updatedAt = .now
-                        try store.saveTranslation(translation, snapshot: snapshot)
-                        try sidecar.saveTranslations(
-                            Array(existingTranslations[language, default: [:]].values),
-                            language: language,
-                            modelID: request.options.translationModel,
-                            transcripts: Array(existingByChunk.values)
-                        )
-                        publish(snapshot)
-                    }
-                    if request.options.synthesizeSpeech, !translation.text.isEmpty {
-                        snapshot = update(snapshot, status: .synthesizing, index: index, total: total, message: "\(language) 번역 음성 \(index + 1)/\(total) 생성 중")
-                        try store.save(snapshot: snapshot)
-                        publish(snapshot)
-                        let speechURL = speechFolder.appending(path: String(format: "%@-%05d.m4a", language, index))
-                        if !FileManager.default.fileExists(atPath: speechURL.path) {
-                            try await tts.synthesize(translation.text, languageCode: language, outputURL: speechURL, modelsURL: modelsURL)
-                        }
-                    }
-                }
-                }
-
-                snapshot.currentChunk = index + 1
-                snapshot.progress = combinedProgress(snapshot)
-                snapshot.message = "\(index + 1)/\(total) 청크 처리 완료"
-                snapshot.updatedAt = .now
-                try store.save(snapshot: snapshot)
-                publish(snapshot)
+                try await group.waitForAll()
             }
+
+            snapshot = await coordinator.currentSnapshot()
+            existingByChunk = await coordinator.currentTranscripts()
+            existingTranslations = await coordinator.currentTranslations()
+            completedTranslations = await coordinator.currentCompletedTranslations()
+            detectedLanguage = await coordinator.currentDetectedLanguage()
 
             let genericSpeakerLabels = SpeakerLabelRewriter.labels(in: Array(existingByChunk.values))
             if !genericSpeakerLabels.isEmpty {
@@ -317,69 +226,7 @@ final class MediaPipeline: @unchecked Sendable {
                 }
             }
 
-            if qualityMode != .fast {
-                for index in 0..<total {
-                    try Task.checkCancellation()
-                    guard let transcript = existingByChunk[index] else { continue }
-                    for language in request.options.targetLanguages {
-                        try Task.checkCancellation()
-                        let translation: TranslationSegment
-                        if let existing = existingTranslations[language]?[transcript.id] {
-                            translation = existing
-                        } else {
-                            snapshot.liveTranslationText = nil
-                            snapshot = update(snapshot, status: .translating, index: index, total: total, message: "문서 문맥 기반 \(language.uppercased()) 번역 \(index + 1)/\(total)")
-                            try store.save(snapshot: snapshot)
-                            publish(snapshot)
-                            let translated = try await translator.translate(
-                                transcript.text,
-                                jobID: request.jobID,
-                                sourceLanguage: transcript.language ?? detectedLanguage,
-                                targetLanguage: language,
-                                modelID: request.options.translationModel,
-                                modelsURL: modelsURL,
-                                previousContext: translationContext(before: index, transcripts: existingByChunk),
-                                nextContext: translationContext(after: index, transcripts: existingByChunk),
-                                glossary: glossary,
-                                qualityMode: qualityMode,
-                                onPartialText: { [onLiveTranslation] text in
-                                    onLiveTranslation(request.jobID, index, total, language, text)
-                                }
-                            )
-                            translation = TranslationSegment(
-                                transcriptID: transcript.id,
-                                jobID: request.jobID,
-                                targetLanguage: language,
-                                modelID: request.options.translationModel,
-                                text: translated.text,
-                                qualityStatus: translated.qualityStatus,
-                                qualityNotes: translated.qualityNotes
-                            )
-                            existingTranslations[language, default: [:]][transcript.id] = translation
-                            completedTranslations += 1
-                            snapshot.translationProgress = stageProgress(completed: completedTranslations, total: total * targetCount)
-                            snapshot.lastTranslationText = translation.text
-                            snapshot.liveTranslationText = nil
-                            snapshot.message = "\(language.uppercased()) 번역·검수 저장 완료"
-                            snapshot.updatedAt = .now
-                            try store.saveTranslation(translation, snapshot: snapshot)
-                            try sidecar.saveTranslations(
-                                Array(existingTranslations[language, default: [:]].values),
-                                language: language,
-                                modelID: request.options.translationModel,
-                                transcripts: Array(existingByChunk.values)
-                            )
-                            publish(snapshot)
-                        }
-                        if request.options.synthesizeSpeech, !translation.text.isEmpty {
-                            let speechURL = speechFolder.appending(path: String(format: "%@-%05d.m4a", language, index))
-                            if !FileManager.default.fileExists(atPath: speechURL.path) {
-                                try await tts.synthesize(translation.text, languageCode: language, outputURL: speechURL, modelsURL: modelsURL)
-                            }
-                        }
-                    }
-                }
-            }
+            // 번역과 번역 음성은 위 STT·번역 동시 파이프라인에서 이미 처리되었습니다.
 
             do {
                 try await runContinuousRefinement(
@@ -464,6 +311,169 @@ final class MediaPipeline: @unchecked Sendable {
             snapshot.updatedAt = .now
             try? JobStore(url: request.databaseURL).save(snapshot: snapshot)
             publish(snapshot)
+        }
+    }
+
+    private func runSTTStage(
+        coordinator: PipelineCoordinator,
+        request: StartJobRequest,
+        mediaURL: URL,
+        duration: TimeInterval,
+        chunkDuration: TimeInterval,
+        total: Int,
+        chunksFolder: URL,
+        modelsURL: URL,
+        glossary: [GlossaryEntry],
+        qualityMode: ProcessingQualityMode
+    ) async throws {
+        let asset = AVURLAsset(url: mediaURL)
+        var producedTranscripts = await coordinator.currentTranscripts()
+        var detectedLanguage = await coordinator.currentDetectedLanguage()
+        do {
+            for index in 0..<total {
+                try Task.checkCancellation()
+                if producedTranscripts[index] != nil { continue }
+
+                let start = Double(index) * chunkDuration
+                let end = min(duration, start + chunkDuration)
+
+                try await coordinator.markStatus(.extracting, index: index, message: "오디오 청크 \(index + 1)/\(total) 추출 중")
+
+                let overlap: TimeInterval = qualityMode == .fast ? 0 : (qualityMode == .maximum ? 2 : 1.25)
+                let extractionStart = max(0, start - overlap)
+                let extractionEnd = min(duration, end + overlap)
+                let audioURL = chunksFolder.appending(path: String(format: "chunk-%@-%05d.m4a", qualityMode.rawValue, index))
+                if !FileManager.default.fileExists(atPath: audioURL.path) {
+                    try await exportAudio(asset: asset, start: extractionStart, duration: extractionEnd - extractionStart, to: audioURL)
+                }
+
+                try await coordinator.markStatus(.transcribing, index: index, message: "STT \(index + 1)/\(total) 처리 중")
+                let sttOutput = try await stt.transcribe(
+                    audioURL: audioURL,
+                    model: request.options.sttModel,
+                    language: detectedLanguage,
+                    modelsURL: modelsURL,
+                    prompt: sttPrompt(before: index, transcripts: producedTranscripts, glossary: glossary),
+                    qualityMode: qualityMode,
+                    onPartialText: { [onLiveTranscript] text in
+                        onLiveTranscript(request.jobID, index, total, text)
+                    }
+                )
+                let timedCues = sttOutput.cues.compactMap { cue -> TranscriptCue? in
+                    let cueStart = max(start, min(end, extractionStart + cue.startTime))
+                    let cueEnd = max(cueStart, min(end, extractionStart + cue.endTime))
+                    guard cueEnd > cueStart, !cue.text.isEmpty else { return nil }
+                    return TranscriptCue(startTime: cueStart, endTime: cueEnd, text: cue.text)
+                }
+                let transcript = TranscriptSegment(
+                    jobID: request.jobID,
+                    chunkIndex: index,
+                    startTime: timedCues.first?.startTime ?? start,
+                    endTime: timedCues.last?.endTime ?? end,
+                    text: timedCues.isEmpty ? sttOutput.text : timedCues.map(\.text).joined(separator: "\n"),
+                    language: request.options.sourceLanguage ?? sttOutput.language,
+                    confidence: sttOutput.confidence,
+                    cues: timedCues,
+                    qualityStatus: sttOutput.qualityNotes.contains(where: { $0.contains("검토 권장") }) ? .warning : (sttOutput.retryCount > 0 ? .reviewed : .good),
+                    retryCount: sttOutput.retryCount,
+                    qualityNotes: sttOutput.qualityNotes
+                )
+                if detectedLanguage == nil, (transcript.confidence ?? 0) >= 0.35 {
+                    detectedLanguage = transcript.language
+                    await coordinator.setDetectedLanguage(detectedLanguage)
+                }
+                producedTranscripts[index] = transcript
+                try await coordinator.commitTranscript(transcript)
+            }
+            await coordinator.markSTTFinished()
+        } catch {
+            // 실패·취소 시에도 완료 신호를 보내 번역 태스크가 무한 대기하지 않도록 합니다.
+            await coordinator.markSTTFinished()
+            throw error
+        }
+    }
+
+    private func runTranslationStage(
+        coordinator: PipelineCoordinator,
+        request: StartJobRequest,
+        total: Int,
+        speechFolder: URL,
+        modelsURL: URL,
+        glossary: [GlossaryEntry],
+        qualityMode: ProcessingQualityMode,
+        targetCount: Int
+    ) async throws {
+        guard targetCount > 0 else { return }
+
+        // STT가 5% 진행될 때까지 대기한 뒤 번역을 시작합니다.
+        while await coordinator.sttProgressValue() < 0.05, await coordinator.isSTTFinished() == false {
+            try Task.checkCancellation()
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+
+        for index in 0..<total {
+            try Task.checkCancellation()
+
+            // 해당 청크의 STT 결과가 준비될 때까지 대기합니다.
+            var transcript = await coordinator.transcript(at: index)
+            while transcript == nil, await coordinator.isSTTFinished() == false {
+                try Task.checkCancellation()
+                try await Task.sleep(nanoseconds: 100_000_000)
+                transcript = await coordinator.transcript(at: index)
+            }
+            guard let transcript else { continue }
+
+            // 다음 문맥(다음 청크)이 준비될 때까지만 잠시 대기해 번역 품질을 유지합니다.
+            if index + 1 < total {
+                while await coordinator.transcript(at: index + 1) == nil, await coordinator.isSTTFinished() == false {
+                    try Task.checkCancellation()
+                    try await Task.sleep(nanoseconds: 100_000_000)
+                }
+            }
+
+            for language in request.options.targetLanguages {
+                try Task.checkCancellation()
+                let translation: TranslationSegment
+                if let existing = await coordinator.existingTranslation(language: language, transcriptID: transcript.id) {
+                    translation = existing
+                } else {
+                    try await coordinator.markTranslating(index: index, language: language, message: "\(language) 번역 \(index + 1)/\(total)")
+                    let previousContext = await coordinator.translationContextBefore(index: index)
+                    let nextContext = await coordinator.translationContextAfter(index: index)
+                    let translated = try await translator.translate(
+                        transcript.text,
+                        jobID: request.jobID,
+                        sourceLanguage: transcript.language ?? request.options.sourceLanguage,
+                        targetLanguage: language,
+                        modelID: request.options.translationModel,
+                        modelsURL: modelsURL,
+                        previousContext: previousContext,
+                        nextContext: nextContext,
+                        glossary: glossary,
+                        qualityMode: qualityMode,
+                        onPartialText: { [onLiveTranslation] text in
+                            onLiveTranslation(request.jobID, index, total, language, text)
+                        }
+                    )
+                    translation = TranslationSegment(
+                        transcriptID: transcript.id,
+                        jobID: request.jobID,
+                        targetLanguage: language,
+                        modelID: request.options.translationModel,
+                        text: translated.text,
+                        qualityStatus: translated.qualityStatus,
+                        qualityNotes: translated.qualityNotes
+                    )
+                    try await coordinator.commitTranslation(translation, index: index, language: language)
+                }
+                if request.options.synthesizeSpeech, !translation.text.isEmpty {
+                    try await coordinator.markSynthesizing(index: index, language: language, message: "\(language) 번역 음성 \(index + 1)/\(total) 생성 중")
+                    let speechURL = speechFolder.appending(path: String(format: "%@-%05d.m4a", language, index))
+                    if !FileManager.default.fileExists(atPath: speechURL.path) {
+                        try await tts.synthesize(translation.text, languageCode: language, outputURL: speechURL, modelsURL: modelsURL)
+                    }
+                }
+            }
         }
     }
 
@@ -813,6 +823,162 @@ final class MediaPipeline: @unchecked Sendable {
 
     private func publish(_ snapshot: JobSnapshot) {
         onSnapshot(snapshot)
+    }
+}
+
+/// STT와 번역 태스크가 공유하는 스냅샷·전사·번역 상태를 직렬화해 데이터 경합 없이 갱신합니다.
+private actor PipelineCoordinator {
+    private var snapshot: JobSnapshot
+    private var transcripts: [Int: TranscriptSegment]
+    private var translations: [String: [UUID: TranslationSegment]]
+    private var completedTranslations: Int
+    private var detectedLanguage: String?
+    private var sttFinished = false
+    private let total: Int
+    private let targetCount: Int
+    private let translationModelID: String
+    private let store: JobStore
+    private let sidecar: MediaSidecarStore
+    private let publish: @Sendable (JobSnapshot) -> Void
+
+    init(
+        snapshot: JobSnapshot,
+        transcripts: [Int: TranscriptSegment],
+        translations: [String: [UUID: TranslationSegment]],
+        completedTranslations: Int,
+        detectedLanguage: String?,
+        total: Int,
+        targetCount: Int,
+        translationModelID: String,
+        store: JobStore,
+        sidecar: MediaSidecarStore,
+        publish: @escaping @Sendable (JobSnapshot) -> Void
+    ) {
+        self.snapshot = snapshot
+        self.transcripts = transcripts
+        self.translations = translations
+        self.completedTranslations = completedTranslations
+        self.detectedLanguage = detectedLanguage
+        self.total = total
+        self.targetCount = targetCount
+        self.translationModelID = translationModelID
+        self.store = store
+        self.sidecar = sidecar
+        self.publish = publish
+    }
+
+    // MARK: 읽기
+    func currentSnapshot() -> JobSnapshot { snapshot }
+    func currentTranscripts() -> [Int: TranscriptSegment] { transcripts }
+    func currentTranslations() -> [String: [UUID: TranslationSegment]] { translations }
+    func currentCompletedTranslations() -> Int { completedTranslations }
+    func currentDetectedLanguage() -> String? { detectedLanguage }
+    func transcript(at index: Int) -> TranscriptSegment? { transcripts[index] }
+    func existingTranslation(language: String, transcriptID: UUID) -> TranslationSegment? {
+        translations[language]?[transcriptID]
+    }
+    func sttProgressValue() -> Double { snapshot.sttProgress }
+    func isSTTFinished() -> Bool { sttFinished }
+
+    func translationContextBefore(index: Int) -> [String] {
+        transcripts.values
+            .filter { $0.chunkIndex < index && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .sorted { $0.chunkIndex < $1.chunkIndex }
+            .suffix(2)
+            .map(\.text)
+    }
+
+    func translationContextAfter(index: Int) -> [String] {
+        transcripts.values
+            .filter { $0.chunkIndex > index && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .sorted { $0.chunkIndex < $1.chunkIndex }
+            .prefix(1)
+            .map(\.text)
+    }
+
+    // MARK: STT 갱신
+    func setDetectedLanguage(_ language: String?) { detectedLanguage = language }
+
+    func markStatus(_ status: JobStatus, index: Int, message: String) throws {
+        snapshot.status = status
+        snapshot.currentChunk = index
+        snapshot.totalChunks = total
+        snapshot.message = message
+        snapshot.progress = combinedProgress()
+        snapshot.updatedAt = .now
+        try store.save(snapshot: snapshot)
+        publish(snapshot)
+    }
+
+    func commitTranscript(_ transcript: TranscriptSegment) throws {
+        transcripts[transcript.chunkIndex] = transcript
+        snapshot.sttProgress = stageProgress(completed: transcripts.count, total: total)
+        snapshot.lastTranscriptText = transcript.text
+        snapshot.liveTranscriptText = nil
+        snapshot.status = .transcribing
+        snapshot.currentChunk = transcript.chunkIndex + 1
+        snapshot.message = "STT \(transcript.chunkIndex + 1)/\(total) 저장 완료"
+        snapshot.progress = combinedProgress()
+        snapshot.updatedAt = .now
+        try store.saveTranscript(transcript, snapshot: snapshot)
+        try sidecar.saveTranscripts(Array(transcripts.values))
+        publish(snapshot)
+    }
+
+    func markSTTFinished() { sttFinished = true }
+
+    // MARK: 번역 갱신
+    func markTranslating(index: Int, language: String, message: String) throws {
+        snapshot.liveTranslationText = nil
+        snapshot.status = .translating
+        snapshot.totalChunks = total
+        snapshot.message = message
+        snapshot.progress = combinedProgress()
+        snapshot.updatedAt = .now
+        try store.save(snapshot: snapshot)
+        publish(snapshot)
+    }
+
+    func commitTranslation(_ translation: TranslationSegment, index: Int, language: String) throws {
+        translations[language, default: [:]][translation.transcriptID] = translation
+        completedTranslations += 1
+        snapshot.translationProgress = targetCount == 0
+            ? 1
+            : stageProgress(completed: completedTranslations, total: total * targetCount)
+        snapshot.lastTranslationText = translation.text
+        snapshot.liveTranslationText = nil
+        snapshot.status = .translating
+        snapshot.message = "\(language.uppercased()) 번역 \(index + 1)/\(total) 저장 완료"
+        snapshot.progress = combinedProgress()
+        snapshot.updatedAt = .now
+        try store.saveTranslation(translation, snapshot: snapshot)
+        try sidecar.saveTranslations(
+            Array(translations[language, default: [:]].values),
+            language: language,
+            modelID: translationModelID,
+            transcripts: Array(transcripts.values)
+        )
+        publish(snapshot)
+    }
+
+    func markSynthesizing(index: Int, language: String, message: String) throws {
+        snapshot.status = .synthesizing
+        snapshot.totalChunks = total
+        snapshot.message = message
+        snapshot.progress = combinedProgress()
+        snapshot.updatedAt = .now
+        try store.save(snapshot: snapshot)
+        publish(snapshot)
+    }
+
+    // MARK: 보조 계산
+    private func stageProgress(completed: Int, total: Int) -> Double {
+        guard total > 0 else { return 1 }
+        return min(1, max(0, Double(completed) / Double(total)))
+    }
+
+    private func combinedProgress() -> Double {
+        min(1, max(0, (snapshot.sttProgress + snapshot.translationProgress) / 2))
     }
 }
 

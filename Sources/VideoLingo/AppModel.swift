@@ -8,6 +8,9 @@ import VideoLingoCore
 @MainActor
 @Observable
 final class AppModel {
+    /// 첫 창에서만 마지막으로 열었던 영상을 복원하기 위한 프로세스 전역 플래그입니다.
+    static var hasAutoloadedInitialVideo = false
+
     var mediaURL: URL?
     var player = AVPlayer()
     var selectedLanguage = UserDefaults.standard.string(forKey: "selectedLanguage") ?? "ko" {
@@ -40,12 +43,29 @@ final class AppModel {
         : max(1, UserDefaults.standard.integer(forKey: "maximumRefinementPasses")) {
         didSet { UserDefaults.standard.set(maximumRefinementPasses, forKey: "maximumRefinementPasses") }
     }
-    var translucentMode = UserDefaults.standard.bool(forKey: "translucentMode") {
+    /// 단축키를 누를 때마다 순환하는 창 불투명도 단계입니다. (75% → 50% → 25% → 100%)
+    static let translucencyLevels: [Double] = [0.75, 0.5, 0.25, 1.0]
+
+    var windowOpacity: Double = {
+        guard let stored = UserDefaults.standard.object(forKey: "windowOpacity") as? Double else { return 1 }
+        return min(1, max(0.1, stored))
+    }() {
         didSet {
-            UserDefaults.standard.set(translucentMode, forKey: "translucentMode")
+            UserDefaults.standard.set(windowOpacity, forKey: "windowOpacity")
             applyWindowTransparency()
         }
     }
+
+    /// 설정 화면의 반투명 토글 등 Bool 소비자를 위한 파생 속성입니다.
+    var translucentMode: Bool {
+        get { windowOpacity < 1 }
+        set { windowOpacity = newValue ? (windowOpacity < 1 ? windowOpacity : 0.75) : 1 }
+    }
+
+    // 창별 보기 모드입니다. 창마다 전체보기·심플 보기·미니 뷰어를 독립적으로 전환합니다.
+    var isSimpleMode = false
+    var isMiniViewer = false
+    var hideTranscriptPanel = false
     var snapshot: JobSnapshot?
     var transcript: [TranscriptSegment] = []
     var translations: [UUID: TranslationSegment] = [:]
@@ -90,14 +110,17 @@ final class AppModel {
     private var pendingResumeAfterRestart = false
     private var timeObserver: Any?
 
-    init() {
+    init(autoloadLastVideo: Bool = true) {
         if !targetLanguages.contains(selectedLanguage) {
             targetLanguages.append(selectedLanguage)
         }
         setupPlayerObserver()
         connectService()
         beginServiceMonitoring()
-        restoreLastVideo()
+        if autoloadLastVideo {
+            AppModel.hasAutoloadedInitialVideo = true
+            restoreLastVideo()
+        }
     }
 
     var activeTranscriptSegment: TranscriptSegment? {
@@ -179,21 +202,25 @@ final class AppModel {
         refreshResults()
     }
 
-    func toggleTranslucentMode() {
-        translucentMode.toggle()
+    /// 단축키를 누를 때마다 75% → 50% → 25% → 100% 순으로 창 투명도를 조정합니다.
+    func cycleTranslucency() {
+        let levels = AppModel.translucencyLevels
+        let currentIndex = levels.firstIndex { abs($0 - windowOpacity) < 0.001 } ?? (levels.count - 1)
+        windowOpacity = levels[(currentIndex + 1) % levels.count]
     }
 
     func hideApplication() {
         NSApp.hide(nil)
     }
 
+    /// 현재 활성 창을 macOS 네이티브 전체화면으로 전환합니다. (창마다 독립적으로 동작)
+    func toggleFullScreen() {
+        (NSApp.keyWindow ?? NSApp.mainWindow)?.toggleFullScreen(nil)
+    }
+
     func applyWindowTransparency() {
-        let alpha: CGFloat = translucentMode ? 0.74 : 1
-        DispatchQueue.main.async {
-            for window in NSApp.windows where window.level != .screenSaver {
-                window.animator().alphaValue = alpha
-            }
-        }
+        // 창별 투명도는 각 창의 WindowModeAccessor가 자기 NSWindow에만 반영하므로
+        // 여기서 전역으로 창을 순회하지 않습니다. (다중 창에서 서로의 투명도를 덮어쓰지 않도록)
     }
 
     func openVideo() {
