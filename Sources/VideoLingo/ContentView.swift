@@ -68,6 +68,8 @@ struct ContentView: View {
                             Text("최고 품질").tag(ProcessingQualityMode.maximum)
                         }
                         Toggle("완료 후 자동 품질 개선", isOn: $model.continuousImprovement)
+                        Toggle("완료 후 재검토·미번역 구간 자동 재시도", isOn: $model.autoRetryReviewedAndUntranslated)
+                            .help("품질 개선까지 끝나면 STT가 재검토됨이거나 번역이 비어 있는 구간만 한 번 더 자동으로 추출·번역합니다.")
                         Toggle("앱 전체 반투명 모드", isOn: $model.translucentMode)
                             .help("Command+Shift+T로 전환")
                         if model.continuousImprovement {
@@ -522,7 +524,7 @@ private struct TranscriptInspector: View {
                     Spacer()
                     Picker("표시 내용", selection: $displayMode) {
                         ForEach(ResultDisplayMode.allCases) { mode in
-                            Text(mode.rawValue).tag(mode)
+                            Text(LocalizedStringKey(mode.rawValue)).tag(mode)
                         }
                     }
                     .pickerStyle(.segmented)
@@ -673,9 +675,9 @@ private struct TranscriptInspector: View {
 
     private func qualityLabel(_ status: SegmentQualityStatus) -> String {
         switch status {
-        case .good: "양호"
-        case .reviewed: "재검토됨"
-        case .warning: "확인 필요"
+        case .good: String(localized: "양호")
+        case .reviewed: String(localized: "재검토됨")
+        case .warning: String(localized: "확인 필요")
         }
     }
 
@@ -705,7 +707,7 @@ private struct ResultTextBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.tertiary)
             SpeakerColoredText(text: text, defaultColor: color)
@@ -1053,11 +1055,11 @@ private func formattedBytes(_ bytes: Int64) -> String {
 
 private func translationModelName(_ modelID: String) -> String {
     switch modelID {
-    case "apple-foundation-models": "Apple Foundation Models (시스템)"
+    case "apple-foundation-models": String(localized: "Apple Foundation Models (시스템)")
     case "mlx-community/Qwen3-0.6B-4bit": "Qwen3 0.6B 4-bit"
     case "mlx-community/Qwen3-1.7B-4bit": "Qwen3 1.7B 4-bit"
-    case "mlx-community/Qwen3-4B-4bit": "Qwen3 4B 4-bit · 균형"
-    case "mlx-community/Qwen3-8B-4bit": "Qwen3 8B 4-bit · 고품질"
+    case "mlx-community/Qwen3-4B-4bit": String(localized: "Qwen3 4B 4-bit · 균형")
+    case "mlx-community/Qwen3-8B-4bit": String(localized: "Qwen3 8B 4-bit · 고품질")
     case "mlx-community/gemma-3-1b-it-qat-4bit": "Gemma 3 1B QAT 4-bit"
     default: modelID
     }

@@ -61,6 +61,8 @@
 "품질 강화" = "Enhanced";
 "최고 품질" = "Maximum";
 "완료 후 자동 품질 개선" = "Auto quality refinement after completion";
+"완료 후 재검토·미번역 구간 자동 재시도" = "Auto-retry reviewed / untranslated segments after completion";
+"품질 개선까지 끝나면 STT가 재검토됨이거나 번역이 비어 있는 구간만 한 번 더 자동으로 추출·번역합니다." = "Once refinement finishes, automatically re-extracts and re-translates just the segments whose STT is 'reviewed' or whose translation is empty.";
 "앱 전체 반투명 모드" = "App-wide translucency";
 "Command+Shift+T로 전환" = "Toggle with Command+Shift+T";
 "최대 개선 회차" = "Max refinement passes";
@@ -139,6 +141,11 @@
 "아직 확정된 결과가 없습니다" = "No confirmed results yet";
 "STT 청크가 확정되면 원문과 번역 내용이 여기에 추가됩니다." = "Once STT chunks are confirmed, source and translation appear here.";
 "번역 대기 중" = "Awaiting translation";
+"STT %@" = "STT %@";
+"번역 %@" = "Translation %@";
+"Apple Foundation Models (시스템)" = "Apple Foundation Models (System)";
+"Qwen3 4B 4-bit · 균형" = "Qwen3 4B 4-bit · Balanced";
+"Qwen3 8B 4-bit · 고품질" = "Qwen3 8B 4-bit · High quality";
 "이동" = "Go";
 "이 구간 STT 재생성" = "Regenerate STT for This Segment";
 "이 문장 번역 재생성" = "Regenerate Translation for This Sentence";

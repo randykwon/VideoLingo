@@ -38,6 +38,9 @@ final class AppModel {
     var continuousImprovement = UserDefaults.standard.object(forKey: "continuousQualityImprovement") as? Bool ?? true {
         didSet { UserDefaults.standard.set(continuousImprovement, forKey: "continuousQualityImprovement") }
     }
+    var autoRetryReviewedAndUntranslated = UserDefaults.standard.object(forKey: "autoRetryReviewedAndUntranslated") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(autoRetryReviewedAndUntranslated, forKey: "autoRetryReviewedAndUntranslated") }
+    }
     var maximumRefinementPasses = UserDefaults.standard.object(forKey: "maximumRefinementPasses") == nil
         ? 3
         : max(1, UserDefaults.standard.integer(forKey: "maximumRefinementPasses")) {
@@ -98,6 +101,7 @@ final class AppModel {
     ]
 
     private var currentJobID: UUID?
+    private var autoRetriedJobIDs: Set<UUID> = []
     private var databaseURL: URL?
     private var workspaceURL: URL?
     private var persistentStore: JobStore?
@@ -356,14 +360,28 @@ final class AppModel {
         }
     }
 
+    /// 품질 개선까지 끝난 뒤에도 STT가 '재검토됨' 상태이거나 번역이 비어 있는 구간입니다.
+    var segmentsNeedingRetry: [TranscriptSegment] {
+        transcript.filter { segment in
+            let untranslated = (translations[segment.id]?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return untranslated || segment.qualityStatus == .reviewed
+        }
+    }
+
     /// 번역이 안 된 구간만 STT 추출과 번역을 다시 시도합니다. 이미 번역된 구간은 그대로 보존합니다.
     func retryUntranslatedSegments() {
-        guard canRegenerate, let mediaURL, let currentJobID else { return }
+        guard canRegenerate else { return }
         let pending = untranslatedSegments
         guard !pending.isEmpty else {
             errorMessage = String(localized: "번역이 안 된 항목이 없습니다.")
             return
         }
+        retrySegments(pending)
+    }
+
+    /// 지정한 구간들의 STT·번역 결과를 삭제하고 STT 추출·번역을 다시 시작합니다.
+    private func retrySegments(_ segments: [TranscriptSegment]) {
+        guard canRegenerate, let mediaURL, let currentJobID, !segments.isEmpty else { return }
         errorMessage = nil
         do {
             let paths = try AppPaths()
@@ -374,7 +392,7 @@ final class AppModel {
                 sttModel: sttModel,
                 sourceLanguage: sourceLanguage.isEmpty ? nil : sourceLanguage
             )
-            for segment in pending {
+            for segment in segments {
                 try store.deleteTranscript(jobID: currentJobID, chunkIndex: segment.chunkIndex)
             }
             let remaining = try store.transcript(jobID: currentJobID)
@@ -383,13 +401,26 @@ final class AppModel {
                 try sidecar.deleteTranslationResults(language: language, modelID: translationModel)
             }
             transcript = remaining
-            for segment in pending {
+            for segment in segments {
                 translations.removeValue(forKey: segment.id)
             }
             startOrResume()
         } catch {
             errorMessage = String(localized: "미번역 항목 재시도 준비 실패: \(error.localizedDescription)")
         }
+    }
+
+    /// 작업이 완료되면 STT 재검토·미번역 구간을 한 번 자동으로 재추출·재번역합니다.
+    /// 무한 반복을 막기 위해 작업마다 한 번만 수행합니다.
+    private func autoRetryAfterCompletionIfNeeded() {
+        guard autoRetryReviewedAndUntranslated,
+              let jobID = currentJobID,
+              canRegenerate,
+              !autoRetriedJobIDs.contains(jobID) else { return }
+        let targets = segmentsNeedingRetry
+        guard !targets.isEmpty else { return }
+        autoRetriedJobIDs.insert(jobID)
+        retrySegments(targets)
     }
 
     func regenerateSTT(for segment: TranscriptSegment) {
@@ -764,7 +795,13 @@ final class AppModel {
                 || snapshot?.refinementRevision != value.refinementRevision
             snapshot = value
             if checkpointChanged { refreshResults() }
-            if [.completed, .failed, .cancelled].contains(value.status) { statusTask?.cancel() }
+            if [.completed, .failed, .cancelled].contains(value.status) {
+                statusTask?.cancel()
+                if value.status == .completed {
+                    refreshResults()
+                    autoRetryAfterCompletionIfNeeded()
+                }
+            }
         case .failure(let error):
             statusTask?.cancel()
             guard !isRestartingService else { return }

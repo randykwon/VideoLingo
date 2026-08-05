@@ -24,8 +24,6 @@ struct VideoLingoApp: App {
             PlayerWindow()
                 .environment(shortcuts)
                 .environment(localization)
-                .environment(\.locale, localization.locale)
-                .id(localization.language)
         }
         .windowStyle(.titleBar)
         .commands {
@@ -44,6 +42,7 @@ struct VideoLingoApp: App {
 
 /// 각 창마다 독립적인 AppModel(자체 AVPlayer·자체 작업)을 소유해 여러 플레이어를 동시에 실행합니다.
 private struct PlayerWindow: View {
+    @Environment(LocalizationManager.self) private var localization
     // 첫 창만 마지막 영상을 복원하고, 이후 새 창은 빈 상태로 시작합니다.
     @State private var model = AppModel(autoloadLastVideo: !AppModel.hasAutoloadedInitialVideo)
 
@@ -54,6 +53,9 @@ private struct PlayerWindow: View {
                 minWidth: model.isMiniViewer ? 360 : 1_050,
                 minHeight: model.isMiniViewer ? 240 : 680
             )
+            // 언어 변경 시 문구만 새로 그리고, 창의 모델(플레이어·작업)은 그대로 유지합니다.
+            .environment(\.locale, localization.locale)
+            .id(localization.language)
             .focusedSceneValue(\.appModel, model)
     }
 }
