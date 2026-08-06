@@ -89,6 +89,21 @@
 "작업 취소" = "Cancel Job";
 "영상 옆 결과 폴더 열기" = "Open Results Folder Next to Video";
 
+/* Face mosaic removal */
+"얼굴 모자이크 제거" = "Face Mosaic Removal";
+"얼굴 모자이크 제거…" = "Remove Face Mosaic…";
+"실험적 · 결과는 AI로 재구성된 합성이며 실제 인물이 아닙니다. 권리 있는 영상에만 사용하세요." = "Experimental · results are AI-reconstructed and not the real person. Use only on footage you have the rights to.";
+"모자이크는 비가역 손실이라 원본 복구가 아니라 AI 재구성입니다. 복원된 얼굴은 실제 인물이 아니며, 권리 있는 영상에만 사용하세요." = "A mosaic is an irreversible loss, so this is AI reconstruction, not recovery. The restored face is not the real person — use only on footage you own.";
+"복원 모델" = "Restoration Model";
+"기본(Core Image)" = "Basic (Core Image)";
+"Real-ESRGAN (준비 중)" = "Real-ESRGAN (coming soon)";
+"CodeFormer (준비 중)" = "CodeFormer (coming soon)";
+"얼굴 영역만 처리" = "Process face regions only";
+"합성 표식 남기기(권장)" = "Add synthetic marker (recommended)";
+"선택한 모델은 아직 준비 중이라 기본 복원으로 처리됩니다." = "The selected model is not ready yet, so basic restoration is used.";
+"모자이크 제거 시작" = "Start Mosaic Removal";
+"모자이크 제거 준비 중" = "Preparing mosaic removal";
+
 /* Sidebar — Refinement / service */
 "STT·번역 품질 개선" = "STT · Translation Refinement";
 "상태 확인" = "Check Status";

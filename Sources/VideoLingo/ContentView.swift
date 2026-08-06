@@ -5,6 +5,7 @@ import VideoLingoCore
 struct ContentView: View {
     @Environment(AppModel.self) private var model
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var showDemosaicSheet = false
     @State private var regenerationRequest: RegenerationRequest?
     @State private var showAdvancedSettings = false
     @State private var showProgressDetails = false
@@ -151,6 +152,13 @@ struct ContentView: View {
                     Button("SRT 내보내기", systemImage: "square.and.arrow.up") { model.exportSRT() }
                     Button("영상 옆 결과 폴더 열기", systemImage: "folder") { model.revealOutput() }
                 }
+                Section("얼굴 모자이크 제거") {
+                    Button("얼굴 모자이크 제거…", systemImage: "wand.and.stars") { showDemosaicSheet = true }
+                        .disabled(!model.canStartDemosaic)
+                    Text("실험적 · 결과는 AI로 재구성된 합성이며 실제 인물이 아닙니다. 권리 있는 영상에만 사용하세요.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 Section("STT·번역 품질 개선") {
                     QualityImprovementStatusView(
                         snapshot: model.snapshot,
@@ -288,6 +296,64 @@ struct ContentView: View {
             Text(model.errorMessage ?? "")
         }
         .background(WindowModeAccessor(mini: model.isMiniViewer, opacity: model.windowOpacity))
+        .sheet(isPresented: $showDemosaicSheet) {
+            DemosaicSheet()
+                .environment(model)
+        }
+    }
+}
+
+private struct DemosaicSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        @Bindable var model = model
+        VStack(alignment: .leading, spacing: 0) {
+            Text("얼굴 모자이크 제거")
+                .font(.title2.weight(.semibold))
+                .padding(.bottom, 4)
+            Text("모자이크는 비가역 손실이라 원본 복구가 아니라 AI 재구성입니다. 복원된 얼굴은 실제 인물이 아니며, 권리 있는 영상에만 사용하세요.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 12)
+            Form {
+                Picker("복원 모델", selection: $model.demosaicModel) {
+                    Text("기본(Core Image)").tag(DemosaicModel.classical)
+                    Text("Real-ESRGAN (준비 중)").tag(DemosaicModel.realESRGAN)
+                    Text("CodeFormer (준비 중)").tag(DemosaicModel.codeFormer)
+                }
+                Toggle("얼굴 영역만 처리", isOn: $model.demosaicFaceOnly)
+                VStack(alignment: .leading) {
+                    Text("충실도 \(Int(model.demosaicFidelity * 100))%")
+                        .font(.caption)
+                    Slider(value: $model.demosaicFidelity, in: 0...1)
+                }
+                Toggle("합성 표식 남기기(권장)", isOn: $model.demosaicWatermark)
+            }
+            .formStyle(.grouped)
+            .frame(height: 220)
+            if model.demosaicModel != .classical {
+                Label("선택한 모델은 아직 준비 중이라 기본 복원으로 처리됩니다.", systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+            HStack {
+                Spacer()
+                Button("취소") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("모자이크 제거 시작") {
+                    model.startDemosaic()
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .disabled(!model.canStartDemosaic)
+            }
+            .padding(.top, 8)
+        }
+        .padding(20)
+        .frame(width: 460)
     }
 }
 

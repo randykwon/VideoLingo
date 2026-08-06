@@ -41,6 +41,20 @@ final class AppModel {
     var autoRetryReviewedAndUntranslated = UserDefaults.standard.object(forKey: "autoRetryReviewedAndUntranslated") as? Bool ?? true {
         didSet { UserDefaults.standard.set(autoRetryReviewedAndUntranslated, forKey: "autoRetryReviewedAndUntranslated") }
     }
+
+    // 얼굴 모자이크 제거(디모자이크) 옵션
+    var demosaicModel = DemosaicModel(rawValue: UserDefaults.standard.string(forKey: "demosaicModel") ?? "classical") ?? .classical {
+        didSet { UserDefaults.standard.set(demosaicModel.rawValue, forKey: "demosaicModel") }
+    }
+    var demosaicFaceOnly = UserDefaults.standard.object(forKey: "demosaicFaceOnly") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(demosaicFaceOnly, forKey: "demosaicFaceOnly") }
+    }
+    var demosaicFidelity = UserDefaults.standard.object(forKey: "demosaicFidelity") as? Double ?? 0.7 {
+        didSet { UserDefaults.standard.set(demosaicFidelity, forKey: "demosaicFidelity") }
+    }
+    var demosaicWatermark = UserDefaults.standard.object(forKey: "demosaicWatermark") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(demosaicWatermark, forKey: "demosaicWatermark") }
+    }
     var maximumRefinementPasses = UserDefaults.standard.object(forKey: "maximumRefinementPasses") == nil
         ? 3
         : max(1, UserDefaults.standard.integer(forKey: "maximumRefinementPasses")) {
@@ -294,6 +308,61 @@ final class AppModel {
     func cancel() {
         guard let id = currentJobID, let service = remoteService() else { return }
         service.cancelJob(id.uuidString) { _ in }
+    }
+
+    var canStartDemosaic: Bool { mediaURL != nil && canMutateStorage }
+
+    /// 현재 영상의 얼굴 모자이크 제거를 시작합니다. (STT·번역과 별개의 작업)
+    func startDemosaic() {
+        guard let mediaURL, canStartDemosaic else { return }
+        errorMessage = nil
+        do {
+            let paths = try AppPaths()
+            let jobID = UUID()
+            let workspace = paths.workspace(for: jobID)
+            try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+            let bookmark = try? mediaURL.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            let options = DemosaicOptions(
+                model: demosaicModel,
+                restoreFaceOnly: demosaicFaceOnly,
+                fidelity: demosaicFidelity,
+                temporalStabilization: true,
+                watermarkSynthetic: demosaicWatermark
+            )
+            let request = StartDemosaicRequest(
+                jobID: jobID,
+                mediaURL: mediaURL,
+                securityScopedBookmark: bookmark,
+                options: options,
+                databaseURL: paths.database,
+                workspaceURL: workspace,
+                modelsURL: paths.models,
+                uiLanguageCode: LocalizationManager.shared.language.localeCode
+            )
+            currentJobID = jobID
+            currentRequest = nil
+            resultDirectoryURL = workspace
+            snapshot = JobSnapshot(id: jobID, status: .queued, message: String(localized: "모자이크 제거 준비 중"))
+            guard let service = remoteService() else {
+                errorMessage = VideoLingoError.serviceUnavailable.localizedDescription
+                return
+            }
+            let payload = try WireCodec.encode(request)
+            service.startDemosaic(payload) { [weak self] data, error in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if let error { self.errorMessage = error; return }
+                    if let data { self.snapshot = try? WireCodec.decode(JobSnapshot.self, from: data) }
+                    self.beginPolling()
+                }
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func regenerateSTTAndTranslations() {

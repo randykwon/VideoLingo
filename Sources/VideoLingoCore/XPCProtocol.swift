@@ -2,6 +2,7 @@ import Foundation
 
 @objc public protocol VideoLingoAIServiceProtocol {
     func startJob(_ payload: Data, withReply reply: @escaping @Sendable (Data?, String?) -> Void)
+    func startDemosaic(_ payload: Data, withReply reply: @escaping @Sendable (Data?, String?) -> Void)
     func snapshot(for jobID: String, withReply reply: @escaping @Sendable (Data?, String?) -> Void)
     func cancelJob(_ jobID: String, withReply reply: @escaping @Sendable (Bool) -> Void)
     func ping(withReply reply: @escaping @Sendable (String) -> Void)

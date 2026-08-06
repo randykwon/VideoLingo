@@ -150,6 +150,34 @@ final class VideoLingoAIService: NSObject, VideoLingoAIServiceProtocol, @uncheck
         }
     }
 
+    func startDemosaic(_ payload: Data, withReply reply: @escaping @Sendable (Data?, String?) -> Void) {
+        do {
+            let request = try WireCodec.decode(StartDemosaicRequest.self, from: payload)
+            if let active = activeSnapshot(for: request.jobID) {
+                reply(try WireCodec.encode(active), nil)
+                return
+            }
+            let initial = JobSnapshot(id: request.jobID, status: .queued, message: "모자이크 제거 대기 중")
+            setSnapshot(initial)
+
+            let started = installTaskIfAbsent(for: request.jobID) { [weak self] in
+                guard let self else { return }
+                let pipeline = DemosaicPipeline(
+                    onSnapshot: { [weak self] snapshot in self?.setSnapshot(snapshot) }
+                )
+                await pipeline.run(request)
+                self.removeTask(request.jobID)
+            }
+            if !started, let active = activeSnapshot(for: request.jobID) {
+                reply(try WireCodec.encode(active), nil)
+                return
+            }
+            reply(try WireCodec.encode(initial), nil)
+        } catch {
+            reply(nil, error.localizedDescription)
+        }
+    }
+
     func snapshot(for jobID: String, withReply reply: @escaping @Sendable (Data?, String?) -> Void) {
         guard let id = UUID(uuidString: jobID) else {
             reply(nil, VideoLingoError.invalidPayload.localizedDescription)

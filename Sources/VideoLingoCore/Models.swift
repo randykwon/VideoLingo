@@ -77,6 +77,68 @@ public struct StartJobRequest: Codable, Sendable {
     }
 }
 
+// MARK: - 모자이크 제거(디모자이크)
+
+/// 사용할 복원 모델. Core ML 모델이 없으면 파이프라인이 고전적 복원으로 폴백합니다.
+public enum DemosaicModel: String, Codable, Sendable, CaseIterable {
+    case classical      // Core Image 업스케일+샤픈 (모델 불필요, 항상 사용 가능)
+    case realESRGAN     // 일반 디블록/초해상 (Core ML/MLX)
+    case codeFormer     // 얼굴 복원 (Core ML)
+}
+
+public struct DemosaicOptions: Codable, Sendable, Equatable {
+    public var model: DemosaicModel
+    public var restoreFaceOnly: Bool
+    public var fidelity: Double
+    public var temporalStabilization: Bool
+    public var watermarkSynthetic: Bool
+
+    public init(
+        model: DemosaicModel = .classical,
+        restoreFaceOnly: Bool = true,
+        fidelity: Double = 0.7,
+        temporalStabilization: Bool = true,
+        watermarkSynthetic: Bool = true
+    ) {
+        self.model = model
+        self.restoreFaceOnly = restoreFaceOnly
+        self.fidelity = fidelity
+        self.temporalStabilization = temporalStabilization
+        self.watermarkSynthetic = watermarkSynthetic
+    }
+}
+
+public struct StartDemosaicRequest: Codable, Sendable {
+    public let jobID: UUID
+    public let mediaURL: URL
+    public let securityScopedBookmark: Data?
+    public let options: DemosaicOptions
+    public let databaseURL: URL
+    public let workspaceURL: URL
+    public let modelsURL: URL
+    public let uiLanguageCode: String?
+
+    public init(
+        jobID: UUID,
+        mediaURL: URL,
+        securityScopedBookmark: Data?,
+        options: DemosaicOptions,
+        databaseURL: URL,
+        workspaceURL: URL,
+        modelsURL: URL,
+        uiLanguageCode: String? = nil
+    ) {
+        self.jobID = jobID
+        self.mediaURL = mediaURL
+        self.securityScopedBookmark = securityScopedBookmark
+        self.options = options
+        self.databaseURL = databaseURL
+        self.workspaceURL = workspaceURL
+        self.modelsURL = modelsURL
+        self.uiLanguageCode = uiLanguageCode
+    }
+}
+
 public struct TranscriptCue: Codable, Hashable, Sendable {
     public let startTime: TimeInterval
     public let endTime: TimeInterval
@@ -206,6 +268,7 @@ public enum VideoLingoError: LocalizedError {
     case invalidPayload
     case serviceUnavailable
     case mediaHasNoAudio
+    case mediaHasNoVideo
     case modelUnavailable(String)
     case cancelled
 
@@ -214,6 +277,7 @@ public enum VideoLingoError: LocalizedError {
         case .invalidPayload: "작업 요청을 해석할 수 없습니다."
         case .serviceUnavailable: "AI 서비스에 연결할 수 없습니다."
         case .mediaHasNoAudio: "영상에 오디오 트랙이 없습니다."
+        case .mediaHasNoVideo: "영상에 비디오 트랙이 없습니다."
         case .modelUnavailable(let reason): "로컬 모델을 사용할 수 없습니다: \(reason)"
         case .cancelled: "작업이 취소되었습니다."
         }

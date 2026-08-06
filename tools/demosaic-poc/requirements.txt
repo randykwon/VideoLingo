@@ -1,0 +1,9 @@
+# Lightweight core (always needed)
+opencv-python>=4.9
+numpy>=1.24
+
+# Optional on-device super-resolution backend (`realesrgan`):
+#   pip install realesrgan basicsr torch torchvision
+# Optional repo-based backends (DeepMosaics / CodeFormer) are cloned separately
+# and invoked as subprocesses — see README.
+# System dependency: ffmpeg (brew install ffmpeg) for audio muxing.

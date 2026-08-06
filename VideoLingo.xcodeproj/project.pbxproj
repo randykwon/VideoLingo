@@ -19,6 +19,7 @@
 		49383AFC6BB83EFEC4A62AC5 /* ModelEngines.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DC3B7097938C5DC4805FCA5 /* ModelEngines.swift */; };
 		5177BD6DE1C97C6978D5BA3D /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 301CAE7D02DB599971B5DA8D /* Models.swift */; };
 		71AF96C00DB31CB885B81BB7 /* VideoLingoCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; };
+		7ED19338E2E1FBC5B5FD6B20 /* DemosaicPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C832255181DE453DEE6FEEB /* DemosaicPipeline.swift */; };
 		8914F072CB83FEE3460D642F /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = F2540BFA03D82677F4CB2DD9 /* MLXLMCommon */; };
 		8D6CA2AE2A754C6BF84565DE /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4733F909A2286563C9BA2E3 /* ContentView.swift */; };
 		8EC7A0FACCE4BD10C4F7CA6E /* TranscriptTextSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2876CAD09B83DF7F2EBD6CC /* TranscriptTextSanitizer.swift */; };
@@ -115,6 +116,7 @@
 
 /* Begin PBXFileReference section */
 		030837DF8066B9905C335525 /* MediaPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPipeline.swift; sourceTree = "<group>"; };
+		0C832255181DE453DEE6FEEB /* DemosaicPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemosaicPipeline.swift; sourceTree = "<group>"; };
 		0DC3B7097938C5DC4805FCA5 /* ModelEngines.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelEngines.swift; sourceTree = "<group>"; };
 		0E827E047831CF98D776646F /* VideoLingoCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = VideoLingoCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A29A29F494EC232C80E8516 /* AVKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVKit.framework; path = System/Library/Frameworks/AVKit.framework; sourceTree = SDKROOT; };
@@ -234,6 +236,7 @@
 		26AE0B5E0CBEDBC3E650C6F0 /* VideoLingoAIService */ = {
 			isa = PBXGroup;
 			children = (
+				0C832255181DE453DEE6FEEB /* DemosaicPipeline.swift */,
 				6F9FF3E1248A71F566050CF8 /* Info.plist */,
 				B7CD60344D8EAC5BD9D96EC7 /* main.swift */,
 				030837DF8066B9905C335525 /* MediaPipeline.swift */,
@@ -486,6 +489,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7ED19338E2E1FBC5B5FD6B20 /* DemosaicPipeline.swift in Sources */,
 				E9CC298CBBDCB316648F3ECF /* MediaPipeline.swift in Sources */,
 				49383AFC6BB83EFEC4A62AC5 /* ModelEngines.swift in Sources */,
 				931EC3EA68A19A0BA6A68811 /* ServiceDelegate.swift in Sources */,
