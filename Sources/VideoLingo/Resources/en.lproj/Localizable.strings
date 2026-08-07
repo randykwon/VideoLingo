@@ -41,6 +41,10 @@
 
 /* Sidebar — Video */
 "영상" = "Video";
+"심플 메뉴로 전환" = "Switch to Simple Menu";
+"고급 메뉴" = "Advanced Menu";
+"STT·번역 중지" = "Stop STT · Translation";
+"서버 상태 새로 고침" = "Refresh Server Status";
 "MP4 영상 열기…" = "Open MP4 Video…";
 "결과: %@" = "Results: %@";
 
@@ -93,6 +97,9 @@
 "얼굴 모자이크 제거" = "Face Mosaic Removal";
 "얼굴 모자이크 제거…" = "Remove Face Mosaic…";
 "실험적 · 결과는 AI로 재구성된 합성이며 실제 인물이 아닙니다. 권리 있는 영상에만 사용하세요." = "Experimental · results are AI-reconstructed and not the real person. Use only on footage you have the rights to.";
+"화면 글자 번역 자막" = "On-screen Text Translation";
+"재생 중 화면 글자 인식·번역" = "Recognize & translate on-screen text during playback";
+"영상에 박힌 글자(간판·자막 등)를 재생 중 OCR로 읽어 선택한 언어로 번역해 하단 자막으로 보여줍니다. 온디바이스 처리." = "Reads text burned into the video (signs, captions, etc.) via OCR during playback and shows it translated as a bottom subtitle. On-device.";
 "모자이크는 비가역 손실이라 원본 복구가 아니라 AI 재구성입니다. 복원된 얼굴은 실제 인물이 아니며, 권리 있는 영상에만 사용하세요." = "A mosaic is an irreversible loss, so this is AI reconstruction, not recovery. The restored face is not the real person — use only on footage you own.";
 "복원 모델" = "Restoration Model";
 "기본(Core Image)" = "Basic (Core Image)";
@@ -149,6 +156,7 @@
 "STT 원문" = "STT Source";
 "함께 보기" = "Both";
 "STT·번역 결과 확인" = "STT · Translation Results";
+"드래그해서 결과 패널 높이 조절" = "Drag to resize the result panel";
 "표시 내용" = "Display";
 "내용 검색" = "Search content";
 "현재 재생 위치" = "Current Position";
@@ -166,6 +174,8 @@
 "Qwen3 8B 4-bit · 고품질" = "Qwen3 8B 4-bit · High quality";
 "이동" = "Go";
 "이 구간 STT 재생성" = "Regenerate STT for This Segment";
+"이 구간 STT 재추출" = "Re-extract STT for This Segment";
+"이 구간으로 이동" = "Jump to This Segment";
 "이 문장 번역 재생성" = "Regenerate Translation for This Sentence";
 "양호" = "Good";
 "재검토됨" = "Reviewed";
@@ -182,6 +192,13 @@
 "언어" = "Language";
 "표시 언어" = "Display Language";
 "앱 메뉴와 화면 문구에 사용할 언어입니다. 변경하면 즉시 적용됩니다." = "The language used for app menus and on-screen text. Changes apply immediately.";
+"동작" = "Behavior";
+"앱 시작 시 무음" = "Mute on app launch";
+"마지막 영상 자동 복원" = "Restore last video on launch";
+"이전 재생 위치 기억" = "Remember last playback position";
+"동작 설정은 앱을 재시작하면 반영됩니다." = "Behavior settings take effect after restarting the app.";
+"번역 품질 개선" = "Translation Refinement";
+"변경 사항은 새로 시작하는 작업부터 적용됩니다. 실행 중인 창은 앱을 재시작하면 반영됩니다." = "Changes apply to newly started jobs. Open windows pick them up after an app restart.";
 "시스템 언어" = "System Language";
 
 /* Settings — Shortcuts */
@@ -200,6 +217,8 @@
 "앱 반투명 모드 전환" = "Toggle App Translucency";
 "STT·번역 시작/재개" = "Start / Resume STT · Translation";
 "모든 단축키를 기본값으로 복원했습니다." = "Restored all shortcuts to defaults.";
+"%@은(는) ‘%@’에서 사용 중입니다." = "%1$@ is already used by '%2$@'.";
+"‘%@’ 단축키를 %@으로 저장했습니다." = "Saved the '%1$@' shortcut as %2$@.";
 
 /* Settings — Database */
 "경로를 확인할 수 없습니다." = "Path unavailable.";
@@ -242,6 +261,13 @@
 "다운로드되지 않음" = "Not downloaded";
 "다운로드 실패" = "Download failed";
 "최근 작업" = "Recent Jobs";
+"얼굴 모자이크 제거 모델" = "Face Mosaic Removal Models";
+"모델 이름" = "Model Name";
+"Core ML 모델 URL (.zip 권장)" = "Core ML model URL (.zip recommended)";
+"모델 다운로드" = "Download Model";
+"설치됨" = "Installed";
+"실패" = "Failed";
+"Models/Demosaic/<이름>.mlpackage 로 저장되며 .zip은 자동 추출됩니다. 변환 방법은 docs/mosaic-removal/COREML_MODELS.md 참고." = "Saved as Models/Demosaic/<name>.mlpackage; .zip is auto-extracted. See docs/mosaic-removal/COREML_MODELS.md for conversion.";
 "Apple Foundation Models" = "Apple Foundation Models";
 
 /* AppModel — status & error messages */

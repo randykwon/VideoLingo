@@ -31,6 +31,7 @@ public enum ManagedModelKind: String, Codable, Sendable, CaseIterable {
     case stt
     case tts
     case translation
+    case demosaic
 }
 
 public enum ManagedModelState: String, Codable, Sendable {
@@ -41,11 +42,14 @@ public struct ModelManagementRequest: Codable, Sendable {
     public let kind: ManagedModelKind
     public let modelID: String
     public let modelsURL: URL
+    /// demosaic 종류에서 Core ML 모델(.mlpackage 또는 이를 담은 .zip)을 받을 직접 URL입니다.
+    public let sourceURL: URL?
 
-    public init(kind: ManagedModelKind, modelID: String, modelsURL: URL) {
+    public init(kind: ManagedModelKind, modelID: String, modelsURL: URL, sourceURL: URL? = nil) {
         self.kind = kind
         self.modelID = modelID
         self.modelsURL = modelsURL
+        self.sourceURL = sourceURL
     }
 }
 

@@ -1,11 +1,13 @@
 import AVKit
 import SwiftUI
+@preconcurrency import Translation
 import VideoLingoCore
 
 struct ContentView: View {
     @Environment(AppModel.self) private var model
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showDemosaicSheet = false
+    @AppStorage("simpleSidebar") private var simpleSidebar = false
     @State private var regenerationRequest: RegenerationRequest?
     @State private var showAdvancedSettings = false
     @State private var showProgressDetails = false
@@ -14,7 +16,14 @@ struct ContentView: View {
     var body: some View {
         @Bindable var model = model
         NavigationSplitView(columnVisibility: $columnVisibility) {
+            Group {
+            if simpleSidebar {
+                SimpleSidebarView(simpleSidebar: $simpleSidebar)
+            } else {
             Form {
+                Section {
+                    Button("심플 메뉴로 전환", systemImage: "list.bullet") { simpleSidebar = true }
+                }
                 Section("영상") {
                     Button("MP4 영상 열기…", systemImage: "film") { model.openVideo() }
                     if let url = model.mediaURL {
@@ -159,6 +168,12 @@ struct ContentView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
+                Section("화면 글자 번역 자막") {
+                    Toggle("재생 중 화면 글자 인식·번역", isOn: $model.screenTextTranslationEnabled)
+                    Text("영상에 박힌 글자(간판·자막 등)를 재생 중 OCR로 읽어 선택한 언어로 번역해 하단 자막으로 보여줍니다. 온디바이스 처리.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 Section("STT·번역 품질 개선") {
                     QualityImprovementStatusView(
                         snapshot: model.snapshot,
@@ -192,23 +207,12 @@ struct ContentView: View {
                 }
             }
             .formStyle(.grouped)
+            }
+            }
             .navigationSplitViewColumnWidth(min: 250, ideal: 290, max: 340)
         } detail: {
-            VStack(spacing: 0) {
-                VideoPlayer(player: model.player)
-                    .background(Color.black)
-                PlayerSubtitleView(text: model.activeSubtitle)
-                if !model.isSimpleMode && !model.hideTranscriptPanel {
-                    TranscriptInspector()
-                        .frame(minHeight: 260, idealHeight: 320, maxHeight: 380)
-                }
-            }
-            .overlay {
-                if model.mediaURL == nil {
-                    ContentUnavailableView("영상을 선택하세요", systemImage: "film.stack", description: Text("MP4를 열면 재생과 동시에 로컬 STT·번역을 진행할 수 있습니다."))
-                        .background(.background)
-                }
-            }
+            // 플레이어·자막·화면글자 번역은 별도 뷰로 분리해, 실시간 갱신이 툴바를 다시 계산하지 않도록 합니다.
+            PlayerPane()
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -303,6 +307,173 @@ struct ContentView: View {
     }
 }
 
+/// 왼쪽 사이드바의 심플 버전. 핵심 동작만 큰 버튼으로 보여줍니다.
+private struct SimpleSidebarView: View {
+    @Environment(AppModel.self) private var model
+    @Binding var simpleSidebar: Bool
+
+    private var isRunning: Bool {
+        guard let status = model.snapshot?.status else { return false }
+        return [.queued, .extracting, .transcribing, .translating, .synthesizing, .refining].contains(status)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("VideoLingo")
+                .font(.title2.weight(.bold))
+                .padding(.bottom, 4)
+
+            Button {
+                model.openVideo()
+            } label: {
+                Label("영상 열기", systemImage: "film")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let url = model.mediaURL {
+                Text(url.lastPathComponent)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            if isRunning {
+                Button(role: .destructive) {
+                    model.cancel()
+                } label: {
+                    Label("STT·번역 중지", systemImage: "stop.circle")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                Button {
+                    model.startOrResume()
+                } label: {
+                    Label("STT·번역 시작/재개", systemImage: "waveform.and.magnifyingglass")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .disabled(!model.canStart)
+            }
+            if let snapshot = model.snapshot {
+                ProgressView(value: snapshot.progress)
+                Text(snapshot.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Divider()
+
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(model.serviceIsAvailable ? Color.green : Color.orange)
+                    .frame(width: 9, height: 9)
+                Text(model.serviceMessage)
+                    .font(.caption)
+                    .lineLimit(2)
+            }
+            Button {
+                model.refreshServiceStatus()
+            } label: {
+                Label("서버 상태 새로 고침", systemImage: "arrow.clockwise")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .controlSize(.small)
+
+            Divider()
+
+            SettingsLink {
+                Label("설정", systemImage: "gearshape")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Spacer()
+
+            Button {
+                simpleSidebar = false
+            } label: {
+                Label("고급 메뉴", systemImage: "slider.horizontal.3")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .padding()
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+}
+
+/// 영상 재생 영역. 화면글자 OCR 번역의 실시간 상태 변화를 이 뷰 안으로 가둬,
+/// 툴바를 호스팅하는 ContentView가 매번 다시 계산되어 크래시하는 것을 방지합니다.
+private struct PlayerPane: View {
+    @Environment(AppModel.self) private var model
+    @State private var screenTextConfig: TranslationSession.Configuration?
+    @AppStorage("transcriptPanelHeight") private var transcriptPanelHeight: Double = 320
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VideoPlayer(player: model.player)
+                .background(Color.black)
+                .overlay(alignment: .top) {
+                    if model.screenTextTranslationEnabled,
+                       let screenText = model.translatedScreenText,
+                       !screenText.isEmpty {
+                        Text(screenText)
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.yellow)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                            .shadow(color: .black, radius: 3)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+                            .padding(.top, 14)
+                            .padding(.horizontal, 24)
+                            .accessibilityLabel(screenText)
+                    }
+                }
+            PlayerSubtitleView(text: model.activeSubtitle)
+            if !model.isSimpleMode && !model.hideTranscriptPanel {
+                PanelResizeHandle(height: $transcriptPanelHeight)
+                TranscriptInspector()
+                    .frame(height: max(160, min(700, transcriptPanelHeight)))
+            }
+        }
+        .overlay {
+            if model.mediaURL == nil {
+                ContentUnavailableView("영상을 선택하세요", systemImage: "film.stack", description: Text("MP4를 열면 재생과 동시에 로컬 STT·번역을 진행할 수 있습니다."))
+                    .background(.background)
+            }
+        }
+        .translationTask(screenTextConfig) { session in
+            guard let text = model.recognizedScreenText, !text.isEmpty else {
+                model.translatedScreenText = nil
+                return
+            }
+            if let response = try? await session.translate(text) {
+                model.translatedScreenText = response.targetText
+            }
+        }
+        .onChange(of: model.recognizedScreenText) { _, _ in
+            guard model.screenTextTranslationEnabled else { return }
+            if screenTextConfig == nil {
+                screenTextConfig = TranslationSession.Configuration(
+                    source: nil,
+                    target: Locale.Language(identifier: model.selectedLanguage)
+                )
+            } else {
+                screenTextConfig?.invalidate()
+            }
+        }
+        .onChange(of: model.selectedLanguage) { _, language in
+            screenTextConfig = TranslationSession.Configuration(
+                source: nil,
+                target: Locale.Language(identifier: language)
+            )
+        }
+    }
+}
+
 private struct DemosaicSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -381,6 +552,41 @@ private enum RegenerationRequest: String, Identifiable {
         case .all:
             "현재 영상의 기존 STT·번역 체크포인트와 사이드카 파일을 삭제한 뒤 처음부터 다시 생성합니다."
         }
+    }
+}
+
+/// 하단 결과 패널 위의 드래그 핸들. 위아래로 끌어 패널 높이를 조절합니다.
+private struct PanelResizeHandle: View {
+    @Binding var height: Double
+    @State private var startHeight: Double?
+    private let minHeight: Double = 160
+    private let maxHeight: Double = 700
+
+    var body: some View {
+        ZStack {
+            Divider()
+            Capsule()
+                .fill(.secondary)
+                .frame(width: 44, height: 5)
+                .opacity(0.6)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 12)
+        .background(.background)
+        .contentShape(Rectangle())
+        .onHover { inside in
+            if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+        }
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    let base = startHeight ?? height
+                    if startHeight == nil { startHeight = height }
+                    height = min(maxHeight, max(minHeight, base - value.translation.height))
+                }
+                .onEnded { _ in startHeight = nil }
+        )
+        .help("드래그해서 결과 패널 높이 조절")
     }
 }
 
@@ -718,25 +924,42 @@ private struct TranscriptInspector: View {
             .textSelection(.enabled)
 
             Spacer(minLength: 8)
+            Button {
+                model.regenerateSTT(for: segment)
+            } label: {
+                Image(systemName: "waveform.badge.magnifyingglass")
+            }
+            .buttonStyle(.borderless)
+            .help("이 구간 STT 재추출")
+            .disabled(!model.canRegenerate)
+            Button {
+                model.regenerateTranslation(for: segment)
+            } label: {
+                Image(systemName: "character.book.closed")
+            }
+            .buttonStyle(.borderless)
+            .help("이 문장 번역 재생성")
+            .disabled(!model.canRegenerate)
             Button("이동") {
                 model.player.seek(to: CMTime(seconds: segment.startTime, preferredTimescale: 600))
             }
             .buttonStyle(.borderless)
-            Menu {
-                Button("이 구간 STT 재생성", systemImage: "waveform.badge.magnifyingglass") {
-                    model.regenerateSTT(for: segment)
-                }
-                Button("이 문장 번역 재생성", systemImage: "character.book.closed") {
-                    model.regenerateTranslation(for: segment)
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .disabled(!model.canRegenerate)
         }
         .padding(.vertical, 5)
+        .contextMenu {
+            Button("이 구간으로 이동", systemImage: "arrow.right.circle") {
+                model.player.seek(to: CMTime(seconds: segment.startTime, preferredTimescale: 600))
+            }
+            Divider()
+            Button("이 구간 STT 재추출", systemImage: "waveform.badge.magnifyingglass") {
+                model.regenerateSTT(for: segment)
+            }
+            .disabled(!model.canRegenerate)
+            Button("이 문장 번역 재생성", systemImage: "character.book.closed") {
+                model.regenerateTranslation(for: segment)
+            }
+            .disabled(!model.canRegenerate)
+        }
     }
 
     private func qualityLabel(_ status: SegmentQualityStatus) -> String {
@@ -853,9 +1076,11 @@ struct SettingsView: View {
 
 private struct GeneralSettingsView: View {
     @Environment(LocalizationManager.self) private var localization
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         @Bindable var localization = localization
+        @Bindable var model = model
         Form {
             Section("언어") {
                 Picker("표시 언어", selection: $localization.language) {
@@ -865,6 +1090,25 @@ private struct GeneralSettingsView: View {
                 }
                 Text("앱 메뉴와 화면 문구에 사용할 언어입니다. 변경하면 즉시 적용됩니다.")
                     .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("동작") {
+                Toggle("앱 시작 시 무음", isOn: $model.startMuted)
+                Toggle("마지막 영상 자동 복원", isOn: $model.autoloadLastVideoPreference)
+                Toggle("이전 재생 위치 기억", isOn: $model.rememberPlaybackPosition)
+                Text("동작 설정은 앱을 재시작하면 반영됩니다.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Section("번역 품질 개선") {
+                Toggle("완료 후 자동 품질 개선", isOn: $model.continuousImprovement)
+                Picker("최대 개선 회차", selection: $model.maximumRefinementPasses) {
+                    ForEach(1...5, id: \.self) { Text("\($0)회").tag($0) }
+                }
+                .disabled(!model.continuousImprovement)
+                Toggle("완료 후 재검토·미번역 구간 자동 재시도", isOn: $model.autoRetryReviewedAndUntranslated)
+                Text("변경 사항은 새로 시작하는 작업부터 적용됩니다. 실행 중인 창은 앱을 재시작하면 반영됩니다.")
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
             }
         }
@@ -884,9 +1128,9 @@ private struct KeyboardShortcutSettingsView: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(categories, id: \.self) { category in
-                Section(category) {
+                Section(LocalizedStringKey(category)) {
                     ForEach(ShortcutAction.allCases.filter { $0.category == category }) { action in
-                        LabeledContent(action.title) {
+                        LabeledContent(LocalizedStringKey(action.title)) {
                             ShortcutRecorder(shortcut: shortcuts[action]) { value in
                                 shortcuts.assign(value, to: action)
                             }
@@ -1009,10 +1253,33 @@ private struct ModelDeleteTarget: Identifiable {
 private struct ModelFilesSettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var deleteTarget: ModelDeleteTarget?
+    @State private var demosaicModelName = "realesrgan"
+    @State private var demosaicModelURL = ""
 
     var body: some View {
         @Bindable var model = model
         Form {
+            Section("얼굴 모자이크 제거 모델") {
+                Picker("모델 이름", selection: $demosaicModelName) {
+                    Text("realesrgan").tag("realesrgan")
+                    Text("codeformer").tag("codeformer")
+                }
+                TextField("Core ML 모델 URL (.zip 권장)", text: $demosaicModelURL)
+                    .textFieldStyle(.roundedBorder)
+                HStack {
+                    Button("모델 다운로드", systemImage: "square.and.arrow.down") {
+                        if let url = URL(string: demosaicModelURL.trimmingCharacters(in: .whitespaces)) {
+                            model.downloadDemosaicModel(name: demosaicModelName, sourceURL: url)
+                        }
+                    }
+                    .disabled(URL(string: demosaicModelURL.trimmingCharacters(in: .whitespaces)) == nil)
+                    Spacer()
+                    demosaicStatus(demosaicModelName)
+                }
+                Text("Models/Demosaic/<이름>.mlpackage 로 저장되며 .zip은 자동 추출됩니다. 변환 방법은 docs/mosaic-removal/COREML_MODELS.md 참고.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
             Section("Whisper STT 모델") {
                 ForEach(model.models, id: \.self) { modelID in
                     modelRow(kind: .stt, modelID: modelID)
@@ -1061,6 +1328,25 @@ private struct ModelFilesSettingsView: View {
             }
         } message: { target in
             Text("다음 사용 시 \(target.modelID) 모델을 다시 다운로드해야 합니다.")
+        }
+    }
+
+    @ViewBuilder
+    private func demosaicStatus(_ name: String) -> some View {
+        if let record = model.managedModel(kind: .demosaic, modelID: name) {
+            switch record.state {
+            case .downloading:
+                Text("다운로드 중 \(Int((record.progress * 100).rounded()))%")
+                    .font(.caption).foregroundStyle(.secondary)
+            case .downloaded:
+                Label("설치됨", systemImage: "checkmark.circle.fill")
+                    .font(.caption).foregroundStyle(.green)
+            case .failed:
+                Label(record.error ?? "실패", systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
+            case .notDownloaded:
+                EmptyView()
+            }
         }
     }
 

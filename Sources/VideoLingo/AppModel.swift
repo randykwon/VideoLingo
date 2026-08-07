@@ -3,6 +3,7 @@ import AVFoundation
 import CryptoKit
 import Foundation
 import Observation
+import Vision
 import VideoLingoCore
 
 @MainActor
@@ -40,6 +41,27 @@ final class AppModel {
     }
     var autoRetryReviewedAndUntranslated = UserDefaults.standard.object(forKey: "autoRetryReviewedAndUntranslated") as? Bool ?? true {
         didSet { UserDefaults.standard.set(autoRetryReviewedAndUntranslated, forKey: "autoRetryReviewedAndUntranslated") }
+    }
+
+    // 화면 글자 OCR 번역 자막 (재생 중 실시간). recognized→translated는 Translation 프레임워크가 채웁니다.
+    var screenTextTranslationEnabled = UserDefaults.standard.bool(forKey: "screenTextTranslation") {
+        didSet {
+            UserDefaults.standard.set(screenTextTranslationEnabled, forKey: "screenTextTranslation")
+            startScreenTextLoop()
+        }
+    }
+    var recognizedScreenText: String?
+    var translatedScreenText: String?
+
+    // 동작 설정 (적용된 기능들을 설정에서 변경) — 앱 재시작 후 반영
+    var startMuted = UserDefaults.standard.object(forKey: "startMuted") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(startMuted, forKey: "startMuted") }
+    }
+    var autoloadLastVideoPreference = UserDefaults.standard.object(forKey: "autoloadLastVideo") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(autoloadLastVideoPreference, forKey: "autoloadLastVideo") }
+    }
+    var rememberPlaybackPosition = UserDefaults.standard.object(forKey: "rememberPlaybackPosition") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(rememberPlaybackPosition, forKey: "rememberPlaybackPosition") }
     }
 
     // 얼굴 모자이크 제거(디모자이크) 옵션
@@ -114,6 +136,9 @@ final class AppModel {
         "mlx-community/gemma-3-1b-it-qat-4bit"
     ]
 
+    private var videoOutput: AVPlayerItemVideoOutput?
+    private var screenTextTask: Task<Void, Never>?
+    private var lastPositionSaveWallTime: TimeInterval = 0
     private var currentJobID: UUID?
     private var autoRetriedJobIDs: Set<UUID> = []
     private var databaseURL: URL?
@@ -132,8 +157,8 @@ final class AppModel {
         if !targetLanguages.contains(selectedLanguage) {
             targetLanguages.append(selectedLanguage)
         }
-        // 앱 시작 시 기본은 무음입니다. 사용자가 음량을 올리면 그때부터 소리가 납니다.
-        player.volume = 0
+        // 시작 시 무음 설정(기본 켜짐). 사용자가 음량을 올리면 그때부터 소리가 납니다.
+        if startMuted { player.volume = 0 }
         setupPlayerObserver()
         connectService()
         beginServiceMonitoring()
@@ -141,6 +166,7 @@ final class AppModel {
             AppModel.hasAutoloadedInitialVideo = true
             restoreLastVideo()
         }
+        if screenTextTranslationEnabled { startScreenTextLoop() }
     }
 
     var activeTranscriptSegment: TranscriptSegment? {
@@ -724,6 +750,29 @@ final class AppModel {
         managedModels.first { $0.kind == kind && $0.modelID == modelID }
     }
 
+    /// 얼굴 모자이크 제거용 Core ML 모델을 직접 URL에서 내려받아 Models/Demosaic 에 배치합니다.
+    func downloadDemosaicModel(name: String, sourceURL: URL) {
+        guard let paths = try? AppPaths(), let service = remoteService() else {
+            settingsMessage = String(localized: "내장 AI 서버에 연결할 수 없습니다.")
+            return
+        }
+        do {
+            let request = ModelManagementRequest(kind: .demosaic, modelID: name, modelsURL: paths.models, sourceURL: sourceURL)
+            service.startModelDownload(try WireCodec.encode(request)) { [weak self] data, error in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if let error, data == nil { self.settingsMessage = error; return }
+                    if let data, let record = try? WireCodec.decode(ManagedModelRecord.self, from: data) {
+                        self.upsertManagedModel(record)
+                        self.settingsMessage = String(localized: "\(name) 다운로드를 시작했습니다.")
+                    }
+                }
+            }
+        } catch {
+            settingsMessage = error.localizedDescription
+        }
+    }
+
     func refreshResults() {
         guard let id = currentJobID, let databaseURL, let mediaURL else { return }
         do {
@@ -955,13 +1004,82 @@ final class AppModel {
             }
     }
 
+    /// 재생 중 주기적으로 현재 프레임을 OCR해 recognizedScreenText를 갱신합니다.
+    /// 번역은 뷰의 Translation 프레임워크(.translationTask)가 이어받아 translatedScreenText를 채웁니다.
+    private func startScreenTextLoop() {
+        screenTextTask?.cancel()
+        guard screenTextTranslationEnabled else {
+            recognizedScreenText = nil
+            translatedScreenText = nil
+            return
+        }
+        screenTextTask = Task { [weak self] in
+            while !Task.isCancelled {
+                if let self,
+                   self.screenTextTranslationEnabled,
+                   self.player.timeControlStatus == .playing,
+                   let buffer = self.currentVideoFrame(),
+                   let text = self.recognizeScreenText(in: buffer),
+                   text != self.recognizedScreenText {
+                    self.recognizedScreenText = text
+                }
+                try? await Task.sleep(for: .milliseconds(800))
+            }
+        }
+    }
+
+    private func currentVideoFrame() -> CVPixelBuffer? {
+        guard let output = videoOutput else { return nil }
+        let time = player.currentTime()
+        guard output.hasNewPixelBuffer(forItemTime: time) else { return nil }
+        return output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
+    }
+
+    private func recognizeScreenText(in buffer: CVPixelBuffer) -> String? {
+        let handler = VNImageRequestHandler(cvPixelBuffer: buffer, options: [:])
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        try? handler.perform([request])
+        let lines = (request.results ?? []).compactMap { observation -> String? in
+            guard let candidate = observation.topCandidates(1).first, candidate.confidence > 0.3 else { return nil }
+            let text = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.count >= 2 ? text : nil
+        }
+        let joined = lines.joined(separator: " ")
+        return joined.isEmpty ? nil : joined
+    }
+
     private func setupPlayerObserver() {
         let interval = CMTime(seconds: 0.2, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor in
                 self?.currentTime = time.seconds.isFinite ? time.seconds : 0
+                self?.savePlaybackPositionIfNeeded()
             }
         }
+    }
+
+    /// 현재 재생 위치를 영상별로 저장합니다. (3초마다 스로틀, 끝부분이면 저장 대신 삭제)
+    private func savePlaybackPositionIfNeeded() {
+        guard rememberPlaybackPosition, let url = mediaURL else { return }
+        let now = Date.now.timeIntervalSince1970
+        guard now - lastPositionSaveWallTime >= 3 else { return }
+        lastPositionSaveWallTime = now
+        let time = player.currentTime().seconds
+        guard time.isFinite, time > 1 else { return }
+        let key = positionKey(for: url)
+        let duration = player.currentItem?.duration.seconds ?? 0
+        if duration.isFinite, duration > 0, time > duration - 5 {
+            UserDefaults.standard.removeObject(forKey: key)   // 거의 끝까지 봤으면 다음엔 처음부터
+        } else {
+            UserDefaults.standard.set(time, forKey: key)
+        }
+    }
+
+    private func positionKey(for url: URL) -> String {
+        let digest = SHA256.hash(data: Data(url.path.utf8)).map { String(format: "%02x", $0) }.joined()
+        return "VideoLingo.playbackPosition.\(digest)"
     }
 
     private func loadVideo(_ url: URL, remember: Bool) {
@@ -974,8 +1092,28 @@ final class AppModel {
         statusTask?.cancel()
         currentRequest = nil
         mediaURL = url
-        player.replaceCurrentItem(with: AVPlayerItem(url: url))
+        let item = AVPlayerItem(url: url)
+        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+        ])
+        item.add(output)
+        videoOutput = output
+        player.replaceCurrentItem(with: item)
+        recognizedScreenText = nil
+        translatedScreenText = nil
         currentTime = 0
+        lastPositionSaveWallTime = 0
+        // 이전 재생 위치가 있으면 그 시점부터 이어봅니다.
+        if rememberPlaybackPosition,
+           let saved = UserDefaults.standard.object(forKey: positionKey(for: url)) as? Double,
+           saved > 1 {
+            player.seek(
+                to: CMTime(seconds: saved, preferredTimescale: 600),
+                toleranceBefore: .zero,
+                toleranceAfter: CMTime(seconds: 0.5, preferredTimescale: 600)
+            )
+            currentTime = saved
+        }
         snapshot = nil
         transcript = []
         translations = [:]

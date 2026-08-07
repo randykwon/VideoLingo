@@ -94,6 +94,13 @@ final class DemosaicPipeline: @unchecked Sendable {
             snapshot.updatedAt = .now
             publish(snapshot)
 
+            // 시간 일관성(깜빡임 억제)을 위한 트랙 상태
+            let temporal = request.options.temporalStabilization && request.options.restoreFaceOnly
+            let previousWeight = 0.35   // 이전 프레임 결과를 섞는 비중
+            var previousTracks: [Int: (rect: CGRect, crop: CIImage)] = [:]
+            var previousBoxes: [(id: Int, rect: CGRect)] = []
+            var nextTrackID = 0
+
             var frameIndex = 0
             while reader.status == .reading, let sample = readerOutput.copyNextSampleBuffer() {
                 try Task.checkCancellation()
@@ -101,11 +108,24 @@ final class DemosaicPipeline: @unchecked Sendable {
                 let pts = CMSampleBufferGetPresentationTimeStamp(sample)
 
                 var image = CIImage(cvPixelBuffer: pixelBuffer)
-                let rois = request.options.restoreFaceOnly
-                    ? detectFaceROIs(pixelBuffer, width: width, height: height)
-                    : [bounds]
-                for roi in rois {
-                    image = restorer.restore(image, roi: roi.integral.intersection(bounds), fidelity: request.options.fidelity)
+                if request.options.restoreFaceOnly {
+                    let detected = detectFaces(pixelBuffer, width: width, height: height)
+                    let assigned = assignTracks(detected, previous: &previousBoxes, nextID: &nextTrackID)
+                    var newTracks: [Int: (rect: CGRect, crop: CIImage)] = [:]
+                    for (trackID, face) in assigned {
+                        let roi = squared(face.rect, in: bounds)
+                        guard roi.width >= 8, roi.height >= 8 else { continue }
+                        var crop = restoreAligned(image, roi: roi, roll: face.roll, restorer: restorer, fidelity: request.options.fidelity)
+                        if temporal, let prev = previousTracks[trackID] {
+                            let warped = warp(prev.crop, from: prev.rect, to: roi)
+                            crop = blend(current: crop, previous: warped, roi: roi, previousWeight: previousWeight)
+                        }
+                        newTracks[trackID] = (roi, crop)
+                        image = crop.composited(over: image)
+                    }
+                    previousTracks = newTracks
+                } else {
+                    image = restorer.restore(image, roi: bounds, fidelity: request.options.fidelity)
                 }
                 if request.options.watermarkSynthetic {
                     image = watermark(image, bounds: bounds)
@@ -188,7 +208,7 @@ final class DemosaicPipeline: @unchecked Sendable {
 
     // MARK: - 얼굴 검출
 
-    private func detectFaceROIs(_ pixelBuffer: CVPixelBuffer, width: Int, height: Int) -> [CGRect] {
+    private func detectFaces(_ pixelBuffer: CVPixelBuffer, width: Int, height: Int) -> [DetectedFace] {
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
         let request = VNDetectFaceRectanglesRequest()
         do {
@@ -207,8 +227,89 @@ final class DemosaicPipeline: @unchecked Sendable {
                 width: box.width * (1 + pad * 2) * w,
                 height: box.height * (1 + pad * 2) * h
             )
-            return rect
+            let roll = face.roll.map { CGFloat(truncating: $0) } ?? 0   // 라디안
+            return DetectedFace(rect: rect, roll: roll)
         }
+    }
+
+    /// 연속 프레임 간 IoU로 얼굴에 안정적인 트랙 ID를 부여합니다. (temporal 스무딩의 전제)
+    private func assignTracks(
+        _ faces: [DetectedFace],
+        previous: inout [(id: Int, rect: CGRect)],
+        nextID: inout Int
+    ) -> [(id: Int, face: DetectedFace)] {
+        var result: [(id: Int, face: DetectedFace)] = []
+        var used = Set<Int>()
+        for face in faces {
+            var bestID = -1
+            var bestIoU: CGFloat = 0.2
+            for track in previous where !used.contains(track.id) {
+                let iou = Self.iou(face.rect, track.rect)
+                if iou > bestIoU { bestID = track.id; bestIoU = iou }
+            }
+            if bestID < 0 { bestID = nextID; nextID += 1 }
+            used.insert(bestID)
+            result.append((bestID, face))
+        }
+        previous = result.map { ($0.id, $0.face.rect) }
+        return result
+    }
+
+    /// 얼굴 roll이 크면 upright로 회전해 복원한 뒤 원래 각도로 되돌립니다.(회전 정렬)
+    /// 정렬은 얼굴 복원 모델이 정면·수평 얼굴을 기대하는 경우 품질을 높입니다.
+    private func restoreAligned(_ image: CIImage, roi: CGRect, roll: CGFloat, restorer: DemosaicRestorer, fidelity: Double) -> CIImage {
+        guard abs(roll) > 0.14 else {   // 약 8도 미만은 회전 생략
+            return restorer.restore(image, roi: roi, fidelity: fidelity).cropped(to: roi)
+        }
+        let center = CGPoint(x: roi.midX, y: roi.midY)
+        let upright = rotate(image, angle: -roll, about: center)
+        let restored = restorer.restore(upright, roi: roi, fidelity: fidelity).cropped(to: roi)
+        return rotate(restored, angle: roll, about: center).cropped(to: roi)
+    }
+
+    private func rotate(_ image: CIImage, angle: CGFloat, about center: CGPoint) -> CIImage {
+        let transform = CGAffineTransform(translationX: center.x, y: center.y)
+            .rotated(by: angle)
+            .translatedBy(x: -center.x, y: -center.y)
+        return image.transformed(by: transform)
+    }
+
+    private static func iou(_ a: CGRect, _ b: CGRect) -> CGFloat {
+        let inter = a.intersection(b)
+        guard !inter.isNull else { return 0 }
+        let interArea = inter.width * inter.height
+        let union = a.width * a.height + b.width * b.height - interArea
+        return union > 0 ? interArea / union : 0
+    }
+
+    /// 얼굴 복원 모델이 선호하는 정사각 영역으로 ROI를 정규화합니다.(가벼운 정렬)
+    private func squared(_ roi: CGRect, in bounds: CGRect) -> CGRect {
+        let side = max(roi.width, roi.height)
+        let square = CGRect(x: roi.midX - side / 2, y: roi.midY - side / 2, width: side, height: side)
+        return square.intersection(bounds).integral
+    }
+
+    /// 이전 프레임 트랙의 복원 결과를 현재 ROI 위치/크기에 맞춰 이동·스케일합니다.
+    private func warp(_ image: CIImage, from source: CGRect, to target: CGRect) -> CIImage {
+        guard source.width > 0, source.height > 0 else { return image }
+        let sx = target.width / source.width
+        let sy = target.height / source.height
+        return image
+            .transformed(by: CGAffineTransform(translationX: -source.minX, y: -source.minY))
+            .transformed(by: CGAffineTransform(scaleX: sx, y: sy))
+            .transformed(by: CGAffineTransform(translationX: target.minX, y: target.minY))
+    }
+
+    /// 현재 복원 결과와 이전(정렬된) 결과를 크로스페이드해 프레임 간 깜빡임을 억제합니다.
+    private func blend(current: CIImage, previous: CIImage, roi: CGRect, previousWeight: Double) -> CIImage {
+        let time = max(0, min(1, previousWeight))   // 0=현재만, 1=이전만
+        let mixed = current
+            .cropped(to: roi)
+            .applyingFilter("CIDissolveTransition", parameters: [
+                kCIInputTargetImageKey: previous.cropped(to: roi),
+                kCIInputTimeKey: time
+            ])
+        return mixed.cropped(to: roi)
     }
 
     // MARK: - 합성 표식
@@ -297,6 +398,12 @@ final class DemosaicPipeline: @unchecked Sendable {
     private func publish(_ snapshot: JobSnapshot) {
         onSnapshot(snapshot)
     }
+}
+
+/// 검출된 얼굴 하나. rect는 픽셀 좌표(좌하단 원점), roll은 라디안 기울기.
+private struct DetectedFace {
+    let rect: CGRect
+    let roll: CGFloat
 }
 
 // MARK: - 복원기 프로토콜

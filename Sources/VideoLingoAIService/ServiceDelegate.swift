@@ -279,6 +279,8 @@ final class VideoLingoAIService: NSObject, VideoLingoAIServiceProtocol, @uncheck
                         self?.updateModelProgress(key: key, progress: progress.fractionCompleted)
                     }
                 )
+            case .demosaic:
+                localURL = try await downloadDemosaicModel(request, key: key)
             }
             let record = ManagedModelRecord(
                 kind: request.kind,
@@ -310,6 +312,66 @@ final class VideoLingoAIService: NSObject, VideoLingoAIServiceProtocol, @uncheck
                 modelDownloadTasks[key] = nil
             }
         }
+    }
+
+    /// demosaic Core ML 모델을 직접 URL에서 받아 Models/Demosaic/<modelID>.<ext> 로 배치합니다.
+    /// .zip이면 ditto로 추출한 뒤 첫 .mlpackage/.mlmodelc를 modelID 이름으로 정규화합니다.
+    private func downloadDemosaicModel(_ request: ModelManagementRequest, key: String) async throws -> URL {
+        guard let source = request.sourceURL else {
+            throw VideoLingoError.modelUnavailable("다운로드 URL이 지정되지 않았습니다.")
+        }
+        let fm = FileManager.default
+        let demosaicDir = request.modelsURL.appending(path: "Demosaic", directoryHint: .isDirectory)
+        try fm.createDirectory(at: demosaicDir, withIntermediateDirectories: true)
+        updateModelProgress(key: key, progress: 0.05)
+
+        let (downloaded, _) = try await URLSession.shared.download(from: source)
+        updateModelProgress(key: key, progress: 0.8)
+
+        if source.pathExtension.lowercased() == "zip" {
+            let zip = demosaicDir.appending(path: "\(request.modelID).zip")
+            try? fm.removeItem(at: zip)
+            try fm.moveItem(at: downloaded, to: zip)
+            try extractZip(zip, into: demosaicDir)
+            try? fm.removeItem(at: zip)
+            guard let extracted = firstModel(in: demosaicDir) else {
+                throw VideoLingoError.modelUnavailable("압축 파일에서 .mlpackage/.mlmodelc를 찾지 못했습니다.")
+            }
+            let dest = demosaicDir.appending(path: "\(request.modelID).\(extracted.pathExtension)")
+            if extracted.standardizedFileURL != dest.standardizedFileURL {
+                try? fm.removeItem(at: dest)
+                try fm.moveItem(at: extracted, to: dest)
+            }
+            updateModelProgress(key: key, progress: 1)
+            return dest
+        } else {
+            let ext = source.pathExtension.isEmpty ? "mlmodel" : source.pathExtension
+            let dest = demosaicDir.appending(path: "\(request.modelID).\(ext)")
+            try? fm.removeItem(at: dest)
+            try fm.moveItem(at: downloaded, to: dest)
+            updateModelProgress(key: key, progress: 1)
+            return dest
+        }
+    }
+
+    private func extractZip(_ zip: URL, into directory: URL) throws {
+        let process = Process()
+        process.executableURL = URL(filePath: "/usr/bin/ditto")
+        process.arguments = ["-x", "-k", zip.path, directory.path]
+        try process.run()
+        process.waitUntilExit()
+        if process.terminationStatus != 0 {
+            throw VideoLingoError.modelUnavailable("압축 해제에 실패했습니다.")
+        }
+    }
+
+    private func firstModel(in directory: URL) -> URL? {
+        guard let enumerator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil) else { return nil }
+        for case let url as URL in enumerator
+        where ["mlpackage", "mlmodelc", "mlmodel"].contains(url.pathExtension.lowercased()) {
+            return url
+        }
+        return nil
     }
 
     private func updateModelProgress(key: String, progress: Double) {

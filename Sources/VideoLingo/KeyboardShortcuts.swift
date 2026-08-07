@@ -130,17 +130,19 @@ final class ShortcutSettings {
 
     func assign(_ shortcut: ShortcutDefinition, to action: ShortcutAction) {
         if let conflict = values.first(where: { $0.key != action && $0.value == shortcut })?.key {
-            message = "\(shortcut.displayText)은(는) ‘\(conflict.title)’에서 사용 중입니다."
+            let format = NSLocalizedString("%@은(는) ‘%@’에서 사용 중입니다.", comment: "")
+            message = String(format: format, shortcut.displayText, NSLocalizedString(conflict.title, comment: ""))
             return
         }
         values[action] = shortcut
-        message = "‘\(action.title)’ 단축키를 \(shortcut.displayText)으로 저장했습니다."
+        let format = NSLocalizedString("‘%@’ 단축키를 %@으로 저장했습니다.", comment: "")
+        message = String(format: format, NSLocalizedString(action.title, comment: ""), shortcut.displayText)
         save()
     }
 
     func reset() {
         values = Self.defaults
-        message = "모든 단축키를 기본값으로 복원했습니다."
+        message = NSLocalizedString("모든 단축키를 기본값으로 복원했습니다.", comment: "")
         save()
     }
 
@@ -250,7 +252,7 @@ final class RecorderControl: NSView {
         path.fill()
         (recording ? NSColor.controlAccentColor : NSColor.separatorColor).setStroke()
         path.stroke()
-        let value = recording ? "새 단축키 입력…" : shortcut.displayText
+        let value = recording ? NSLocalizedString("새 단축키 입력…", comment: "") : shortcut.displayText
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .medium),
             .foregroundColor: NSColor.labelColor
