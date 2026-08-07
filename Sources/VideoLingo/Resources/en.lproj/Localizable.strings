@@ -98,6 +98,9 @@
 "기본(Core Image)" = "Basic (Core Image)";
 "Real-ESRGAN (준비 중)" = "Real-ESRGAN (coming soon)";
 "CodeFormer (준비 중)" = "CodeFormer (coming soon)";
+"Real-ESRGAN (모델 필요)" = "Real-ESRGAN (model required)";
+"CodeFormer (모델 필요)" = "CodeFormer (model required)";
+"이 모델을 쓰려면 Core ML 파일을 Models/Demosaic 폴더에 넣어야 합니다. 없으면 기본 복원으로 처리됩니다." = "To use this model, place a Core ML file in the Models/Demosaic folder. Without it, basic restoration is used.";
 "얼굴 영역만 처리" = "Process face regions only";
 "합성 표식 남기기(권장)" = "Add synthetic marker (recommended)";
 "선택한 모델은 아직 준비 중이라 기본 복원으로 처리됩니다." = "The selected model is not ready yet, so basic restoration is used.";

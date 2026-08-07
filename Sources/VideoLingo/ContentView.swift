@@ -320,8 +320,8 @@ private struct DemosaicSheet: View {
             Form {
                 Picker("복원 모델", selection: $model.demosaicModel) {
                     Text("기본(Core Image)").tag(DemosaicModel.classical)
-                    Text("Real-ESRGAN (준비 중)").tag(DemosaicModel.realESRGAN)
-                    Text("CodeFormer (준비 중)").tag(DemosaicModel.codeFormer)
+                    Text("Real-ESRGAN (모델 필요)").tag(DemosaicModel.realESRGAN)
+                    Text("CodeFormer (모델 필요)").tag(DemosaicModel.codeFormer)
                 }
                 Toggle("얼굴 영역만 처리", isOn: $model.demosaicFaceOnly)
                 VStack(alignment: .leading) {
@@ -334,7 +334,7 @@ private struct DemosaicSheet: View {
             .formStyle(.grouped)
             .frame(height: 220)
             if model.demosaicModel != .classical {
-                Label("선택한 모델은 아직 준비 중이라 기본 복원으로 처리됩니다.", systemImage: "info.circle")
+                Label("이 모델을 쓰려면 Core ML 파일을 Models/Demosaic 폴더에 넣어야 합니다. 없으면 기본 복원으로 처리됩니다.", systemImage: "info.circle")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }

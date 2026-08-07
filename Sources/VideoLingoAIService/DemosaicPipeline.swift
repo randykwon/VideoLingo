@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreImage
+import CoreML
 import CoreVideo
 import Foundation
 import Vision
@@ -171,9 +172,18 @@ final class DemosaicPipeline: @unchecked Sendable {
     // MARK: - 복원기
 
     private static func makeRestorer(_ options: DemosaicOptions, modelsURL: URL) -> DemosaicRestorer {
-        // Phase 2 이후: modelsURL/Demosaic/<model>.mlmodelc 가 있으면 CoreMLDemosaicRestorer 반환.
-        // 현재(Phase 1)는 모델 없이 동작하는 Core Image baseline을 사용합니다.
-        ClassicalDemosaicRestorer()
+        // modelsURL/Demosaic/<name>.mlmodelc(또는 .mlpackage)가 있으면 Core ML 복원기를 사용하고,
+        // 없거나 로딩 실패 시 Core Image baseline으로 폴백합니다. (docs/mosaic-removal/COREML_MODELS.md)
+        let dir = modelsURL.appending(path: "Demosaic", directoryHint: .isDirectory)
+        let name: String? = switch options.model {
+        case .classical: nil
+        case .realESRGAN: "realesrgan"
+        case .codeFormer: "codeformer"
+        }
+        if let name, let coreML = CoreMLDemosaicRestorer(modelDirectory: dir, name: name) {
+            return coreML
+        }
+        return ClassicalDemosaicRestorer()
     }
 
     // MARK: - 얼굴 검출
@@ -295,6 +305,62 @@ protocol DemosaicRestorer: Sendable {
     var displayName: String { get }
     /// roi 영역(픽셀 좌표, 좌하단 원점)을 복원해 원본 위에 합성한 새 이미지를 반환합니다.
     func restore(_ image: CIImage, roi: CGRect, fidelity: Double) -> CIImage
+}
+
+/// Core ML 이미지→이미지 복원기(Real-ESRGAN/CodeFormer 등). 모델은 Vision으로 실행하며,
+/// ROI를 잘라 추론한 결과를 원본 위 해당 영역에 다시 합성합니다.
+/// 모델 출력이 이미지가 아니거나 추론이 실패하면 원본 ROI를 그대로 두어 파이프라인을 깨지 않습니다.
+final class CoreMLDemosaicRestorer: DemosaicRestorer, @unchecked Sendable {
+    private let model: VNCoreMLModel
+    let displayName: String
+
+    init?(modelDirectory: URL, name: String) {
+        guard let loaded = Self.load(directory: modelDirectory, name: name) else { return nil }
+        self.model = loaded
+        self.displayName = "Core ML: \(name)"
+    }
+
+    private static func load(directory: URL, name: String) -> VNCoreMLModel? {
+        let fm = FileManager.default
+        let compiled = directory.appending(path: "\(name).mlmodelc")
+        let package = directory.appending(path: "\(name).mlpackage")
+        var url: URL?
+        if fm.fileExists(atPath: compiled.path) {
+            url = compiled
+        } else if fm.fileExists(atPath: package.path) {
+            url = try? MLModel.compileModel(at: package)   // 최초 1회 컴파일(임시 경로)
+        }
+        guard let modelURL = url,
+              let mlModel = try? MLModel(contentsOf: modelURL),
+              let vnModel = try? VNCoreMLModel(for: mlModel) else { return nil }
+        return vnModel
+    }
+
+    func restore(_ image: CIImage, roi: CGRect, fidelity: Double) -> CIImage {
+        guard roi.width >= 8, roi.height >= 8 else { return image }
+        let crop = image.cropped(to: roi)
+        // ROI를 원점(0,0) 기준으로 옮겨 모델 입력으로 사용
+        let normalized = crop.transformed(by: CGAffineTransform(translationX: -roi.minX, y: -roi.minY))
+
+        let request = VNCoreMLRequest(model: model)
+        request.imageCropAndScaleOption = .scaleFill
+        let handler = VNImageRequestHandler(ciImage: normalized, options: [:])
+        guard (try? handler.perform([request])) != nil,
+              let result = request.results?.first as? VNPixelBufferObservation else {
+            return image
+        }
+        var restored = CIImage(cvPixelBuffer: result.pixelBuffer)
+        // 모델 출력 크기를 ROI 크기에 맞춰 스케일 후, 원래 위치로 이동
+        let outExtent = restored.extent
+        if outExtent.width > 0, outExtent.height > 0 {
+            let sx = roi.width / outExtent.width
+            let sy = roi.height / outExtent.height
+            restored = restored
+                .transformed(by: CGAffineTransform(scaleX: sx, y: sy))
+                .transformed(by: CGAffineTransform(translationX: roi.minX, y: roi.minY))
+        }
+        return restored.cropped(to: roi).composited(over: image)
+    }
 }
 
 /// Core Image 기반 baseline. 진짜 모자이크 복원은 아니고, 블록 경계를 완화하고 디테일을 강조하는
