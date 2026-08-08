@@ -315,6 +315,139 @@ final class DemosaicPipeline: @unchecked Sendable {
         return mixed.cropped(to: roi)
     }
 
+    // MARK: - 모자이크 영역 자동 탐지 (실험적: 블록성 휴리스틱)
+    // 학습된 세그멘테이션(DeepMosaics 등) Core ML 모델이 준비되면 이 자리를 대체하면 정확도가 크게 오릅니다.
+
+    private func detectMosaicRegions(_ pixelBuffer: CVPixelBuffer, width: Int, height: Int) -> [DetectedFace] {
+        let targetW = min(width, 480)
+        guard targetW >= 32 else { return [] }
+        let scale = Double(targetW) / Double(width)
+        let targetH = max(1, Int((Double(height) * scale).rounded()))
+        guard let luma = downscaledLuma(pixelBuffer, w: targetW, h: targetH) else { return [] }
+
+        let cell = 16
+        let cols = targetW / cell
+        let rows = targetH / cell
+        guard cols > 0, rows > 0 else { return [] }
+        var flagged = [Bool](repeating: false, count: cols * rows)
+        for gy in 0..<rows {
+            for gx in 0..<cols {
+                flagged[gy * cols + gx] = isBlockyCell(luma, w: targetW, x0: gx * cell, y0: gy * cell, size: cell)
+            }
+        }
+
+        let invScale = Double(width) / Double(targetW)
+        return connectedComponents(flagged, cols: cols, rows: rows).compactMap { comp in
+            let px = Double(comp.minCol * cell) * invScale
+            let pw = Double((comp.maxCol - comp.minCol + 1) * cell) * invScale
+            let topY = Double(comp.minRow * cell) * invScale
+            let ph = Double((comp.maxRow - comp.minRow + 1) * cell) * invScale
+            // 배열은 좌상단 원점, CIImage는 좌하단 원점 → y를 뒤집습니다.
+            let py = Double(height) - topY - ph
+            let rect = CGRect(x: px, y: py, width: pw, height: ph).integral
+            return (rect.width >= 24 && rect.height >= 24) ? DetectedFace(rect: rect, roll: 0) : nil
+        }
+    }
+
+    private func downscaledLuma(_ pixelBuffer: CVPixelBuffer, w: Int, h: Int) -> [Float]? {
+        let source = CIImage(cvPixelBuffer: pixelBuffer)
+        guard source.extent.width > 0, source.extent.height > 0 else { return nil }
+        let scaled = source.transformed(by: CGAffineTransform(
+            scaleX: CGFloat(w) / source.extent.width,
+            y: CGFloat(h) / source.extent.height
+        ))
+        var buffer: CVPixelBuffer?
+        CVPixelBufferCreate(nil, w, h, kCVPixelFormatType_32BGRA,
+                            [kCVPixelBufferIOSurfacePropertiesKey as String: [:]] as CFDictionary, &buffer)
+        guard let out = buffer else { return nil }
+        ciContext.render(scaled, to: out, bounds: CGRect(x: 0, y: 0, width: w, height: h), colorSpace: CGColorSpaceCreateDeviceRGB())
+        CVPixelBufferLockBaseAddress(out, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(out, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(out) else { return nil }
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(out)
+        let ptr = base.assumingMemoryBound(to: UInt8.self)
+        var luma = [Float](repeating: 0, count: w * h)
+        for y in 0..<h {
+            let row = ptr + y * bytesPerRow
+            for x in 0..<w {
+                let p = row + x * 4   // BGRA
+                luma[y * w + x] = 0.114 * Float(p[0]) + 0.587 * Float(p[1]) + 0.299 * Float(p[2])
+            }
+        }
+        return luma
+    }
+
+    /// 셀이 모자이크(블록 내부가 평평, 격자로 잘 근사)인지 판정합니다.
+    private func isBlockyCell(_ luma: [Float], w: Int, x0: Int, y0: Int, size: Int) -> Bool {
+        var vals = [Float]()
+        vals.reserveCapacity(size * size)
+        for y in y0..<(y0 + size) {
+            let base = y * w
+            for x in x0..<(x0 + size) { vals.append(luma[base + x]) }
+        }
+        let n = Float(vals.count)
+        let mean = vals.reduce(0, +) / n
+        var variance: Float = 0
+        for v in vals { let d = v - mean; variance += d * d }
+        variance /= n
+        let std = variance.squareRoot()
+        guard std > 6 else { return false }   // 평평한(하늘·단색) 영역 제외
+        var minRel: Float = .greatestFiniteMagnitude
+        for k in [3, 4, 6, 8] {
+            let rel = reconstructionError(vals, size: size, k: k) / std
+            if rel < minRel { minRel = rel }
+        }
+        return minRel < 0.30   // 어떤 블록 크기로 잘 근사되면 모자이크로 간주
+    }
+
+    private func reconstructionError(_ vals: [Float], size: Int, k: Int) -> Float {
+        var total: Float = 0
+        var count: Float = 0
+        var by = 0
+        while by < size {
+            var bx = 0
+            while bx < size {
+                let yEnd = min(by + k, size), xEnd = min(bx + k, size)
+                var sum: Float = 0, c: Float = 0
+                for y in by..<yEnd { for x in bx..<xEnd { sum += vals[y * size + x]; c += 1 } }
+                let m = sum / max(1, c)
+                for y in by..<yEnd { for x in bx..<xEnd { total += abs(vals[y * size + x] - m); count += 1 } }
+                bx += k
+            }
+            by += k
+        }
+        return count > 0 ? total / count : 0
+    }
+
+    private func connectedComponents(_ flagged: [Bool], cols: Int, rows: Int)
+        -> [(minCol: Int, minRow: Int, maxCol: Int, maxRow: Int)] {
+        var visited = [Bool](repeating: false, count: cols * rows)
+        var comps: [(minCol: Int, minRow: Int, maxCol: Int, maxRow: Int)] = []
+        for startY in 0..<rows {
+            for startX in 0..<cols {
+                let idx = startY * cols + startX
+                guard flagged[idx], !visited[idx] else { continue }
+                var stack = [(startX, startY)]
+                visited[idx] = true
+                var minC = startX, maxC = startX, minR = startY, maxR = startY
+                while let (cx, cy) = stack.popLast() {
+                    minC = min(minC, cx); maxC = max(maxC, cx)
+                    minR = min(minR, cy); maxR = max(maxR, cy)
+                    for (nx, ny) in [(cx - 1, cy), (cx + 1, cy), (cx, cy - 1), (cx, cy + 1)] {
+                        guard nx >= 0, nx < cols, ny >= 0, ny < rows else { continue }
+                        let nIdx = ny * cols + nx
+                        if flagged[nIdx], !visited[nIdx] {
+                            visited[nIdx] = true
+                            stack.append((nx, ny))
+                        }
+                    }
+                }
+                comps.append((minC, minR, maxC, maxR))
+            }
+        }
+        return comps
+    }
+
     // MARK: - 합성 표식
 
     private func watermark(_ image: CIImage, bounds: CGRect) -> CIImage {
