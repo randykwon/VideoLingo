@@ -422,22 +422,14 @@ private struct PlayerPane: View {
                     if model.screenTextTranslationEnabled,
                        let screenText = model.translatedScreenText,
                        !screenText.isEmpty {
-                        Text(screenText)
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(.yellow)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(2)
-                            .truncationMode(.tail)
-                            .shadow(color: .black, radius: 3)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+                        PlayerCaption(text: screenText, color: .yellow)
                             .padding(.top, 14)
-                            .padding(.horizontal, 24)
-                            .accessibilityLabel(screenText)
                     }
                 }
-            PlayerSubtitleView(text: model.activeSubtitle)
+                .overlay(alignment: .bottom) {
+                    PlayerCaption(text: model.activeSubtitle)
+                        .padding(.bottom, 16)
+                }
             if !model.isSimpleMode && !model.hideTranscriptPanel {
                 PanelResizeHandle(height: $transcriptPanelHeight)
                 TranscriptInspector()
