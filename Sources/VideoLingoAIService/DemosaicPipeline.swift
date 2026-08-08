@@ -95,7 +95,8 @@ final class DemosaicPipeline: @unchecked Sendable {
             publish(snapshot)
 
             // 시간 일관성(깜빡임 억제)을 위한 트랙 상태
-            let temporal = request.options.temporalStabilization && request.options.restoreFaceOnly
+            let regionMode = request.options.regionMode
+            let temporal = request.options.temporalStabilization && regionMode != .wholeFrame
             let previousWeight = 0.35   // 이전 프레임 결과를 섞는 비중
             var previousTracks: [Int: (rect: CGRect, crop: CIImage)] = [:]
             var previousBoxes: [(id: Int, rect: CGRect)] = []
