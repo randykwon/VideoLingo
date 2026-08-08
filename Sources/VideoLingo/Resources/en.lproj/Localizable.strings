@@ -190,6 +190,14 @@
 
 /* Settings — General */
 "테마" = "Theme";
+"프리셋" = "Presets";
+"기본" = "Default";
+"미니멀" = "Minimal";
+"선명" = "Vivid";
+"다크 포커스" = "Dark Focus";
+"글래스" = "Glass";
+"반투명(글래스) 배경" = "Translucent (glass) background";
+"외형·강조 색·밀도·반투명을 바꾸면 앱 전체에 바로 반영됩니다." = "Changing appearance, accent color, density, or translucency applies across the whole app immediately.";
 "외형" = "Appearance";
 "강조 색" = "Accent Color";
 "밀도" = "Density";
