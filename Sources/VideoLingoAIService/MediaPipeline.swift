@@ -128,34 +128,61 @@ final class MediaPipeline: @unchecked Sendable {
                 publish: onSnapshot
             )
 
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask {
-                    try await self.runSTTStage(
-                        coordinator: coordinator,
-                        request: request,
-                        mediaURL: mediaURL,
-                        duration: duration,
-                        chunkDuration: chunkDuration,
-                        total: total,
-                        chunksFolder: chunksFolder,
-                        modelsURL: modelsURL,
-                        glossary: glossary,
-                        qualityMode: qualityMode
-                    )
+            let retryChunkIndices = Set(request.retryChunkIndices ?? [])
+            if retryChunkIndices.isEmpty {
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    group.addTask {
+                        try await self.runSTTStage(
+                            coordinator: coordinator,
+                            request: request,
+                            mediaURL: mediaURL,
+                            duration: duration,
+                            chunkDuration: chunkDuration,
+                            total: total,
+                            chunksFolder: chunksFolder,
+                            modelsURL: modelsURL,
+                            glossary: glossary,
+                            qualityMode: qualityMode
+                        )
+                    }
+                    group.addTask {
+                        try await self.runTranslationStage(
+                            coordinator: coordinator,
+                            request: request,
+                            total: total,
+                            speechFolder: speechFolder,
+                            modelsURL: modelsURL,
+                            glossary: glossary,
+                            qualityMode: qualityMode,
+                            targetCount: targetCount
+                        )
+                    }
+                    try await group.waitForAll()
                 }
-                group.addTask {
-                    try await self.runTranslationStage(
-                        coordinator: coordinator,
-                        request: request,
-                        total: total,
-                        speechFolder: speechFolder,
-                        modelsURL: modelsURL,
-                        glossary: glossary,
-                        qualityMode: qualityMode,
-                        targetCount: targetCount
-                    )
-                }
-                try await group.waitForAll()
+            } else {
+                // 비교 재시도에서는 번역이 오래된 STT를 먼저 읽지 않도록 STT 후보 비교를 끝낸 뒤 번역합니다.
+                try await runSTTStage(
+                    coordinator: coordinator,
+                    request: request,
+                    mediaURL: mediaURL,
+                    duration: duration,
+                    chunkDuration: chunkDuration,
+                    total: total,
+                    chunksFolder: chunksFolder,
+                    modelsURL: modelsURL,
+                    glossary: glossary,
+                    qualityMode: qualityMode
+                )
+                try await runTranslationStage(
+                    coordinator: coordinator,
+                    request: request,
+                    total: total,
+                    speechFolder: speechFolder,
+                    modelsURL: modelsURL,
+                    glossary: glossary,
+                    qualityMode: qualityMode,
+                    targetCount: targetCount
+                )
             }
 
             snapshot = await coordinator.currentSnapshot()
@@ -329,10 +356,12 @@ final class MediaPipeline: @unchecked Sendable {
         let asset = AVURLAsset(url: mediaURL)
         var producedTranscripts = await coordinator.currentTranscripts()
         var detectedLanguage = await coordinator.currentDetectedLanguage()
+        let retryChunkIndices = Set(request.retryChunkIndices ?? [])
         do {
             for index in 0..<total {
                 try Task.checkCancellation()
-                if producedTranscripts[index] != nil { continue }
+                let existingTranscript = producedTranscripts[index]
+                if existingTranscript != nil, !retryChunkIndices.contains(index) { continue }
 
                 let start = Double(index) * chunkDuration
                 let end = min(duration, start + chunkDuration)
@@ -365,7 +394,8 @@ final class MediaPipeline: @unchecked Sendable {
                     guard cueEnd > cueStart, !cue.text.isEmpty else { return nil }
                     return TranscriptCue(startTime: cueStart, endTime: cueEnd, text: cue.text)
                 }
-                let transcript = TranscriptSegment(
+                let candidate = TranscriptSegment(
+                    id: existingTranscript?.id ?? UUID(),
                     jobID: request.jobID,
                     chunkIndex: index,
                     startTime: timedCues.first?.startTime ?? start,
@@ -375,15 +405,22 @@ final class MediaPipeline: @unchecked Sendable {
                     confidence: sttOutput.confidence,
                     cues: timedCues,
                     qualityStatus: sttOutput.qualityNotes.contains(where: { $0.contains("검토 권장") }) ? .warning : (sttOutput.retryCount > 0 ? .reviewed : .good),
-                    retryCount: sttOutput.retryCount,
-                    qualityNotes: sttOutput.qualityNotes
+                    retryCount: (existingTranscript?.retryCount ?? 0) + sttOutput.retryCount + (existingTranscript == nil ? 0 : 1),
+                    qualityNotes: sttOutput.qualityNotes + (existingTranscript == nil ? [] : ["기존 결과와 재시도 후보 비교"])
                 )
+                let transcript = existingTranscript.map {
+                    SegmentQualityComparator.prefersCandidate(candidate, over: $0) ? candidate : $0
+                } ?? candidate
                 if detectedLanguage == nil, (transcript.confidence ?? 0) >= 0.35 {
                     detectedLanguage = transcript.language
                     await coordinator.setDetectedLanguage(detectedLanguage)
                 }
                 producedTranscripts[index] = transcript
-                try await coordinator.commitTranscript(transcript)
+                if existingTranscript == nil || transcript != existingTranscript {
+                    try await coordinator.commitTranscript(transcript)
+                } else {
+                    try await coordinator.markRetryKeptExisting(index: index)
+                }
             }
             await coordinator.markSTTFinished()
         } catch {
@@ -404,6 +441,7 @@ final class MediaPipeline: @unchecked Sendable {
         targetCount: Int
     ) async throws {
         guard targetCount > 0 else { return }
+        let retryChunkIndices = Set(request.retryChunkIndices ?? [])
 
         // STT가 5% 진행될 때까지 대기한 뒤 번역을 시작합니다.
         while await coordinator.sttProgressValue() < 0.05, await coordinator.isSTTFinished() == false {
@@ -434,7 +472,8 @@ final class MediaPipeline: @unchecked Sendable {
             for language in request.options.targetLanguages {
                 try Task.checkCancellation()
                 let translation: TranslationSegment
-                if let existing = await coordinator.existingTranslation(language: language, transcriptID: transcript.id) {
+                let existing = await coordinator.existingTranslation(language: language, transcriptID: transcript.id)
+                if let existing, !retryChunkIndices.contains(index) {
                     translation = existing
                 } else {
                     try await coordinator.markTranslating(index: index, language: language, message: "\(language) 번역 \(index + 1)/\(total)")
@@ -455,7 +494,8 @@ final class MediaPipeline: @unchecked Sendable {
                             onLiveTranslation(request.jobID, index, total, language, text)
                         }
                     )
-                    translation = TranslationSegment(
+                    let candidate = TranslationSegment(
+                        id: existing?.id ?? UUID(),
                         transcriptID: transcript.id,
                         jobID: request.jobID,
                         targetLanguage: language,
@@ -464,7 +504,14 @@ final class MediaPipeline: @unchecked Sendable {
                         qualityStatus: translated.qualityStatus,
                         qualityNotes: translated.qualityNotes
                     )
-                    try await coordinator.commitTranslation(translation, index: index, language: language)
+                    translation = existing.map {
+                        SegmentQualityComparator.prefersCandidate(candidate, over: $0) ? candidate : $0
+                    } ?? candidate
+                    if existing == nil || translation != existing {
+                        try await coordinator.commitTranslation(translation, index: index, language: language)
+                    } else {
+                        try await coordinator.markRetryKeptExisting(index: index, language: language)
+                    }
                 }
                 if request.options.synthesizeSpeech, !translation.text.isEmpty {
                     try await coordinator.markSynthesizing(index: index, language: language, message: "\(language) 번역 음성 \(index + 1)/\(total) 생성 중")

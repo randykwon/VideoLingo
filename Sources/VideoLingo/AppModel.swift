@@ -489,32 +489,27 @@ final class AppModel {
         }
     }
 
-    /// 지정한 구간들의 STT·번역 결과를 삭제하고 STT 추출·번역을 다시 시작합니다.
+    /// 기존 결과를 보존한 채 지정 구간의 후보를 만들고 더 나을 때만 교체합니다.
     private func retrySegments(_ segments: [TranscriptSegment]) {
         guard canRegenerate, let mediaURL, let currentJobID, !segments.isEmpty else { return }
         errorMessage = nil
         do {
             let paths = try AppPaths()
-            let store = try store(at: paths.database)
-            let sidecar = try MediaSidecarStore(
-                mediaURL: mediaURL,
+            let options = currentProcessingOptions()
+            let request = try makeRequest(
                 jobID: currentJobID,
-                sttModel: sttModel,
-                sourceLanguage: sourceLanguage.isEmpty ? nil : sourceLanguage
+                mediaURL: mediaURL,
+                paths: paths,
+                options: options,
+                retryChunkIndices: segments.map(\.chunkIndex)
             )
-            for segment in segments {
-                try store.deleteTranscript(jobID: currentJobID, chunkIndex: segment.chunkIndex)
-            }
-            let remaining = try store.transcript(jobID: currentJobID)
-            try sidecar.saveTranscripts(remaining)
-            for language in targetLanguages {
-                try sidecar.deleteTranslationResults(language: language, modelID: translationModel)
-            }
-            transcript = remaining
-            for segment in segments {
-                translations.removeValue(forKey: segment.id)
-            }
-            startOrResume()
+            currentRequest = request
+            snapshot = JobSnapshot(
+                id: currentJobID,
+                status: .queued,
+                message: String(localized: "기존 결과를 유지하며 재추출 후보 비교 준비 중")
+            )
+            sendStart(request)
         } catch {
             errorMessage = String(localized: "미번역 항목 재시도 준비 실패: \(error.localizedDescription)")
         }
@@ -1267,7 +1262,8 @@ final class AppModel {
         jobID: UUID,
         mediaURL: URL,
         paths: AppPaths,
-        options: ProcessingOptions
+        options: ProcessingOptions,
+        retryChunkIndices: [Int] = []
     ) throws -> StartJobRequest {
         databaseURL = paths.database
         let workspace = paths.workspace(for: jobID)
@@ -1285,7 +1281,8 @@ final class AppModel {
             securityScopedBookmark: bookmark,
             options: options,
             databaseURL: paths.database,
-            workspaceURL: workspace
+            workspaceURL: workspace,
+            retryChunkIndices: retryChunkIndices
         )
     }
 

@@ -66,14 +66,17 @@ public struct StartJobRequest: Codable, Sendable {
     public let options: ProcessingOptions
     public let databaseURL: URL
     public let workspaceURL: URL
+    /// 기존 결과를 지우지 않고 새 후보와 비교해 개선된 경우에만 교체할 청크입니다.
+    public let retryChunkIndices: [Int]?
 
-    public init(jobID: UUID, mediaURL: URL, securityScopedBookmark: Data?, options: ProcessingOptions, databaseURL: URL, workspaceURL: URL) {
+    public init(jobID: UUID, mediaURL: URL, securityScopedBookmark: Data?, options: ProcessingOptions, databaseURL: URL, workspaceURL: URL, retryChunkIndices: [Int] = []) {
         self.jobID = jobID
         self.mediaURL = mediaURL
         self.securityScopedBookmark = securityScopedBookmark
         self.options = options
         self.databaseURL = databaseURL
         self.workspaceURL = workspaceURL
+        self.retryChunkIndices = retryChunkIndices.isEmpty ? nil : retryChunkIndices
     }
 }
 
