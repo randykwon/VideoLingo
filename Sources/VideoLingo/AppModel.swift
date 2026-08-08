@@ -212,6 +212,16 @@ final class AppModel {
         mediaURL != nil && canMutateStorage
     }
 
+    /// 첫 STT 추출이 끝나(전사 결과가 있으면) 초기 STT/번역 진행 중이 아니라면,
+    /// 품질 개선 등 후속 작업 중에도 특정 구간 재추출을 허용합니다.
+    var canRegenerateSegment: Bool {
+        guard mediaURL != nil, !transcript.isEmpty else { return false }
+        guard let status = snapshot?.status else { return true }
+        // 초기 추출/번역 중에는 실행 파이프라인과 충돌 위험이 커서 막습니다.
+        let initialStatuses: Set<JobStatus> = [.queued, .extracting, .transcribing, .translating, .synthesizing]
+        return !initialStatuses.contains(status)
+    }
+
     var glossaryEntries: [GlossaryEntry] {
         glossaryText.split(separator: "\n").compactMap { line in
             let parts = line.split(separator: "=", maxSplits: 1).map {
