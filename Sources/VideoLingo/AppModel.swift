@@ -529,8 +529,36 @@ final class AppModel {
         retrySegments(targets)
     }
 
+    /// 작업 실행 중(주로 품질 개선 단계)에는 즉시 처리할 수 없으므로, 대상 청크를 대기열에 넣고
+    /// 현재 작업을 멈춘 뒤 완료되는 즉시 재추출합니다. (초기 STT/번역 중에는 canRegenerateSegment로 이미 차단됨)
+    private func queueSegmentRetry(_ segments: [TranscriptSegment]) {
+        guard !segments.isEmpty else { return }
+        segments.forEach { pendingRetryChunkIndices.insert($0.chunkIndex) }
+        errorMessage = nil
+        if var current = snapshot {
+            current.message = String(localized: "현재 작업을 멈추고 선택 구간을 재추출 대기열에 추가했습니다")
+            current.updatedAt = .now
+            snapshot = current
+        }
+        if let id = currentJobID, let service = remoteService() {
+            service.cancelJob(id.uuidString) { _ in }
+        }
+    }
+
+    /// 대기열에 쌓인 구간을 작업 종료 후 한 번에 재추출합니다. (pollOnce의 종료 처리에서 호출)
+    private func flushPendingSegmentRetries() {
+        let indices = pendingRetryChunkIndices
+        pendingRetryChunkIndices.removeAll()
+        guard !indices.isEmpty else { return }
+        refreshResults()
+        let segments = transcript.filter { indices.contains($0.chunkIndex) }
+        guard !segments.isEmpty else { return }
+        retrySegments(segments)
+    }
+
     func regenerateSTT(for segment: TranscriptSegment) {
-        guard canRegenerate, let mediaURL, let currentJobID else { return }
+        guard canRegenerateSegment, let mediaURL, let currentJobID else { return }
+        guard canMutateStorage else { queueSegmentRetry([segment]); return }
         do {
             let paths = try AppPaths()
             let store = try store(at: paths.database)
@@ -555,7 +583,8 @@ final class AppModel {
     }
 
     func regenerateTranslation(for segment: TranscriptSegment) {
-        guard canRegenerate, let mediaURL, let currentJobID else { return }
+        guard canRegenerateSegment, let mediaURL, let currentJobID else { return }
+        guard canMutateStorage else { queueSegmentRetry([segment]); return }
         do {
             let paths = try AppPaths()
             try store(at: paths.database).deleteTranslation(
