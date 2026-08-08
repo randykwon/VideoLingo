@@ -141,6 +141,7 @@ final class AppModel {
     private var lastPositionSaveWallTime: TimeInterval = 0
     private var currentJobID: UUID?
     private var autoRetriedJobIDs: Set<UUID> = []
+    private var pendingRetryChunkIndices: Set<Int> = []
     private var databaseURL: URL?
     private var workspaceURL: URL?
     private var persistentStore: JobStore?
