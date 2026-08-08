@@ -208,9 +208,15 @@ struct ContentView: View {
                 }
             }
             .formStyle(.grouped)
+            .scrollContentBackground(theme.translucent ? .hidden : .automatic)
             }
             }
             .navigationSplitViewColumnWidth(min: 250, ideal: 290, max: 340)
+            .background {
+                if theme.translucent {
+                    VisualEffectView(material: .sidebar).ignoresSafeArea()
+                }
+            }
         } detail: {
             // 플레이어·자막·화면글자 번역은 별도 뷰로 분리해, 실시간 갱신이 툴바를 다시 계산하지 않도록 합니다.
             PlayerPane()
