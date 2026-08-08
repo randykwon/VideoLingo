@@ -476,13 +476,17 @@ final class AppModel {
 
     /// 번역이 안 된 구간만 STT 추출과 번역을 다시 시도합니다. 이미 번역된 구간은 그대로 보존합니다.
     func retryUntranslatedSegments() {
-        guard canRegenerate else { return }
+        guard canRegenerateSegment else { return }
         let pending = untranslatedSegments
         guard !pending.isEmpty else {
             errorMessage = String(localized: "번역이 안 된 항목이 없습니다.")
             return
         }
-        retrySegments(pending)
+        if canMutateStorage {
+            retrySegments(pending)
+        } else {
+            queueSegmentRetry(pending)
+        }
     }
 
     /// 지정한 구간들의 STT·번역 결과를 삭제하고 STT 추출·번역을 다시 시작합니다.
