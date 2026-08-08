@@ -189,6 +189,25 @@
 "단축키" = "Shortcuts";
 
 /* Settings — General */
+"테마" = "Theme";
+"외형" = "Appearance";
+"강조 색" = "Accent Color";
+"밀도" = "Density";
+"외형·강조 색·밀도를 바꾸면 앱 전체에 바로 반영됩니다." = "Changing appearance, accent color, or density applies across the whole app immediately.";
+"시스템" = "System";
+"라이트" = "Light";
+"다크" = "Dark";
+"시스템 기본" = "System Default";
+"파랑" = "Blue";
+"보라" = "Purple";
+"분홍" = "Pink";
+"빨강" = "Red";
+"주황" = "Orange";
+"초록" = "Green";
+"청록" = "Teal";
+"그래파이트" = "Graphite";
+"보통" = "Comfortable";
+"컴팩트" = "Compact";
 "언어" = "Language";
 "표시 언어" = "Display Language";
 "앱 메뉴와 화면 문구에 사용할 언어입니다. 변경하면 즉시 적용됩니다." = "The language used for app menus and on-screen text. Changes apply immediately.";
