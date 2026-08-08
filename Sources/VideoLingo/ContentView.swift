@@ -5,6 +5,7 @@ import VideoLingoCore
 
 struct ContentView: View {
     @Environment(AppModel.self) private var model
+    @Environment(ThemeManager.self) private var theme
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showDemosaicSheet = false
     @AppStorage("simpleSidebar") private var simpleSidebar = false
