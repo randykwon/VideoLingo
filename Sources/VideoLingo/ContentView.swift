@@ -972,6 +972,17 @@ private struct TranscriptInspector: View {
         }
     }
 
+    @ViewBuilder
+    private func qualityBadge(_ title: String, status: SegmentQualityStatus) -> some View {
+        let tint: Color = status == .warning ? .orange : (status == .good ? .green : .secondary)
+        Label(title, systemImage: qualityIcon(status))
+            .font(.caption2)
+            .foregroundStyle(tint)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(tint.opacity(0.14), in: Capsule())
+    }
+
     private func qualityLabel(_ status: SegmentQualityStatus) -> String {
         switch status {
         case .good: String(localized: "양호")
