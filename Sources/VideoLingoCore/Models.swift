@@ -86,22 +86,29 @@ public enum DemosaicModel: String, Codable, Sendable, CaseIterable {
     case codeFormer     // 얼굴 복원 (Core ML)
 }
 
+/// 복원할 영역을 어떻게 정할지.
+public enum DemosaicRegionMode: String, Codable, Sendable, CaseIterable {
+    case face          // 얼굴 영역만 (Vision 얼굴 검출)
+    case autoMosaic    // 모자이크 영역 자동 탐지(전체 영상에서)
+    case wholeFrame    // 전체 화면
+}
+
 public struct DemosaicOptions: Codable, Sendable, Equatable {
     public var model: DemosaicModel
-    public var restoreFaceOnly: Bool
+    public var regionMode: DemosaicRegionMode
     public var fidelity: Double
     public var temporalStabilization: Bool
     public var watermarkSynthetic: Bool
 
     public init(
         model: DemosaicModel = .classical,
-        restoreFaceOnly: Bool = true,
+        regionMode: DemosaicRegionMode = .face,
         fidelity: Double = 0.7,
         temporalStabilization: Bool = true,
         watermarkSynthetic: Bool = true
     ) {
         self.model = model
-        self.restoreFaceOnly = restoreFaceOnly
+        self.regionMode = regionMode
         self.fidelity = fidelity
         self.temporalStabilization = temporalStabilization
         self.watermarkSynthetic = watermarkSynthetic
