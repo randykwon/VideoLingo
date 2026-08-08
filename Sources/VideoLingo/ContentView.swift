@@ -587,20 +587,37 @@ private struct PanelResizeHandle: View {
     }
 }
 
-private struct PlayerSubtitleView: View {
+/// 영상 위에 얹는 통일된 자막 캡션. color가 nil이면 화자 색상(기본 흰색),
+/// 지정하면 단색으로 렌더링합니다. 비어 있으면 아무것도 그리지 않습니다.
+private struct PlayerCaption: View {
     let text: String
+    var color: Color?
+
+    init(text: String, color: Color? = nil) {
+        self.text = text
+        self.color = color
+    }
 
     var body: some View {
-        SpeakerColoredText(text: text.isEmpty ? " " : text, defaultColor: .white)
+        if !text.isEmpty {
+            Group {
+                if let color {
+                    Text(text).foregroundStyle(color)
+                } else {
+                    SpeakerColoredText(text: text, defaultColor: .white)
+                }
+            }
             .font(.title3.weight(.semibold))
             .multilineTextAlignment(.center)
-            .opacity(text.isEmpty ? 0 : 1)
             .lineLimit(2)
             .truncationMode(.tail)
-            .frame(maxWidth: .infinity, minHeight: 64, alignment: .center)
+            .shadow(color: .black.opacity(0.85), radius: 3)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.black.opacity(0.42), in: RoundedRectangle(cornerRadius: 10))
             .padding(.horizontal, 24)
-            .background(Color.black)
-            .accessibilityLabel(text.isEmpty ? "표시 중인 자막 없음" : text)
+            .accessibilityLabel(text)
+        }
     }
 }
 
