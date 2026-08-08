@@ -1097,12 +1097,40 @@ struct SettingsView: View {
 
 private struct GeneralSettingsView: View {
     @Environment(LocalizationManager.self) private var localization
+    @Environment(ThemeManager.self) private var theme
     @Environment(AppModel.self) private var model
 
     var body: some View {
         @Bindable var localization = localization
+        @Bindable var theme = theme
         @Bindable var model = model
         Form {
+            Section("테마") {
+                Picker("외형", selection: $theme.appearance) {
+                    ForEach(AppearanceMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                Picker("강조 색", selection: $theme.accent) {
+                    ForEach(AccentTheme.allCases) { accent in
+                        HStack {
+                            Circle()
+                                .fill(accent.swatch)
+                                .frame(width: 10, height: 10)
+                            Text(accent.displayName)
+                        }
+                        .tag(accent)
+                    }
+                }
+                Picker("밀도", selection: $theme.density) {
+                    ForEach(InterfaceDensity.allCases) { density in
+                        Text(density.displayName).tag(density)
+                    }
+                }
+                Text("외형·강조 색·밀도를 바꾸면 앱 전체에 바로 반영됩니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("언어") {
                 Picker("표시 언어", selection: $localization.language) {
                     ForEach(AppLanguage.allCases) { language in
