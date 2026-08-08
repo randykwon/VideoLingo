@@ -49,9 +49,8 @@ final class BatchProcessor {
     }
 
     func remove(at offsets: IndexSet) {
-        // 실행 중인 항목은 건드리지 않습니다.
-        let removable = offsets.filter { !items[$0].isFinished || !isRunning ? true : true }
-        items.remove(atOffsets: IndexSet(removable))
+        guard !isRunning else { return }   // 실행 중에는 인덱스 무효화 방지를 위해 편집 금지
+        items.remove(atOffsets: offsets)
     }
 
     func clearFinished() {
@@ -75,9 +74,8 @@ final class BatchProcessor {
     }
 
     private func runQueue() async {
-        for index in items.indices {
-            if Task.isCancelled { break }
-            if items[index].isFinished { continue }
+        // 실행 중에는 추가(맨 뒤 append)만 허용하므로 인덱스가 어긋나지 않습니다.
+        while !Task.isCancelled, let index = items.firstIndex(where: { !$0.isFinished }) {
             await process(index)
         }
         activeJobID = nil
