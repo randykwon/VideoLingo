@@ -972,6 +972,16 @@ private actor PipelineCoordinator {
         publish(snapshot)
     }
 
+    func markRetryKeptExisting(index: Int) throws {
+        snapshot.liveTranscriptText = nil
+        snapshot.status = .transcribing
+        snapshot.currentChunk = index + 1
+        snapshot.message = "STT \(index + 1)/\(total) 기존 결과 유지"
+        snapshot.updatedAt = .now
+        try store.save(snapshot: snapshot)
+        publish(snapshot)
+    }
+
     func markSTTFinished() { sttFinished = true }
 
     // MARK: 번역 갱신
@@ -987,8 +997,9 @@ private actor PipelineCoordinator {
     }
 
     func commitTranslation(_ translation: TranslationSegment, index: Int, language: String) throws {
+        let isNewTranslation = translations[language]?[translation.transcriptID] == nil
         translations[language, default: [:]][translation.transcriptID] = translation
-        completedTranslations += 1
+        if isNewTranslation { completedTranslations += 1 }
         snapshot.translationProgress = targetCount == 0
             ? 1
             : stageProgress(completed: completedTranslations, total: total * targetCount)
@@ -1005,6 +1016,15 @@ private actor PipelineCoordinator {
             modelID: translationModelID,
             transcripts: Array(transcripts.values)
         )
+        publish(snapshot)
+    }
+
+    func markRetryKeptExisting(index: Int, language: String) throws {
+        snapshot.liveTranslationText = nil
+        snapshot.status = .translating
+        snapshot.message = "\(language.uppercased()) 번역 \(index + 1)/\(total) 기존 결과 유지"
+        snapshot.updatedAt = .now
+        try store.save(snapshot: snapshot)
         publish(snapshot)
     }
 

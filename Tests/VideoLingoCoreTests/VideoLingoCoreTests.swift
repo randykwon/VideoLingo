@@ -340,6 +340,54 @@ import Testing
     #expect(try store.translations(jobID: jobID, language: "ko")[segment.id]?.text == "시험")
 }
 
+@Test func retryQualityComparisonNeverReplacesUsefulTranscriptWithEmptyCandidate() {
+    let jobID = UUID()
+    let existing = TranscriptSegment(
+        jobID: jobID,
+        chunkIndex: 1,
+        startTime: 30,
+        endTime: 60,
+        text: "기존 전사",
+        confidence: 0.4,
+        qualityStatus: .reviewed
+    )
+    let emptyCandidate = TranscriptSegment(
+        id: existing.id,
+        jobID: jobID,
+        chunkIndex: 1,
+        startTime: 30,
+        endTime: 60,
+        text: "",
+        confidence: nil,
+        qualityStatus: .warning
+    )
+    #expect(!SegmentQualityComparator.prefersCandidate(emptyCandidate, over: existing))
+}
+
+@Test func retryQualityComparisonAcceptsMeaningfullyBetterTranscript() {
+    let jobID = UUID()
+    let existing = TranscriptSegment(
+        jobID: jobID,
+        chunkIndex: 2,
+        startTime: 60,
+        endTime: 90,
+        text: "기존 전사",
+        confidence: 0.41,
+        qualityStatus: .reviewed
+    )
+    let candidate = TranscriptSegment(
+        id: existing.id,
+        jobID: jobID,
+        chunkIndex: 2,
+        startTime: 60,
+        endTime: 90,
+        text: "개선된 전사",
+        confidence: 0.62,
+        qualityStatus: .good
+    )
+    #expect(SegmentQualityComparator.prefersCandidate(candidate, over: existing))
+}
+
 @Test func storeRestoresProcessingOptionsForServerRestart() throws {
     let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
