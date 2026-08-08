@@ -959,7 +959,9 @@ final class AppModel {
             if checkpointChanged { refreshResults() }
             if [.completed, .failed, .cancelled].contains(value.status) {
                 statusTask?.cancel()
-                if value.status == .completed {
+                if !pendingRetryChunkIndices.isEmpty {
+                    flushPendingSegmentRetries()   // 대기 중인 구간 재추출을 우선 처리
+                } else if value.status == .completed {
                     refreshResults()
                     autoRetryAfterCompletionIfNeeded()
                 }
