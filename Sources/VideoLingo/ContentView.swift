@@ -306,7 +306,7 @@ struct ContentView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
-        .background(WindowModeAccessor(mini: model.isMiniViewer, opacity: model.windowOpacity))
+        .background(WindowModeAccessor(mini: model.isMiniViewer, opacity: model.windowOpacity, translucent: theme.translucent))
         .sheet(isPresented: $showDemosaicSheet) {
             DemosaicSheet()
                 .environment(model)
