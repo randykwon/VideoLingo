@@ -28,6 +28,7 @@
 		931EC3EA68A19A0BA6A68811 /* ServiceDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77000A3238B525A3BBEB590 /* ServiceDelegate.swift */; };
 		96D173351507CA322D5DBE16 /* VideoLingoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DD89FEABFD63CD5DDE25032 /* VideoLingoApp.swift */; };
 		9EB513A8FC7BA8E4E6779740 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = A9A5493549E0483F23505EDF /* Localizable.strings */; };
+		9ED15EC1D94252A1C51E13B0 /* BatchProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 709523048B431CBC0307F264 /* BatchProcessor.swift */; };
 		A5BDE1A2E1B2923093E32A58 /* VideoLingoCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; };
 		A61F1F9BDF5073A83EB01D09 /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4B5CA03129456DF44AEC88F4 /* FoundationModels.framework */; };
 		B839BBF2EF96D641D81AB093 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 79A156114B29D4BC57E93E1B /* libsqlite3.tbd */; };
@@ -137,6 +138,7 @@
 		697523BC2EFF38888B491717 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
 		6F9FF3E1248A71F566050CF8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		706A159B88AE7E7F0E3B8EEE /* AppPaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPaths.swift; sourceTree = "<group>"; };
+		709523048B431CBC0307F264 /* BatchProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchProcessor.swift; sourceTree = "<group>"; };
 		71B98405400F44F0D2FFE7EB /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		72ED8A6BCA7371F5C1F61EB0 /* VideoLingo.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VideoLingo.entitlements; sourceTree = "<group>"; };
 		79A156114B29D4BC57E93E1B /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
@@ -205,6 +207,7 @@
 			children = (
 				A4C1EAFEF20CEC31F93495A2 /* AppModel.swift */,
 				C9DED6B67062A46FC6A28F0F /* Assets.xcassets */,
+				709523048B431CBC0307F264 /* BatchProcessor.swift */,
 				D4733F909A2286563C9BA2E3 /* ContentView.swift */,
 				C57EADFA1E673C871BB0BC1E /* Info.plist */,
 				56255223A93BEE599B1BE55B /* KeyboardShortcuts.swift */,
@@ -505,6 +508,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				FD76F04FE5F46E56BCE9CF22 /* AppModel.swift in Sources */,
+				9ED15EC1D94252A1C51E13B0 /* BatchProcessor.swift in Sources */,
 				8D6CA2AE2A754C6BF84565DE /* ContentView.swift in Sources */,
 				FD622FF84922BCF6A0AF6D4F /* KeyboardShortcuts.swift in Sources */,
 				C97B1CBA186832A181C6AC86 /* Localization.swift in Sources */,
