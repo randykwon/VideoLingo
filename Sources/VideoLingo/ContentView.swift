@@ -318,87 +318,92 @@ private struct SimpleSidebarView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("VideoLingo")
-                .font(.title2.weight(.bold))
-                .padding(.bottom, 4)
-
-            Button {
-                model.openVideo()
-            } label: {
-                Label("영상 열기", systemImage: "film")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            if let url = model.mediaURL {
-                Text(url.lastPathComponent)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-
-            if isRunning {
-                Button(role: .destructive) {
-                    model.cancel()
-                } label: {
-                    Label("STT·번역 중지", systemImage: "stop.circle")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            } else {
+        VStack(alignment: .leading, spacing: 20) {
+            // 영상
+            VStack(alignment: .leading, spacing: 8) {
                 Button {
-                    model.startOrResume()
+                    model.openVideo()
                 } label: {
-                    Label("STT·번역 시작/재개", systemImage: "waveform.and.magnifyingglass")
+                    Label("영상 열기", systemImage: "film")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .disabled(!model.canStart)
-            }
-            if let snapshot = model.snapshot {
-                ProgressView(value: snapshot.progress)
-                Text(snapshot.message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
-            Divider()
-
-            HStack(spacing: 7) {
-                Circle()
-                    .fill(model.serviceIsAvailable ? Color.green : Color.orange)
-                    .frame(width: 9, height: 9)
-                Text(model.serviceMessage)
-                    .font(.caption)
-                    .lineLimit(2)
-            }
-            Button {
-                model.refreshServiceStatus()
-            } label: {
-                Label("서버 상태 새로 고침", systemImage: "arrow.clockwise")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .controlSize(.small)
-
-            Divider()
-
-            SettingsLink {
-                Label("설정", systemImage: "gearshape")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                if let url = model.mediaURL {
+                    Text(url.lastPathComponent)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
 
-            Spacer()
+            // 작업 (하나의 포커스 CTA: 시작은 강조, 중지는 파괴적)
+            VStack(alignment: .leading, spacing: 8) {
+                if isRunning {
+                    Button(role: .destructive) {
+                        model.cancel()
+                    } label: {
+                        Label("STT·번역 중지", systemImage: "stop.fill")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.bordered)
+                } else {
+                    Button {
+                        model.startOrResume()
+                    } label: {
+                        Label("STT·번역 시작/재개", systemImage: "waveform.and.magnifyingglass")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!model.canStart)
+                }
+                if let snapshot = model.snapshot {
+                    ProgressView(value: snapshot.progress)
+                    Text(snapshot.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            .controlSize(.large)
 
-            Button {
-                simpleSidebar = false
-            } label: {
-                Label("고급 메뉴", systemImage: "slider.horizontal.3")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            // 서버 상태
+            VStack(alignment: .leading, spacing: 6) {
+                Label {
+                    Text(model.serviceMessage).lineLimit(2)
+                } icon: {
+                    Image(systemName: model.serviceIsAvailable ? "circle.fill" : "exclamationmark.circle.fill")
+                        .foregroundStyle(model.serviceIsAvailable ? .green : .orange)
+                        .imageScale(.small)
+                }
+                .font(.caption)
+                Button("서버 상태 새로 고침", systemImage: "arrow.clockwise") {
+                    model.refreshServiceStatus()
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+            }
+
+            Spacer(minLength: 0)
+
+            // 하단: 설정 / 고급 메뉴
+            VStack(alignment: .leading, spacing: 8) {
+                SettingsLink {
+                    Label("설정", systemImage: "gearshape")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                Button("고급 메뉴", systemImage: "slider.horizontal.3") {
+                    simpleSidebar = false
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
             }
         }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
-        .padding()
-        .frame(maxHeight: .infinity, alignment: .top)
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
