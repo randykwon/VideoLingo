@@ -109,8 +109,12 @@ final class DemosaicPipeline: @unchecked Sendable {
                 let pts = CMSampleBufferGetPresentationTimeStamp(sample)
 
                 var image = CIImage(cvPixelBuffer: pixelBuffer)
-                if request.options.restoreFaceOnly {
-                    let detected = detectFaces(pixelBuffer, width: width, height: height)
+                if regionMode == .wholeFrame {
+                    image = restorer.restore(image, roi: bounds, fidelity: request.options.fidelity)
+                } else {
+                    let detected = regionMode == .face
+                        ? detectFaces(pixelBuffer, width: width, height: height)
+                        : detectMosaicRegions(pixelBuffer, width: width, height: height)
                     let assigned = assignTracks(detected, previous: &previousBoxes, nextID: &nextTrackID)
                     var newTracks: [Int: (rect: CGRect, crop: CIImage)] = [:]
                     for (trackID, face) in assigned {
@@ -125,8 +129,6 @@ final class DemosaicPipeline: @unchecked Sendable {
                         image = crop.composited(over: image)
                     }
                     previousTracks = newTracks
-                } else {
-                    image = restorer.restore(image, roi: bounds, fidelity: request.options.fidelity)
                 }
                 if request.options.watermarkSynthetic {
                     image = watermark(image, bounds: bounds)
