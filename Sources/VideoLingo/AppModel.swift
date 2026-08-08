@@ -1237,7 +1237,18 @@ final class AppModel {
         return id
     }
 
-    private func currentProcessingOptions() -> ProcessingOptions {
+    /// 배치 처리 등에서 파일 경로 기반으로 단일 창과 동일한 안정적 jobID를 얻습니다.
+    static func stableJobID(forPath path: String, sttModel: String, sourceLanguage: String) -> UUID {
+        let identity = [path, sttModel, sourceLanguage, "speaker-diarization-v1", "speech-timing-v2"].joined(separator: "|")
+        let digest = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
+        let key = "VideoLingo.job.\(digest)"
+        if let value = UserDefaults.standard.string(forKey: key), let id = UUID(uuidString: value) { return id }
+        let id = UUID()
+        UserDefaults.standard.set(id.uuidString, forKey: key)
+        return id
+    }
+
+    func currentProcessingOptions() -> ProcessingOptions {
         ProcessingOptions(
             sourceLanguage: sourceLanguage.isEmpty ? nil : sourceLanguage,
             targetLanguages: targetLanguages,
