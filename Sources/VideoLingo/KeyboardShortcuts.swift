@@ -265,6 +265,7 @@ final class RecorderControl: NSView {
 struct WindowModeAccessor: NSViewRepresentable {
     let mini: Bool
     let opacity: Double
+    var translucent: Bool = false
 
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> NSView { NSView() }
@@ -273,6 +274,7 @@ struct WindowModeAccessor: NSViewRepresentable {
             guard let window = view?.window else { return }
             context.coordinator.apply(mini: mini, to: window)
             context.coordinator.apply(opacity: opacity, to: window)
+            context.coordinator.apply(translucent: translucent, to: window)
         }
     }
 
@@ -281,6 +283,14 @@ struct WindowModeAccessor: NSViewRepresentable {
         private var normalFrame: NSRect?
         private var appliedMini: Bool?
         private var appliedOpacity: Double?
+        private var appliedTranslucent: Bool?
+
+        func apply(translucent: Bool, to window: NSWindow) {
+            guard appliedTranslucent != translucent else { return }
+            appliedTranslucent = translucent
+            window.isOpaque = !translucent
+            window.backgroundColor = translucent ? .clear : .windowBackgroundColor
+        }
 
         func apply(mini: Bool, to window: NSWindow) {
             guard appliedMini != mini else { return }
