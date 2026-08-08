@@ -68,8 +68,8 @@ final class AppModel {
     var demosaicModel = DemosaicModel(rawValue: UserDefaults.standard.string(forKey: "demosaicModel") ?? "classical") ?? .classical {
         didSet { UserDefaults.standard.set(demosaicModel.rawValue, forKey: "demosaicModel") }
     }
-    var demosaicFaceOnly = UserDefaults.standard.object(forKey: "demosaicFaceOnly") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(demosaicFaceOnly, forKey: "demosaicFaceOnly") }
+    var demosaicRegionMode = DemosaicRegionMode(rawValue: UserDefaults.standard.string(forKey: "demosaicRegionMode") ?? "") ?? .face {
+        didSet { UserDefaults.standard.set(demosaicRegionMode.rawValue, forKey: "demosaicRegionMode") }
     }
     var demosaicFidelity = UserDefaults.standard.object(forKey: "demosaicFidelity") as? Double ?? 0.7 {
         didSet { UserDefaults.standard.set(demosaicFidelity, forKey: "demosaicFidelity") }
@@ -365,7 +365,7 @@ final class AppModel {
             )
             let options = DemosaicOptions(
                 model: demosaicModel,
-                restoreFaceOnly: demosaicFaceOnly,
+                regionMode: demosaicRegionMode,
                 fidelity: demosaicFidelity,
                 temporalStabilization: true,
                 watermarkSynthetic: demosaicWatermark
