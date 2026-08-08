@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		010D9A1AF38E0CBA1C30A84B /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = DED4EBD517BE61BC093C449E /* Theme.swift */; };
 		061551E65D07226612088C6C /* VideoLingoCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; };
 		085EFE628D8152A4C81B5C0D /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DCEB4D1A3FF1AF17DFE806A7 /* AVFoundation.framework */; };
 		0C8FDFAF53413D28B007CDFF /* TTSKit in Frameworks */ = {isa = PBXBuildFile; productRef = FE13BDE472DA75F6E922952A /* TTSKit */; };
@@ -148,6 +149,7 @@
 		C9DED6B67062A46FC6A28F0F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D4733F909A2286563C9BA2E3 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		DCEB4D1A3FF1AF17DFE806A7 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		DED4EBD517BE61BC093C449E /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		E2876CAD09B83DF7F2EBD6CC /* TranscriptTextSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptTextSanitizer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -207,6 +209,7 @@
 				C57EADFA1E673C871BB0BC1E /* Info.plist */,
 				56255223A93BEE599B1BE55B /* KeyboardShortcuts.swift */,
 				697523BC2EFF38888B491717 /* Localization.swift */,
+				DED4EBD517BE61BC093C449E /* Theme.swift */,
 				72ED8A6BCA7371F5C1F61EB0 /* VideoLingo.entitlements */,
 				9DD89FEABFD63CD5DDE25032 /* VideoLingoApp.swift */,
 				B4EE507A9AE1E71FDCB1F7FC /* Resources */,
@@ -505,6 +508,7 @@
 				8D6CA2AE2A754C6BF84565DE /* ContentView.swift in Sources */,
 				FD622FF84922BCF6A0AF6D4F /* KeyboardShortcuts.swift in Sources */,
 				C97B1CBA186832A181C6AC86 /* Localization.swift in Sources */,
+				010D9A1AF38E0CBA1C30A84B /* Theme.swift in Sources */,
 				96D173351507CA322D5DBE16 /* VideoLingoApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
