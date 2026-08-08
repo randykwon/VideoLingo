@@ -948,7 +948,7 @@ private struct TranscriptInspector: View {
             }
             .buttonStyle(.borderless)
             .help("이 구간 STT 재추출")
-            .disabled(!model.canRegenerate)
+            .disabled(!model.canRegenerateSegment)
             Button {
                 model.regenerateTranslation(for: segment)
             } label: {
@@ -956,7 +956,7 @@ private struct TranscriptInspector: View {
             }
             .buttonStyle(.borderless)
             .help("이 문장 번역 재생성")
-            .disabled(!model.canRegenerate)
+            .disabled(!model.canRegenerateSegment)
             Button("이동") {
                 model.player.seek(to: CMTime(seconds: segment.startTime, preferredTimescale: 600))
             }
@@ -971,11 +971,11 @@ private struct TranscriptInspector: View {
             Button("이 구간 STT 재추출", systemImage: "waveform.badge.magnifyingglass") {
                 model.regenerateSTT(for: segment)
             }
-            .disabled(!model.canRegenerate)
+            .disabled(!model.canRegenerateSegment)
             Button("이 문장 번역 재생성", systemImage: "character.book.closed") {
                 model.regenerateTranslation(for: segment)
             }
-            .disabled(!model.canRegenerate)
+            .disabled(!model.canRegenerateSegment)
         }
     }
 
