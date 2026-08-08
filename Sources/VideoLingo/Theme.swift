@@ -96,14 +96,92 @@ final class ThemeManager {
     var density: InterfaceDensity {
         didSet { UserDefaults.standard.set(density.rawValue, forKey: "themeDensity") }
     }
+    /// 사이드바·창 배경을 vibrancy 머티리얼로 만들어 뒤 배경이 은은히 비치게 합니다.
+    var translucent: Bool {
+        didSet { UserDefaults.standard.set(translucent, forKey: "themeTranslucent") }
+    }
 
     private init() {
         appearance = AppearanceMode(rawValue: UserDefaults.standard.string(forKey: "themeAppearance") ?? "") ?? .system
         accent = AccentTheme(rawValue: UserDefaults.standard.string(forKey: "themeAccent") ?? "") ?? .system
         density = InterfaceDensity(rawValue: UserDefaults.standard.string(forKey: "themeDensity") ?? "") ?? .comfortable
+        translucent = UserDefaults.standard.bool(forKey: "themeTranslucent")
     }
 
     var colorScheme: ColorScheme? { appearance.colorScheme }
     var accentColor: Color? { accent.color }
     var controlSize: ControlSize { density.controlSize }
+
+    func apply(_ preset: ThemePreset) {
+        appearance = preset.appearance
+        accent = preset.accent
+        density = preset.density
+        translucent = preset.translucent
+    }
+}
+
+/// 외형·강조색·밀도·반투명을 한 번에 적용하는 명명된 프리셋.
+enum ThemePreset: String, CaseIterable, Identifiable, Sendable {
+    case standard, minimal, vivid, darkFocus, glass
+    var id: String { rawValue }
+
+    var appearance: AppearanceMode {
+        switch self {
+        case .standard, .vivid, .glass: .system
+        case .minimal: .light
+        case .darkFocus: .dark
+        }
+    }
+    var accent: AccentTheme {
+        switch self {
+        case .standard, .glass: .system
+        case .minimal: .graphite
+        case .vivid: .purple
+        case .darkFocus: .blue
+        }
+    }
+    var density: InterfaceDensity {
+        self == .minimal ? .compact : .comfortable
+    }
+    var translucent: Bool { self == .glass }
+
+    var displayName: String {
+        switch self {
+        case .standard: String(localized: "기본")
+        case .minimal: String(localized: "미니멀")
+        case .vivid: String(localized: "선명")
+        case .darkFocus: String(localized: "다크 포커스")
+        case .glass: String(localized: "글래스")
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .standard: "circle.lefthalf.filled"
+        case .minimal: "square"
+        case .vivid: "paintpalette"
+        case .darkFocus: "moon.stars"
+        case .glass: "square.on.square.dashed"
+        }
+    }
+}
+
+/// NSVisualEffectView를 SwiftUI 배경으로 사용해 뒤 배경이 비치는 vibrancy를 줍니다.
+struct VisualEffectView: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .sidebar
+    var blending: NSVisualEffectView.BlendingMode = .behindWindow
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = blending
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.material = material
+        view.blendingMode = blending
+        view.state = .active
+    }
 }
