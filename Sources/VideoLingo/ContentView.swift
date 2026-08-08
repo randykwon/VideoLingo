@@ -844,7 +844,7 @@ private struct TranscriptInspector: View {
                         Label("미번역 재시도\(pendingCount > 0 ? " (\(pendingCount))" : "")", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
                     }
                     .help("번역이 안 된 항목만 STT 추출과 번역을 다시 시도")
-                    .disabled(!model.canRegenerate || pendingCount == 0)
+                    .disabled(!model.canRegenerateSegment || pendingCount == 0)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
