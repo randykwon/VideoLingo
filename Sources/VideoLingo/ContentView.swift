@@ -498,7 +498,11 @@ private struct DemosaicSheet: View {
                     Text("Real-ESRGAN (모델 필요)").tag(DemosaicModel.realESRGAN)
                     Text("CodeFormer (모델 필요)").tag(DemosaicModel.codeFormer)
                 }
-                Toggle("얼굴 영역만 처리", isOn: $model.demosaicFaceOnly)
+                Picker("처리 영역", selection: $model.demosaicRegionMode) {
+                    Text("얼굴 영역만").tag(DemosaicRegionMode.face)
+                    Text("모자이크 자동 탐지(실험적)").tag(DemosaicRegionMode.autoMosaic)
+                    Text("전체 화면").tag(DemosaicRegionMode.wholeFrame)
+                }
                 VStack(alignment: .leading) {
                     Text("충실도 \(Int(model.demosaicFidelity * 100))%")
                         .font(.caption)
