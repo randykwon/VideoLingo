@@ -16,6 +16,7 @@ extension FocusedValues {
 struct VideoLingoApp: App {
     @State private var shortcuts = ShortcutSettings()
     @State private var localization = LocalizationManager.shared
+    @State private var theme = ThemeManager.shared
     // 설정 창은 영상 플레이어가 필요 없으므로 마지막 영상은 복원하지 않는 전용 모델을 사용합니다.
     @State private var settingsModel = AppModel(autoloadLastVideo: false)
 
@@ -24,6 +25,10 @@ struct VideoLingoApp: App {
             PlayerWindow()
                 .environment(shortcuts)
                 .environment(localization)
+                .environment(theme)
+                .tint(theme.accentColor)
+                .controlSize(theme.controlSize)
+                .preferredColorScheme(theme.colorScheme)
         }
         .windowStyle(.titleBar)
         .commands {
@@ -34,8 +39,12 @@ struct VideoLingoApp: App {
                 .environment(settingsModel)
                 .environment(shortcuts)
                 .environment(localization)
+                .environment(theme)
                 .environment(\.locale, localization.locale)
                 .id(localization.language)
+                .tint(theme.accentColor)
+                .controlSize(theme.controlSize)
+                .preferredColorScheme(theme.colorScheme)
         }
     }
 }
