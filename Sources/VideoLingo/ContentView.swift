@@ -905,17 +905,13 @@ private struct TranscriptInspector: View {
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.tertiary)
                 if let status = segment.qualityStatus {
-                    Label("STT \(qualityLabel(status))", systemImage: qualityIcon(status))
-                        .font(.caption2)
-                        .foregroundStyle(status == .warning ? .orange : .secondary)
+                    qualityBadge("STT \(qualityLabel(status))", status: status)
                         .help((segment.qualityNotes ?? []).joined(separator: "\n"))
                 }
                 if displayMode != .transcript,
                    let translation = model.translations[segment.id],
                    let status = translation.qualityStatus {
-                    Label("번역 \(qualityLabel(status))", systemImage: qualityIcon(status))
-                        .font(.caption2)
-                        .foregroundStyle(status == .warning ? .orange : .secondary)
+                    qualityBadge("번역 \(qualityLabel(status))", status: status)
                         .help((translation.qualityNotes ?? []).joined(separator: "\n"))
                 }
             }
