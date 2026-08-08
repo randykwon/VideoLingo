@@ -804,7 +804,7 @@ private struct TranscriptInspector: View {
                         Text("STT·번역 결과 확인")
                             .font(.headline)
                         Text("STT \(model.transcript.count)개 · \(model.selectedLanguage.uppercased()) 번역 \(model.translations.count)개")
-                            .font(.caption)
+                            .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
