@@ -1113,6 +1113,22 @@ private struct GeneralSettingsView: View {
         @Bindable var model = model
         Form {
             Section("테마") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("프리셋")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        ForEach(ThemePreset.allCases) { preset in
+                            Button {
+                                withAnimation(.smooth) { theme.apply(preset) }
+                            } label: {
+                                Label(preset.displayName, systemImage: preset.symbol)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                    .labelStyle(.titleAndIcon)
+                }
                 Picker("외형", selection: $theme.appearance) {
                     ForEach(AppearanceMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
@@ -1134,7 +1150,8 @@ private struct GeneralSettingsView: View {
                         Text(density.displayName).tag(density)
                     }
                 }
-                Text("외형·강조 색·밀도를 바꾸면 앱 전체에 바로 반영됩니다.")
+                Toggle("반투명(글래스) 배경", isOn: $theme.translucent)
+                Text("외형·강조 색·밀도·반투명을 바꾸면 앱 전체에 바로 반영됩니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
