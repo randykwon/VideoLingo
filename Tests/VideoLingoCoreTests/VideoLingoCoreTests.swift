@@ -431,6 +431,7 @@ import Testing
     let options = ProcessingOptions(
         sourceLanguage: "ja",
         targetLanguages: ["ko", "en"],
+        chunkDuration: 30,
         sttModel: "large-v3-v20240930_626MB",
         translationModel: "mlx-community/Qwen3-4B-4bit",
         qualityMode: .maximum,
@@ -441,6 +442,7 @@ import Testing
 
     let restored = try #require(try store.processingOptions(jobID: jobID))
     #expect(restored == options)
+    #expect(restored.chunkDuration == 30)
 }
 
 @Test func storeRetriesConcurrentReadersAndWriters() async throws {
