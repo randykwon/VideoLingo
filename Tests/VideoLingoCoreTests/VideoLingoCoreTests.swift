@@ -403,15 +403,26 @@ import Testing
         startTime: 60,
         endTime: 90,
         text: "",
+        qualityNotes: [
+            TranscriptCoverage.verifiedSilenceNote,
+            TranscriptCoverage.promptFreeVerificationNote
+        ]
+    )
+    let legacyPromptedSilence = TranscriptSegment(
+        jobID: jobID,
+        chunkIndex: 3,
+        startTime: 90,
+        endTime: 120,
+        text: "",
         qualityNotes: [TranscriptCoverage.verifiedSilenceNote]
     )
 
     #expect(TranscriptCoverage.missingChunkIndices(
-        transcripts: [spoken, legacyEmpty, verifiedSilence],
+        transcripts: [spoken, legacyEmpty, verifiedSilence, legacyPromptedSilence],
         totalChunks: 4
     ) == [1, 3])
     #expect(TranscriptCoverage.completedChunkCount(
-        transcripts: [spoken, legacyEmpty, verifiedSilence],
+        transcripts: [spoken, legacyEmpty, verifiedSilence, legacyPromptedSilence],
         totalChunks: 4
     ) == 2)
 }
