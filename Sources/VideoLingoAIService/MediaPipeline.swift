@@ -392,7 +392,6 @@ final class MediaPipeline: @unchecked Sendable {
                     model: request.options.sttModel,
                     language: detectedLanguage,
                     modelsURL: modelsURL,
-                    prompt: sttPrompt(before: index, transcripts: producedTranscripts, glossary: glossary),
                     qualityMode: qualityMode,
                     onPartialText: { [onLiveTranscript] text in
                         onLiveTranscript(request.jobID, index, total, text)
@@ -497,7 +496,9 @@ final class MediaPipeline: @unchecked Sendable {
                 try Task.checkCancellation()
                 let translation: TranslationSegment
                 let existing = await coordinator.existingTranslation(language: language, transcriptID: transcript.id)
-                if let existing, !retryChunkIndices.contains(index) {
+                if let existing,
+                   !existing.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   !retryChunkIndices.contains(index) {
                     translation = existing
                 } else {
                     try await coordinator.markTranslating(index: index, language: language, message: "\(language) 번역 \(index + 1)/\(total)")
@@ -619,7 +620,6 @@ final class MediaPipeline: @unchecked Sendable {
                         model: request.options.sttModel,
                         language: currentTranscript.language ?? request.options.sourceLanguage,
                         modelsURL: modelsURL,
-                        prompt: sttPrompt(before: index, transcripts: transcripts, glossary: glossary),
                         qualityMode: .maximum,
                         onPartialText: { [onLiveTranscript] text in
                             onLiveTranscript(request.jobID, index, total, "품질 개선 후보 · \(text)")
@@ -877,15 +877,6 @@ final class MediaPipeline: @unchecked Sendable {
             .sorted { $0.chunkIndex < $1.chunkIndex }
             .prefix(1)
             .map(\.text)
-    }
-
-    private func sttPrompt(before index: Int, transcripts: [Int: TranscriptSegment], glossary: [GlossaryEntry]) -> String {
-        let previous = transcripts[index - 1]?.text ?? ""
-        let terms = glossary.map(\.source).joined(separator: ", ")
-        return [
-            previous.isEmpty ? nil : "이전 발화: \(String(previous.suffix(700)))",
-            terms.isEmpty ? nil : "중요 이름과 용어: \(terms)"
-        ].compactMap { $0 }.joined(separator: "\n")
     }
 
     private func combinedProgress(_ snapshot: JobSnapshot) -> Double {
