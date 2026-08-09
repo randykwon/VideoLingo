@@ -94,7 +94,13 @@ final class MediaPipeline: @unchecked Sendable {
             var completedTranslations = existingTranslations.values.reduce(into: 0) { count, translations in
                 count += translations.keys.filter(transcriptIDs.contains).count
             }
-            snapshot.sttProgress = stageProgress(completed: existingByChunk.count, total: total)
+            snapshot.sttProgress = stageProgress(
+                completed: TranscriptCoverage.completedChunkCount(
+                    transcripts: existingByChunk.values,
+                    totalChunks: total
+                ),
+                total: total
+            )
             snapshot.translationProgress = targetCount == 0
                 ? 1
                 : stageProgress(completed: completedTranslations, total: total * targetCount)
@@ -361,7 +367,11 @@ final class MediaPipeline: @unchecked Sendable {
             for index in 0..<total {
                 try Task.checkCancellation()
                 let existingTranscript = producedTranscripts[index]
-                if existingTranscript != nil, !retryChunkIndices.contains(index) { continue }
+                if let existingTranscript,
+                   TranscriptCoverage.hasCompleteCheckpoint(existingTranscript),
+                   !retryChunkIndices.contains(index) {
+                    continue
+                }
 
                 let start = Double(index) * chunkDuration
                 let end = min(duration, start + chunkDuration)
@@ -422,6 +432,16 @@ final class MediaPipeline: @unchecked Sendable {
                     try await coordinator.markRetryKeptExisting(index: index)
                 }
             }
+            try await coordinator.markStatus(
+                .transcribing,
+                index: total,
+                message: "STT 전체 \(total)개 청크 누락 검증 중"
+            )
+            let missing = TranscriptCoverage.missingChunkIndices(
+                transcripts: producedTranscripts.values,
+                totalChunks: total
+            )
+            guard missing.isEmpty else { throw VideoLingoError.sttIncomplete(missing) }
             await coordinator.markSTTFinished()
         } catch {
             // 실패·취소 시에도 완료 신호를 보내 번역 태스크가 무한 대기하지 않도록 합니다.
