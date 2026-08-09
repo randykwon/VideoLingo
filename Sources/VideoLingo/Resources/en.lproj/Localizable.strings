@@ -84,7 +84,6 @@
 "STT 재생성" = "Regenerate STT";
 "기존 STT를 유지한 채 전체 구간을 다시 추출하고, 더 나은 결과만 반영합니다" = "Re-extracts every segment while preserving existing STT, and applies only better results.";
 "번역만 재생성" = "Regenerate Translation Only";
-"STT·번역 모두 재생성" = "Regenerate STT and Translation";
 "화자 이름 분석 적용" = "Apply Speaker Name Analysis";
 "저장된 전체 스크립트에서 이름과 역할을 분석하고 STT·번역 결과에 반영합니다" = "Analyzes names and roles from the whole saved script and applies them to the STT · translation results";
 "진행 상세" = "Progress Details";
