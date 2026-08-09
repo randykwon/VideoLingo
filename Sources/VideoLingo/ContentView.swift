@@ -79,8 +79,8 @@ struct ContentView: View {
                             Text("최고 품질").tag(ProcessingQualityMode.maximum)
                         }
                         Toggle("완료 후 자동 품질 개선", isOn: $model.continuousImprovement)
-                        Toggle("완료 후 재검토·미번역 구간 자동 재시도", isOn: $model.autoRetryReviewedAndUntranslated)
-                            .help("품질 개선까지 끝나면 STT가 재검토됨이거나 번역이 비어 있는 구간만 한 번 더 자동으로 추출·번역합니다.")
+                        Toggle("완료 후 미번역 구간 자동 재시도", isOn: $model.autoRetryUntranslated)
+                            .help("품질 개선까지 끝나면 번역이 비어 있는 구간만 한 번 더 시도합니다. STT 재검토 상태는 자동 재추출하지 않습니다.")
                         Toggle("앱 전체 반투명 모드", isOn: $model.translucentMode)
                             .help("Command+Shift+T로 전환")
                         if model.continuousImprovement {
@@ -1183,7 +1183,7 @@ private struct GeneralSettingsView: View {
                     ForEach(1...5, id: \.self) { Text("\($0)회").tag($0) }
                 }
                 .disabled(!model.continuousImprovement)
-                Toggle("완료 후 재검토·미번역 구간 자동 재시도", isOn: $model.autoRetryReviewedAndUntranslated)
+                Toggle("완료 후 미번역 구간 자동 재시도", isOn: $model.autoRetryUntranslated)
                 Text("변경 사항은 새로 시작하는 작업부터 적용됩니다. 실행 중인 창은 앱을 재시작하면 반영됩니다.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)

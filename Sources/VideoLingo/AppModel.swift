@@ -39,8 +39,10 @@ final class AppModel {
     var continuousImprovement = UserDefaults.standard.object(forKey: "continuousQualityImprovement") as? Bool ?? true {
         didSet { UserDefaults.standard.set(continuousImprovement, forKey: "continuousQualityImprovement") }
     }
-    var autoRetryReviewedAndUntranslated = UserDefaults.standard.object(forKey: "autoRetryReviewedAndUntranslated") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(autoRetryReviewedAndUntranslated, forKey: "autoRetryReviewedAndUntranslated") }
+    var autoRetryUntranslated = UserDefaults.standard.object(forKey: "autoRetryUntranslated") as? Bool
+        ?? UserDefaults.standard.object(forKey: "autoRetryReviewedAndUntranslated") as? Bool
+        ?? true {
+        didSet { UserDefaults.standard.set(autoRetryUntranslated, forKey: "autoRetryUntranslated") }
     }
 
     // 화면 글자 OCR 번역 자막 (재생 중 실시간). recognized→translated는 Translation 프레임워크가 채웁니다.
@@ -466,14 +468,6 @@ final class AppModel {
         }
     }
 
-    /// 품질 개선까지 끝난 뒤에도 STT가 '재검토됨' 상태이거나 번역이 비어 있는 구간입니다.
-    var segmentsNeedingRetry: [TranscriptSegment] {
-        transcript.filter { segment in
-            let untranslated = (translations[segment.id]?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            return untranslated || segment.qualityStatus == .reviewed
-        }
-    }
-
     /// 번역이 안 된 구간만 STT 추출과 번역을 다시 시도합니다. 이미 번역된 구간은 그대로 보존합니다.
     func retryUntranslatedSegments() {
         guard canRegenerateSegment else { return }
@@ -515,14 +509,15 @@ final class AppModel {
         }
     }
 
-    /// 작업이 완료되면 STT 재검토·미번역 구간을 한 번 자동으로 재추출·재번역합니다.
+    /// 작업이 완료되면 번역이 비어 있는 구간만 한 번 자동으로 재시도합니다.
+    /// STT 품질 상태가 `reviewed`라는 이유만으로 다시 추출하지 않습니다.
     /// 무한 반복을 막기 위해 작업마다 한 번만 수행합니다.
-    private func autoRetryAfterCompletionIfNeeded() {
-        guard autoRetryReviewedAndUntranslated,
+    private func autoRetryUntranslatedAfterCompletionIfNeeded() {
+        guard autoRetryUntranslated,
               let jobID = currentJobID,
               canRegenerate,
               !autoRetriedJobIDs.contains(jobID) else { return }
-        let targets = segmentsNeedingRetry
+        let targets = untranslatedSegments
         guard !targets.isEmpty else { return }
         autoRetriedJobIDs.insert(jobID)
         retrySegments(targets)
@@ -958,7 +953,7 @@ final class AppModel {
                     flushPendingSegmentRetries()   // 대기 중인 구간 재추출을 우선 처리
                 } else if value.status == .completed {
                     refreshResults()
-                    autoRetryAfterCompletionIfNeeded()
+                    autoRetryUntranslatedAfterCompletionIfNeeded()
                 }
             }
         case .failure(let error):

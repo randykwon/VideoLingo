@@ -67,6 +67,8 @@
 "완료 후 자동 품질 개선" = "Auto quality refinement after completion";
 "완료 후 재검토·미번역 구간 자동 재시도" = "Auto-retry reviewed / untranslated segments after completion";
 "품질 개선까지 끝나면 STT가 재검토됨이거나 번역이 비어 있는 구간만 한 번 더 자동으로 추출·번역합니다." = "Once refinement finishes, automatically re-extracts and re-translates just the segments whose STT is 'reviewed' or whose translation is empty.";
+"완료 후 미번역 구간 자동 재시도" = "Auto-retry untranslated segments after completion";
+"품질 개선까지 끝나면 번역이 비어 있는 구간만 한 번 더 시도합니다. STT 재검토 상태는 자동 재추출하지 않습니다." = "After refinement, retry only segments with missing translations. Reviewed STT is not automatically re-extracted.";
 "앱 전체 반투명 모드" = "App-wide translucency";
 "Command+Shift+T로 전환" = "Toggle with Command+Shift+T";
 "최대 개선 회차" = "Max refinement passes";
