@@ -48,7 +48,7 @@ final class WhisperSTTEngine: @unchecked Sendable {
             }
         }
         guard let pipe else { throw VideoLingoError.modelUnavailable("WhisperKit 초기화 실패") }
-        var options = DecodingOptions(
+        let options = DecodingOptions(
             task: .transcribe,
             language: language,
             detectLanguage: language == nil,
