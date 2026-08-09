@@ -91,7 +91,12 @@ final class BatchProcessor {
         }
         do {
             let paths = try AppPaths()
-            let jobID = AppModel.stableJobID(forPath: url.path, sttModel: options.sttModel, sourceLanguage: options.sourceLanguage ?? "")
+            let jobID = AppModel.stableJobID(
+                forPath: url.path,
+                sttModel: options.sttModel,
+                sourceLanguage: options.sourceLanguage ?? "",
+                chunkDuration: options.chunkDuration
+            )
             items[index].jobID = jobID
             activeJobID = jobID
             let workspace = paths.workspace(for: jobID)

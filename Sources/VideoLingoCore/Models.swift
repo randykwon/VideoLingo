@@ -23,6 +23,8 @@ public struct GlossaryEntry: Codable, Sendable, Equatable, Hashable {
 }
 
 public struct ProcessingOptions: Codable, Sendable, Equatable {
+    public static let defaultChunkDuration: TimeInterval = 60
+
     public var sourceLanguage: String?
     public var targetLanguages: [String]
     public var chunkDuration: TimeInterval
@@ -37,7 +39,7 @@ public struct ProcessingOptions: Codable, Sendable, Equatable {
     public init(
         sourceLanguage: String? = nil,
         targetLanguages: [String] = ["ko"],
-        chunkDuration: TimeInterval = 30,
+        chunkDuration: TimeInterval = ProcessingOptions.defaultChunkDuration,
         sttModel: String = "large-v3-v20240930_626MB",
         translationModel: String = "apple-foundation-models",
         synthesizeSpeech: Bool = false,

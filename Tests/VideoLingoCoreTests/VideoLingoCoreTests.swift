@@ -114,6 +114,11 @@ import Testing
     #expect(decoded.maximumRefinementPasses == 4)
 }
 
+@Test func processingOptionsUseOneMinuteChunksByDefault() {
+    #expect(ProcessingOptions.defaultChunkDuration == 60)
+    #expect(ProcessingOptions().chunkDuration == 60)
+}
+
 @Test func continuousRefinementCheckpointPersistsForRestart() throws {
     let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

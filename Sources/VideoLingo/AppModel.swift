@@ -139,6 +139,8 @@ final class AppModel {
     ]
 
     private var videoOutput: AVPlayerItemVideoOutput?
+    /// 새 작업은 60초를 사용하고, 저장된 작업을 재개할 때는 기존 청크 경계를 보존합니다.
+    private var processingChunkDuration = ProcessingOptions.defaultChunkDuration
     private var screenTextTask: Task<Void, Never>?
     private var lastPositionSaveWallTime: TimeInterval = 0
     private var currentJobID: UUID?
@@ -425,6 +427,7 @@ final class AppModel {
             snapshot = nil
             transcript = []
             translations = [:]
+            processingChunkDuration = ProcessingOptions.defaultChunkDuration
             startOrResume()
         } catch {
             errorMessage = String(localized: "STT·번역 재생성 준비 실패: \(error.localizedDescription)")
@@ -1164,6 +1167,7 @@ final class AppModel {
         snapshot = nil
         transcript = []
         translations = [:]
+        processingChunkDuration = ProcessingOptions.defaultChunkDuration
         resultDirectoryURL = MediaSidecarStore.directoryURL(for: url)
         errorMessage = nil
 
@@ -1239,8 +1243,20 @@ final class AppModel {
     }
 
     /// 배치 처리 등에서 파일 경로 기반으로 단일 창과 동일한 안정적 jobID를 얻습니다.
-    static func stableJobID(forPath path: String, sttModel: String, sourceLanguage: String) -> UUID {
-        let identity = [path, sttModel, sourceLanguage, "speaker-diarization-v1", "speech-timing-v2"].joined(separator: "|")
+    static func stableJobID(
+        forPath path: String,
+        sttModel: String,
+        sourceLanguage: String,
+        chunkDuration: TimeInterval = ProcessingOptions.defaultChunkDuration
+    ) -> UUID {
+        let identity = [
+            path,
+            sttModel,
+            sourceLanguage,
+            String(format: "chunk-%.3f", chunkDuration),
+            "speaker-diarization-v1",
+            "speech-timing-v2"
+        ].joined(separator: "|")
         let digest = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
         let key = "VideoLingo.job.\(digest)"
         if let value = UserDefaults.standard.string(forKey: key), let id = UUID(uuidString: value) { return id }
@@ -1253,7 +1269,7 @@ final class AppModel {
         ProcessingOptions(
             sourceLanguage: sourceLanguage.isEmpty ? nil : sourceLanguage,
             targetLanguages: targetLanguages,
-            chunkDuration: 30,
+            chunkDuration: processingChunkDuration,
             sttModel: sttModel,
             translationModel: translationModel,
             synthesizeSpeech: synthesizeSpeech,
@@ -1293,6 +1309,7 @@ final class AppModel {
     }
 
     private func applyProcessingOptions(_ options: ProcessingOptions) {
+        processingChunkDuration = options.chunkDuration
         sourceLanguage = options.sourceLanguage ?? ""
         targetLanguages = options.targetLanguages.isEmpty ? ["ko"] : options.targetLanguages
         if !targetLanguages.contains(selectedLanguage) {
