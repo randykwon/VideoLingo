@@ -215,6 +215,10 @@ final class AppModel {
         mediaURL != nil && canMutateStorage
     }
 
+    var canRegenerateSTT: Bool {
+        canRegenerate && !transcript.isEmpty
+    }
+
     /// 첫 STT 추출이 끝나(전사 결과가 있으면) 초기 STT/번역 진행 중이 아니라면,
     /// 품질 개선 등 후속 작업 중에도 특정 구간 재추출을 허용합니다.
     var canRegenerateSegment: Bool {
@@ -459,6 +463,13 @@ final class AppModel {
         } catch {
             errorMessage = String(localized: "번역 재생성 준비 실패: \(error.localizedDescription)")
         }
+    }
+
+    /// 전체 STT 구간을 다시 추출하되 기존 결과를 먼저 지우지 않습니다.
+    /// 각 구간별 후보를 비교해 품질이 더 나은 결과만 반영합니다.
+    func regenerateSTT() {
+        guard canRegenerateSTT else { return }
+        retrySegments(transcript.sorted { $0.chunkIndex < $1.chunkIndex })
     }
 
     /// 현재 선택한 번역 언어 기준으로 아직 번역이 채워지지 않은 STT 구간들입니다.

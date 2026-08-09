@@ -114,6 +114,11 @@ struct ContentView: View {
                     Button("STT·번역 시작/재개", systemImage: "waveform.and.magnifyingglass") { model.startOrResume() }
                         .disabled(!model.canStart)
                     Menu("결과 재생성", systemImage: "arrow.trianglehead.2.clockwise.rotate.90") {
+                        Button("STT 재생성", systemImage: "waveform.badge.magnifyingglass") {
+                            model.regenerateSTT()
+                        }
+                        .disabled(!model.canRegenerateSTT)
+                        .help("기존 STT를 유지한 채 전체 구간을 다시 추출하고, 더 나은 결과만 반영합니다")
                         Button("번역만 재생성", systemImage: "character.book.closed") {
                             regenerationRequest = .translation
                         }

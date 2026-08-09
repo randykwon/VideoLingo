@@ -81,6 +81,8 @@
 "작업" = "Job";
 "STT·번역 시작/재개" = "Start / Resume STT · Translation";
 "결과 재생성" = "Regenerate Results";
+"STT 재생성" = "Regenerate STT";
+"기존 STT를 유지한 채 전체 구간을 다시 추출하고, 더 나은 결과만 반영합니다" = "Re-extracts every segment while preserving existing STT, and applies only better results.";
 "번역만 재생성" = "Regenerate Translation Only";
 "STT·번역 모두 재생성" = "Regenerate STT and Translation";
 "화자 이름 분석 적용" = "Apply Speaker Name Analysis";
