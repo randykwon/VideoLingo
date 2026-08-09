@@ -77,7 +77,9 @@ final class WhisperSTTEngine: @unchecked Sendable {
         let initialSelection = segmentSelection(results)
         let initialText = extractedText(results, selection: initialSelection)
         var possibleSpeechDetected = containsPotentialSpeech(results)
-        let needsCoverageRetry = initialText.isEmpty && possibleSpeechDetected
+        // VAD가 완전히 놓치면 음성 징후 자체가 결과에 남지 않습니다. 따라서 음성 징후 유무와 관계없이
+        // 빈 VAD 결과는 반드시 non-VAD 디코딩으로 다시 확인한 뒤에만 무음으로 확정합니다.
+        let needsCoverageRetry = TranscriptCoverage.requiresNonVADVerification(vadText: initialText)
         if needsCoverageRetry || (qualityMode != .fast && initialScore < 0.42) {
             retryCount = 1
             qualityNotes.append(needsCoverageRetry

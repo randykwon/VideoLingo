@@ -411,6 +411,12 @@ import Testing
     ) == 2)
 }
 
+@Test func emptyVADResultAlwaysRequiresNonVADVerification() {
+    #expect(TranscriptCoverage.requiresNonVADVerification(vadText: ""))
+    #expect(TranscriptCoverage.requiresNonVADVerification(vadText: " \n\t"))
+    #expect(!TranscriptCoverage.requiresNonVADVerification(vadText: "대사 있음"))
+}
+
 @Test func storeRestoresProcessingOptionsForServerRestart() throws {
     let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
