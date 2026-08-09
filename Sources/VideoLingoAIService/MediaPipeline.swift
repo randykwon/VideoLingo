@@ -147,7 +147,6 @@ final class MediaPipeline: @unchecked Sendable {
                             total: total,
                             chunksFolder: chunksFolder,
                             modelsURL: modelsURL,
-                            glossary: glossary,
                             qualityMode: qualityMode
                         )
                     }
@@ -176,7 +175,6 @@ final class MediaPipeline: @unchecked Sendable {
                     total: total,
                     chunksFolder: chunksFolder,
                     modelsURL: modelsURL,
-                    glossary: glossary,
                     qualityMode: qualityMode
                 )
                 try await runTranslationStage(
@@ -356,7 +354,6 @@ final class MediaPipeline: @unchecked Sendable {
         total: Int,
         chunksFolder: URL,
         modelsURL: URL,
-        glossary: [GlossaryEntry],
         qualityMode: ProcessingQualityMode
     ) async throws {
         let asset = AVURLAsset(url: mediaURL)
