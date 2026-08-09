@@ -388,6 +388,29 @@ import Testing
     #expect(SegmentQualityComparator.prefersCandidate(candidate, over: existing))
 }
 
+@Test func transcriptCoverageRejectsLegacyEmptyCheckpointButAcceptsVerifiedSilence() {
+    let jobID = UUID()
+    let spoken = TranscriptSegment(jobID: jobID, chunkIndex: 0, startTime: 0, endTime: 30, text: "대사")
+    let legacyEmpty = TranscriptSegment(jobID: jobID, chunkIndex: 1, startTime: 30, endTime: 60, text: "")
+    let verifiedSilence = TranscriptSegment(
+        jobID: jobID,
+        chunkIndex: 2,
+        startTime: 60,
+        endTime: 90,
+        text: "",
+        qualityNotes: [TranscriptCoverage.verifiedSilenceNote]
+    )
+
+    #expect(TranscriptCoverage.missingChunkIndices(
+        transcripts: [spoken, legacyEmpty, verifiedSilence],
+        totalChunks: 4
+    ) == [1, 3])
+    #expect(TranscriptCoverage.completedChunkCount(
+        transcripts: [spoken, legacyEmpty, verifiedSilence],
+        totalChunks: 4
+    ) == 2)
+}
+
 @Test func storeRestoresProcessingOptionsForServerRestart() throws {
     let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

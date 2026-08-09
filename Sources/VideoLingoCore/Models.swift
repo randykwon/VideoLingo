@@ -280,6 +280,7 @@ public enum VideoLingoError: LocalizedError {
     case mediaHasNoAudio
     case mediaHasNoVideo
     case modelUnavailable(String)
+    case sttIncomplete([Int])
     case cancelled
 
     public var errorDescription: String? {
@@ -289,6 +290,8 @@ public enum VideoLingoError: LocalizedError {
         case .mediaHasNoAudio: "영상에 오디오 트랙이 없습니다."
         case .mediaHasNoVideo: "영상에 비디오 트랙이 없습니다."
         case .modelUnavailable(let reason): "로컬 모델을 사용할 수 없습니다: \(reason)"
+        case .sttIncomplete(let indices):
+            "STT 검증이 끝나지 않은 청크가 있습니다: \(indices.map { String($0 + 1) }.joined(separator: ", ")). 저장된 결과를 유지한 채 다시 시작할 수 있습니다."
         case .cancelled: "작업이 취소되었습니다."
         }
     }
