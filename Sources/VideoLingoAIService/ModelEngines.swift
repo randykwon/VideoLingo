@@ -84,7 +84,7 @@ final class WhisperSTTEngine: @unchecked Sendable {
                 ? "빈 STT 누락 방지를 위한 비-VAD 재검증"
                 : "낮은 STT 신뢰도로 자동 재시도")
             var retryOptions = options
-            if needsCoverageRetry { retryOptions.chunkingStrategy = .none }
+            if needsCoverageRetry { retryOptions.chunkingStrategy = ChunkingStrategy.none }
             retryOptions.temperature = qualityMode == .maximum ? 0.2 : 0.0
             retryOptions.temperatureFallbackCount = qualityMode == .maximum ? 8 : 6
             retryOptions.logProbThreshold = -1.2
