@@ -23,6 +23,11 @@ final class WhisperSTTEngine: @unchecked Sendable {
         let cues: [TranscriptCue]
     }
 
+    private struct SegmentSelection {
+        let segments: [TranscriptionSegment]
+        let usedRelaxedFilter: Bool
+    }
+
     private var pipe: WhisperKit?
     private var loadedModel: String?
     private var speakerKit: SpeakerKit?
@@ -69,10 +74,17 @@ final class WhisperSTTEngine: @unchecked Sendable {
         var retryCount = 0
         var qualityNotes: [String] = []
         let initialScore = transcriptionScore(results)
-        if qualityMode != .fast && initialScore < 0.42 {
+        let initialSelection = segmentSelection(results)
+        let initialText = extractedText(results, selection: initialSelection)
+        var possibleSpeechDetected = containsPotentialSpeech(results)
+        let needsCoverageRetry = initialText.isEmpty && possibleSpeechDetected
+        if needsCoverageRetry || (qualityMode != .fast && initialScore < 0.42) {
             retryCount = 1
-            qualityNotes.append("낮은 STT 신뢰도로 자동 재시도")
+            qualityNotes.append(needsCoverageRetry
+                ? "빈 STT 누락 방지를 위한 비-VAD 재검증"
+                : "낮은 STT 신뢰도로 자동 재시도")
             var retryOptions = options
+            if needsCoverageRetry { retryOptions.chunkingStrategy = .none }
             retryOptions.temperature = qualityMode == .maximum ? 0.2 : 0.0
             retryOptions.temperatureFallbackCount = qualityMode == .maximum ? 8 : 6
             retryOptions.logProbThreshold = -1.2
@@ -85,31 +97,25 @@ final class WhisperSTTEngine: @unchecked Sendable {
                     return true
                 }
             )
-            if transcriptionScore(retryResults) > initialScore {
+            let retrySelection = segmentSelection(retryResults)
+            let retryText = extractedText(retryResults, selection: retrySelection)
+            possibleSpeechDetected = possibleSpeechDetected || containsPotentialSpeech(retryResults)
+            if (initialText.isEmpty && !retryText.isEmpty) || transcriptionScore(retryResults) > initialScore {
                 results = retryResults
                 qualityNotes.append("재시도 결과 채택")
             } else {
                 qualityNotes.append("최초 결과 유지")
             }
         }
-        let segments = results.flatMap(\.segments)
-        let reliableSegments = segments.filter { segment in
-            let text = TranscriptTextSanitizer.cleanWhisperText(segment.text)
-            return !text.isEmpty
-                && segment.noSpeechProb <= 0.6
-                && segment.compressionRatio <= 2.4
-                && segment.avgLogprob >= -1.2
-        }
-        let rawText = reliableSegments.isEmpty && segments.isEmpty
-            ? results.map(\.text).joined(separator: " ")
-            : reliableSegments.map(\.text).joined(separator: " ")
+        let selection = segmentSelection(results)
+        let rawText = extractedText(results, selection: selection)
         let filteredText = TranscriptTextSanitizer.cleanWhisperText(rawText)
         let diarized = try await diarizedOutput(
             audioURL: audioURL,
             results: results,
             modelsURL: modelsURL
         )
-        let fallbackCues = reliableSegments.map { segment in
+        let fallbackCues = selection.segments.map { segment in
             TranscriptCue(
                 startTime: Double(segment.start),
                 endTime: Double(segment.end),
@@ -118,11 +124,55 @@ final class WhisperSTTEngine: @unchecked Sendable {
         }.filter { !$0.text.isEmpty && $0.endTime > $0.startTime }
         let text = diarized.text.isEmpty ? filteredText : diarized.text
         let cues = diarized.cues.isEmpty ? fallbackCues : diarized.cues
-        let confidence: Double? = reliableSegments.isEmpty
+        let confidence: Double? = selection.segments.isEmpty
             ? nil
-            : reliableSegments.map { exp(Double($0.avgLogprob)) }.reduce(0, +) / Double(reliableSegments.count)
+            : selection.segments.map { exp(Double($0.avgLogprob)) }.reduce(0, +) / Double(selection.segments.count)
+        if selection.usedRelaxedFilter {
+            qualityNotes.append("엄격 필터 탈락 문장을 완화 기준으로 복구")
+        }
+        if text.isEmpty {
+            qualityNotes.append(possibleSpeechDetected
+                ? "검토 권장: 음성 가능성이 있으나 STT 문장을 확정하지 못함"
+                : TranscriptCoverage.verifiedSilenceNote)
+        }
         if confidence.map({ $0 < 0.45 }) == true { qualityNotes.append("검토 권장: 낮은 음성 인식 신뢰도") }
         return Output(text: text, language: results.first?.language, confidence: confidence, cues: cues, retryCount: retryCount, qualityNotes: qualityNotes)
+    }
+
+    private func segmentSelection(_ results: [TranscriptionResult]) -> SegmentSelection {
+        let segments = results.flatMap(\.segments)
+        let strict = segments.filter { segment in
+            let text = TranscriptTextSanitizer.cleanWhisperText(segment.text)
+            return !text.isEmpty
+                && segment.noSpeechProb <= 0.6
+                && segment.compressionRatio <= 2.4
+                && segment.avgLogprob >= -1.2
+        }
+        if !strict.isEmpty { return SegmentSelection(segments: strict, usedRelaxedFilter: false) }
+
+        let relaxed = segments.filter { segment in
+            let text = TranscriptTextSanitizer.cleanWhisperText(segment.text)
+            return !text.isEmpty
+                && segment.noSpeechProb <= 0.85
+                && segment.compressionRatio <= 3.0
+                && segment.avgLogprob >= -1.8
+        }
+        return SegmentSelection(segments: relaxed, usedRelaxedFilter: !relaxed.isEmpty)
+    }
+
+    private func extractedText(_ results: [TranscriptionResult], selection: SegmentSelection) -> String {
+        if !selection.segments.isEmpty {
+            return selection.segments.map(\.text).joined(separator: " ")
+        }
+        guard results.allSatisfy({ $0.segments.isEmpty }) else { return "" }
+        return results.map(\.text).joined(separator: " ")
+    }
+
+    private func containsPotentialSpeech(_ results: [TranscriptionResult]) -> Bool {
+        if results.contains(where: { !TranscriptTextSanitizer.cleanWhisperText($0.text).isEmpty }) { return true }
+        return results.flatMap(\.segments).contains { segment in
+            !TranscriptTextSanitizer.cleanWhisperText(segment.text).isEmpty && segment.noSpeechProb <= 0.9
+        }
     }
 
     private func transcriptionScore(_ results: [TranscriptionResult]) -> Double {
