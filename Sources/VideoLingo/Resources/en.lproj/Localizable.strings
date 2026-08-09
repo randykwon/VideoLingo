@@ -135,9 +135,11 @@
 "취소" = "Cancel";
 "확인" = "OK";
 "현재 언어 번역을 다시 생성할까요?" = "Regenerate the current language translation?";
-"STT와 모든 번역을 다시 생성할까요?" = "Regenerate STT and all translations?";
+"기존 결과를 삭제하고 다시 생성할까요?" = "Delete existing results and regenerate?";
 "번역 재생성" = "Regenerate Translation";
-"STT·번역 재생성" = "Regenerate STT · Translation";
+"삭제 후 재생성" = "Delete and Regenerate";
+"기존 결과 삭제 후 재생성" = "Delete Existing Results and Regenerate";
+"현재 영상의 STT·번역 결과를 모두 삭제하고 처음부터 다시 생성합니다" = "Deletes all STT and translation results for the current video and regenerates them from scratch.";
 "저장된 STT와 발화 타이밍은 유지하고 선택한 언어·모델의 번역만 삭제한 뒤 다시 생성합니다." = "Keeps saved STT and timing, deletes only the selected language/model translation, then regenerates it.";
 "현재 영상의 기존 STT·번역 체크포인트와 사이드카 파일을 삭제한 뒤 처음부터 다시 생성합니다." = "Deletes this video's existing STT · translation checkpoint and sidecar files, then regenerates from scratch.";
 

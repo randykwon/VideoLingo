@@ -122,11 +122,13 @@ struct ContentView: View {
                         Button("번역만 재생성", systemImage: "character.book.closed") {
                             regenerationRequest = .translation
                         }
-                        Button("STT·번역 모두 재생성", systemImage: "waveform.badge.magnifyingglass", role: .destructive) {
-                            regenerationRequest = .all
-                        }
                     }
                     .disabled(!model.canRegenerate)
+                    Button("기존 결과 삭제 후 재생성", systemImage: "trash", role: .destructive) {
+                        regenerationRequest = .deleteAll
+                    }
+                    .disabled(!model.canRegenerate)
+                    .help("현재 영상의 STT·번역 결과를 모두 삭제하고 처음부터 다시 생성합니다")
                     Button("화자 이름 분석 적용", systemImage: "person.text.rectangle") {
                         model.startOrResume()
                     }
@@ -296,7 +298,7 @@ struct ContentView: View {
                 regenerationRequest = nil
                 switch request {
                 case .translation: model.regenerateTranslations()
-                case .all: model.regenerateSTTAndTranslations()
+                case .deleteAll: model.regenerateSTTAndTranslations()
                 }
             }
             Button("취소", role: .cancel) { regenerationRequest = nil }
@@ -543,26 +545,26 @@ private struct DemosaicSheet: View {
 
 private enum RegenerationRequest: String, Identifiable {
     case translation
-    case all
+    case deleteAll
 
     var id: String { rawValue }
     var title: String {
         switch self {
         case .translation: "현재 언어 번역을 다시 생성할까요?"
-        case .all: "STT와 모든 번역을 다시 생성할까요?"
+        case .deleteAll: "기존 결과를 삭제하고 다시 생성할까요?"
         }
     }
     var actionTitle: String {
         switch self {
         case .translation: "번역 재생성"
-        case .all: "STT·번역 재생성"
+        case .deleteAll: "삭제 후 재생성"
         }
     }
     var message: String {
         switch self {
         case .translation:
             "저장된 STT와 발화 타이밍은 유지하고 선택한 언어·모델의 번역만 삭제한 뒤 다시 생성합니다."
-        case .all:
+        case .deleteAll:
             "현재 영상의 기존 STT·번역 체크포인트와 사이드카 파일을 삭제한 뒤 처음부터 다시 생성합니다."
         }
     }
