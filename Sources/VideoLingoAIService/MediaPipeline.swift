@@ -418,8 +418,12 @@ final class MediaPipeline: @unchecked Sendable {
                     retryCount: (existingTranscript?.retryCount ?? 0) + sttOutput.retryCount + (existingTranscript == nil ? 0 : 1),
                     qualityNotes: sttOutput.qualityNotes + (existingTranscript == nil ? [] : ["기존 결과와 재시도 후보 비교"])
                 )
-                let transcript = existingTranscript.map {
-                    SegmentQualityComparator.prefersCandidate(candidate, over: $0) ? candidate : $0
+                let transcript = existingTranscript.map { existing in
+                    if !TranscriptCoverage.hasCompleteCheckpoint(existing),
+                       TranscriptCoverage.hasCompleteCheckpoint(candidate) {
+                        return candidate
+                    }
+                    return SegmentQualityComparator.prefersCandidate(candidate, over: existing) ? candidate : existing
                 } ?? candidate
                 if detectedLanguage == nil, (transcript.confidence ?? 0) >= 0.35 {
                     detectedLanguage = transcript.language
