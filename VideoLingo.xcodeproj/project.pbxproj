@@ -19,6 +19,7 @@
 		4714219B84AF56F87F6301FB /* VideoLingoCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		49383AFC6BB83EFEC4A62AC5 /* ModelEngines.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DC3B7097938C5DC4805FCA5 /* ModelEngines.swift */; };
 		5177BD6DE1C97C6978D5BA3D /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 301CAE7D02DB599971B5DA8D /* Models.swift */; };
+		66B4E95470361214F3F3B6BA /* TranscriptCoverage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8622B216D379DB3EFB80BE0B /* TranscriptCoverage.swift */; };
 		71AF96C00DB31CB885B81BB7 /* VideoLingoCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; };
 		7ED19338E2E1FBC5B5FD6B20 /* DemosaicPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C832255181DE453DEE6FEEB /* DemosaicPipeline.swift */; };
 		8914F072CB83FEE3460D642F /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = F2540BFA03D82677F4CB2DD9 /* MLXLMCommon */; };
@@ -145,6 +146,7 @@
 		72ED8A6BCA7371F5C1F61EB0 /* VideoLingo.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VideoLingo.entitlements; sourceTree = "<group>"; };
 		79A156114B29D4BC57E93E1B /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
 		7A5043D4A8F25D593601FB90 /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
+		8622B216D379DB3EFB80BE0B /* TranscriptCoverage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptCoverage.swift; sourceTree = "<group>"; };
 		9DD89FEABFD63CD5DDE25032 /* VideoLingoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoLingoApp.swift; sourceTree = "<group>"; };
 		A4C1EAFEF20CEC31F93495A2 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		A77000A3238B525A3BBEB590 /* ServiceDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServiceDelegate.swift; sourceTree = "<group>"; };
@@ -264,6 +266,7 @@
 				1D0E033737DF093CD2426172 /* SegmentQualityComparator.swift */,
 				62775C242691BCD4B3C8EDBD /* SpeakerLabelRewriter.swift */,
 				2D34AF221652871C5DA018C3 /* SubtitleExporter.swift */,
+				8622B216D379DB3EFB80BE0B /* TranscriptCoverage.swift */,
 				E2876CAD09B83DF7F2EBD6CC /* TranscriptTextSanitizer.swift */,
 				251F41FF88391DBF04DD4A1E /* XPCProtocol.swift */,
 			);
@@ -490,6 +493,7 @@
 				8BFEE98D0588EACC8EBE480B /* SegmentQualityComparator.swift in Sources */,
 				2FCBE5EC766797589C3B1BF7 /* SpeakerLabelRewriter.swift in Sources */,
 				EA8C16B7023925B4EDCFE78A /* SubtitleExporter.swift in Sources */,
+				66B4E95470361214F3F3B6BA /* TranscriptCoverage.swift in Sources */,
 				8EC7A0FACCE4BD10C4F7CA6E /* TranscriptTextSanitizer.swift in Sources */,
 				27055CA002B344DD1114FDF2 /* XPCProtocol.swift in Sources */,
 			);
