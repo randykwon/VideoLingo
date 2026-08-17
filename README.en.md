@@ -21,7 +21,7 @@ VideoLingo is a native Swift macOS app that plays MP4 videos while performing lo
 
 ## Requirements
 
-- A Mac that supports macOS 26
+- Apple Silicon Mac
 - macOS 26 or later
 - Xcode 26 or later
 - XcodeGen
