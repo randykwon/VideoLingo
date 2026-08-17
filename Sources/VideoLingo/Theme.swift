@@ -100,12 +100,17 @@ final class ThemeManager {
     var translucent: Bool {
         didSet { UserDefaults.standard.set(translucent, forKey: "themeTranslucent") }
     }
+    /// 영상 위에 표시하는 재생 자막 색상입니다. sRGB 성분으로 저장해 앱 전체 창에 즉시 공유합니다.
+    var subtitleColor: Color {
+        didSet { Self.saveSubtitleColor(subtitleColor) }
+    }
 
     private init() {
         appearance = AppearanceMode(rawValue: UserDefaults.standard.string(forKey: "themeAppearance") ?? "") ?? .system
         accent = AccentTheme(rawValue: UserDefaults.standard.string(forKey: "themeAccent") ?? "") ?? .system
         density = InterfaceDensity(rawValue: UserDefaults.standard.string(forKey: "themeDensity") ?? "") ?? .comfortable
         translucent = UserDefaults.standard.bool(forKey: "themeTranslucent")
+        subtitleColor = Self.loadSubtitleColor()
     }
 
     var colorScheme: ColorScheme? { appearance.colorScheme }
@@ -117,6 +122,30 @@ final class ThemeManager {
         accent = preset.accent
         density = preset.density
         translucent = preset.translucent
+    }
+
+    func resetSubtitleColor() {
+        subtitleColor = .white
+    }
+
+    private static func loadSubtitleColor() -> Color {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: "subtitleColorRed") != nil else { return .white }
+        return Color(
+            red: defaults.double(forKey: "subtitleColorRed"),
+            green: defaults.double(forKey: "subtitleColorGreen"),
+            blue: defaults.double(forKey: "subtitleColorBlue"),
+            opacity: defaults.object(forKey: "subtitleColorAlpha") == nil ? 1 : defaults.double(forKey: "subtitleColorAlpha")
+        )
+    }
+
+    private static func saveSubtitleColor(_ color: Color) {
+        guard let converted = NSColor(color).usingColorSpace(.sRGB) else { return }
+        let defaults = UserDefaults.standard
+        defaults.set(converted.redComponent, forKey: "subtitleColorRed")
+        defaults.set(converted.greenComponent, forKey: "subtitleColorGreen")
+        defaults.set(converted.blueComponent, forKey: "subtitleColorBlue")
+        defaults.set(converted.alphaComponent, forKey: "subtitleColorAlpha")
     }
 }
 

@@ -435,8 +435,12 @@ private struct SimpleSidebarView: View {
 /// 툴바를 호스팅하는 ContentView가 매번 다시 계산되어 크래시하는 것을 방지합니다.
 private struct PlayerPane: View {
     @Environment(AppModel.self) private var model
+    @Environment(ThemeManager.self) private var theme
     @State private var screenTextConfig: TranslationSession.Configuration?
     @AppStorage("transcriptPanelHeight") private var transcriptPanelHeight: Double = 320
+    @AppStorage("subtitlePositionX") private var subtitlePositionX = 0.5
+    @AppStorage("subtitlePositionY") private var subtitlePositionY = 0.86
+    @State private var subtitleDragStart: CGPoint?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -450,9 +454,25 @@ private struct PlayerPane: View {
                             .padding(.top, 14)
                     }
                 }
-                .overlay(alignment: .bottom) {
-                    PlayerCaption(text: model.activeSubtitle)
-                        .padding(.bottom, 16)
+                .overlay {
+                    GeometryReader { geometry in
+                        if !model.activeSubtitle.isEmpty {
+                            PlayerCaption(text: model.activeSubtitle, color: theme.subtitleColor)
+                                .frame(maxWidth: max(0, geometry.size.width - 48))
+                                .position(
+                                    x: geometry.size.width * subtitlePositionX,
+                                    y: geometry.size.height * subtitlePositionY
+                                )
+                                .contentShape(Rectangle())
+                                .gesture(subtitleDragGesture(in: geometry.size))
+                                .contextMenu {
+                                    Button("자막 위치 초기화", systemImage: "arrow.counterclockwise") {
+                                        resetSubtitlePosition()
+                                    }
+                                }
+                                .help("드래그해서 자막 위치 이동")
+                        }
+                    }
                 }
             if !model.isSimpleMode && !model.hideTranscriptPanel {
                 PanelResizeHandle(height: $transcriptPanelHeight)
@@ -492,6 +512,23 @@ private struct PlayerPane: View {
                 target: Locale.Language(identifier: language)
             )
         }
+    }
+
+    private func subtitleDragGesture(in size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 1)
+            .onChanged { value in
+                guard size.width > 0, size.height > 0 else { return }
+                let start = subtitleDragStart ?? CGPoint(x: subtitlePositionX, y: subtitlePositionY)
+                if subtitleDragStart == nil { subtitleDragStart = start }
+                subtitlePositionX = min(0.92, max(0.08, start.x + value.translation.width / size.width))
+                subtitlePositionY = min(0.92, max(0.08, start.y + value.translation.height / size.height))
+            }
+            .onEnded { _ in subtitleDragStart = nil }
+    }
+
+    private func resetSubtitlePosition() {
+        subtitlePositionX = 0.5
+        subtitlePositionY = 0.86
     }
 }
 
@@ -1127,6 +1164,8 @@ private struct GeneralSettingsView: View {
     @Environment(LocalizationManager.self) private var localization
     @Environment(ThemeManager.self) private var theme
     @Environment(AppModel.self) private var model
+    @AppStorage("subtitlePositionX") private var subtitlePositionX = 0.5
+    @AppStorage("subtitlePositionY") private var subtitlePositionY = 0.86
 
     var body: some View {
         @Bindable var localization = localization
@@ -1183,6 +1222,21 @@ private struct GeneralSettingsView: View {
                     }
                 }
                 Text("앱 메뉴와 화면 문구에 사용할 언어입니다. 변경하면 즉시 적용됩니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("화면 자막") {
+                ColorPicker("자막 색상", selection: $theme.subtitleColor, supportsOpacity: false)
+                HStack {
+                    Button("색상 초기화", systemImage: "paintbrush") {
+                        theme.resetSubtitleColor()
+                    }
+                    Button("위치 초기화", systemImage: "arrow.counterclockwise") {
+                        subtitlePositionX = 0.5
+                        subtitlePositionY = 0.86
+                    }
+                }
+                Text("영상 위 자막을 마우스로 드래그해 옮길 수 있습니다. 위치와 색상은 자동으로 저장됩니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

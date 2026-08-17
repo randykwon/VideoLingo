@@ -128,6 +128,13 @@
 "영상을 선택하세요" = "Select a video";
 "MP4를 열면 재생과 동시에 로컬 STT·번역을 진행할 수 있습니다." = "Open an MP4 to play it while running local STT · translation.";
 "표시 중인 자막 없음" = "No caption shown";
+"화면 자막" = "On-screen Captions";
+"자막 색상" = "Caption Color";
+"색상 초기화" = "Reset Color";
+"위치 초기화" = "Reset Position";
+"자막 위치 초기화" = "Reset Caption Position";
+"드래그해서 자막 위치 이동" = "Drag to move the caption";
+"영상 위 자막을 마우스로 드래그해 옮길 수 있습니다. 위치와 색상은 자동으로 저장됩니다." = "Drag captions over the video to move them. Position and color are saved automatically.";
 
 /* Regenerate dialogs */
 "결과를 재생성할까요?" = "Regenerate results?";
