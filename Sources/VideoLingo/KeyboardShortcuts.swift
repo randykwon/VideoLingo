@@ -301,9 +301,10 @@ struct WindowModeAccessor: NSViewRepresentable {
                 forName: NSWindow.willEnterFullScreenNotification,
                 object: window,
                 queue: .main
-            ) { [weak window] _ in
+            ) { [weak self, weak window, weak model] _ in
                 MainActor.assumeIsolated {
-                    toolbarWasVisible = window?.toolbar?.isVisible ?? true
+                    guard let self, let model else { return }
+                    self.toolbarWasVisible = window?.toolbar?.isVisible ?? true
                     window?.toolbar?.isVisible = false
                     model.isTheaterMode = true
                 }
@@ -312,10 +313,11 @@ struct WindowModeAccessor: NSViewRepresentable {
                 forName: NSWindow.didExitFullScreenNotification,
                 object: window,
                 queue: .main
-            ) { [weak window] _ in
+            ) { [weak self, weak window, weak model] _ in
                 MainActor.assumeIsolated {
+                    guard let self, let model else { return }
                     model.isTheaterMode = false
-                    window?.toolbar?.isVisible = toolbarWasVisible
+                    window?.toolbar?.isVisible = self.toolbarWasVisible
                 }
             })
 
