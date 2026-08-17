@@ -1,5 +1,7 @@
 # VideoLingo
 
+[한국어](README.md) | [English](README.en.md)
+
 MP4를 재생하면서 별도 XPC 프로세스에서 로컬 STT, 다국어 번역, 번역 음성 생성을 수행하는 Swift macOS 앱입니다. 결과는 청크마다 SQLite에 저장되어 앱을 종료하거나 작업이 실패해도 이어서 처리할 수 있습니다.
 
 ## 구현된 기능

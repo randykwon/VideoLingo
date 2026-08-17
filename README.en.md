@@ -1,0 +1,94 @@
+# VideoLingo
+
+[한국어](README.md) | [English](README.en.md)
+
+VideoLingo is a native Swift macOS app that plays MP4 videos while performing local speech recognition, multilingual translation, and optional translated-speech generation in a separate XPC process. Results are committed to SQLite one chunk at a time, so interrupted or failed jobs can resume without losing completed work.
+
+## Features
+
+- MP4 playback powered by `AVPlayer`
+- Asynchronous AI processing in an XPC service
+- Chunked audio extraction
+- Local Whisper Large v3 speech recognition with WhisperKit/Core ML and automatic model downloads
+- On-device translation using macOS Foundation Models
+- Translated speech using TTSKit/Qwen3-TTS with automatic model downloads
+- Generation of `dubbed-<language>.mp4` with lowered source volume and mixed translated speech
+- SQLite WAL, chunk-level transactions, busy timeout, lock retries, and duplicate-job prevention
+- Reuse of completed STT when adding languages or TTS later
+- Movable player captions with a customizable, persistent color
+- Video-only theater mode in full screen
+- SRT export
+
+## Requirements
+
+- A Mac that supports macOS 26
+- macOS 26 or later
+- Xcode 26 or later
+- XcodeGen
+- Apple Intelligence enabled with the system language model available for translation
+
+WhisperKit and TTSKit models are downloaded the first time their features are used. The accuracy-focused `large-v3-v20240930_626MB` model is selected by default; `small`, `base`, and `tiny` are available for less capable systems. Enabling TTS downloads roughly 1 GB of additional model data. Once downloaded, models can run offline.
+
+Whisper is an encoder-decoder Transformer that accepts audio and generates text tokens. Although it is not a general-purpose text LLM, its timestamps and multilingual recognition make it better suited to video transcription than sending audio directly to a text model.
+
+## Build
+
+```bash
+./scripts/build_app.sh
+open .build/DerivedData/Build/Products/Release/VideoLingo.app
+```
+
+Alternatively, open `VideoLingo.xcodeproj` in Xcode and run the `VideoLingo` scheme. Run `xcodegen generate` first after changing `project.yml`.
+
+### Create a DMG
+
+```bash
+./scripts/build_dmg.sh
+```
+
+The image is created at `dist/VideoLingo-<version>.dmg`. The script currently uses ad-hoc signing for local execution. Public distribution requires a Developer ID Application signature followed by Apple notarization.
+
+## Usage
+
+1. Select a video with **Open MP4 Video…**.
+2. Choose the STT model, source language, and target languages.
+3. Enable **Generate dubbed MP4** if translated speech is required.
+4. Select **Start / Resume STT · Translation**.
+5. Continue watching while processing runs in the background.
+6. Drag the live caption to reposition it. Change its color under **Settings → General → On-screen Captions**.
+7. Use **Export SRT** for subtitles or **Open Results Folder Next to Video** for generated media.
+
+## Storage
+
+```text
+~/Library/Application Support/VideoLingo/
+├── videolingo.sqlite
+└── Jobs/<job-id>/
+    ├── AudioChunks/
+    ├── TranslatedSpeech/
+    └── dubbed-<language>.mp4
+```
+
+Jobs with the same video path, STT model, and source language share a checkpoint. Changing target languages reuses the stored transcript.
+
+## Tests
+
+```bash
+xcodebuild -project VideoLingo.xcodeproj \
+  -scheme VideoLingo \
+  -destination 'platform=macOS' \
+  -derivedDataPath .build/TestDerivedData \
+  CODE_SIGNING_ALLOWED=NO \
+  test
+```
+
+Automated tests currently cover SRT timing and translation selection, along with atomic SQLite chunk storage and resume indexing.
+
+## Project layout
+
+- `Sources/VideoLingo`: SwiftUI app, player, and job UI
+- `Sources/VideoLingoAIService`: XPC service and media/STT/translation/TTS pipelines
+- `Sources/VideoLingoCore`: shared models, SQLite store, XPC protocol, and subtitle output
+- `Tests/VideoLingoCoreTests`: checkpoint and subtitle tests
+
+If the translation model is unavailable, the job is recorded as failed while completed STT chunks remain intact. Enable Apple Intelligence and start the same job again to reuse STT and resume from translation.

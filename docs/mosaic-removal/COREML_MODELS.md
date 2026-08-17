@@ -1,5 +1,7 @@
 # 얼굴 모자이크 제거 — Core ML 모델 준비/배치 (Phase 2)
 
+[한국어](COREML_MODELS.md) | [English](COREML_MODELS.en.md)
+
 앱의 모자이크 제거 파이프라인(`DemosaicPipeline`)은 `Models/Demosaic/` 폴더에서 Core ML 모델을 자동으로 찾아 사용합니다.
 모델이 없으면 Core Image 기본 복원(baseline)으로 폴백합니다.
 

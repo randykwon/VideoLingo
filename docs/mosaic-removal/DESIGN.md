@@ -1,5 +1,7 @@
 # VideoLingo — 얼굴 모자이크 제거 모듈 설계 (Swift / XPC 통합)
 
+[한국어](DESIGN.md) | [English](DESIGN.en.md)
+
 > 대상 시나리오: **인물/얼굴 모자이크 · 오프라인 배치 · 최고 품질**
 > 상태: 설계 초안 (Phase 0 PoC 검증 전제)
 
