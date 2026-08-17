@@ -238,52 +238,36 @@ struct ContentView: View {
         }
         .toolbar {
             if !model.isTheaterMode {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    model.toggleFullScreen()
-                } label: {
-                    Label("전체화면", systemImage: "arrow.up.backward.and.arrow.down.forward")
+                ToolbarItemGroup(placement: .primaryAction) {
+                    SettingsLink {
+                        Label("설정", systemImage: "gearshape")
+                    }
+                    .help("설정 열기 (⌘,)")
+
+                    Menu {
+                        Toggle("심플 보기", isOn: $model.isSimpleMode)
+                        Toggle("미니 뷰어", isOn: $model.isMiniViewer)
+                        Divider()
+                        Toggle(
+                            "결과 패널 표시",
+                            isOn: Binding(
+                                get: { !model.hideTranscriptPanel },
+                                set: { model.hideTranscriptPanel = !$0 }
+                            )
+                        )
+                        .disabled(model.isSimpleMode)
+                    } label: {
+                        Label("보기 옵션", systemImage: "slider.horizontal.3")
+                    }
+                    .help("보기 방식과 결과 패널 설정")
+
+                    Button {
+                        model.toggleFullScreen()
+                    } label: {
+                        Label("전체화면", systemImage: "arrow.up.backward.and.arrow.down.forward")
+                    }
+                    .help("전체화면 전환 (⌃⌘F)")
                 }
-                .help("전체화면 전환 (⌃⌘F)")
-            }
-            ToolbarItem(placement: .primaryAction) {
-                SettingsLink {
-                    Label("설정", systemImage: "gearshape")
-                }
-                .help("설정 열기 (⌘,)")
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    model.hideTranscriptPanel.toggle()
-                } label: {
-                    Label(
-                        model.hideTranscriptPanel ? "결과 패널 표시" : "결과 패널 감추기",
-                        systemImage: model.hideTranscriptPanel ? "rectangle.bottomthird.inset.filled" : "rectangle.bottomthird.inset"
-                    )
-                }
-                .disabled(model.isSimpleMode)
-                .help(model.hideTranscriptPanel ? "아래 STT·번역 결과 패널 표시" : "아래 STT·번역 결과 패널 감추기")
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    model.isMiniViewer.toggle()
-                } label: {
-                    Label(model.isMiniViewer ? "미니 뷰어 종료" : "미니 뷰어", systemImage: model.isMiniViewer ? "arrow.up.left.and.arrow.down.right" : "pip")
-                }
-                .help(model.isMiniViewer ? "일반 창 크기로 돌아가기" : "작은 항상 위 영상 창으로 전환")
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    model.isSimpleMode.toggle()
-                } label: {
-                    Label(
-                        model.isSimpleMode ? "일반 모드" : "심플 모드",
-                        systemImage: model.isSimpleMode ? "rectangle.split.2x1" : "rectangle"
-                    )
-                }
-                .help(model.isSimpleMode ? "왼쪽 컨트롤과 자막 목록 표시" : "영상과 재생 자막만 표시")
-            }
-            }
         }
         .onAppear {
             columnVisibility = model.isSimpleMode ? .detailOnly : .all

@@ -28,6 +28,8 @@
 /* Toolbar */
 "전체화면" = "Full Screen";
 "전체화면 전환 (⌃⌘F)" = "Toggle full screen (⌃⌘F)";
+"보기 옵션" = "View Options";
+"보기 방식과 결과 패널 설정" = "Configure view modes and the results panel";
 "설정" = "Settings";
 "설정 열기 (⌘,)" = "Open Settings (⌘,)";
 "아래 STT·번역 결과 패널 표시" = "Show the STT · translation panel below";
