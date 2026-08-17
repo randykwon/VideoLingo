@@ -268,6 +268,7 @@ struct ContentView: View {
                     }
                     .help("전체화면 전환 (⌃⌘F)")
                 }
+            }
         }
         .onAppear {
             columnVisibility = model.isSimpleMode ? .detailOnly : .all
