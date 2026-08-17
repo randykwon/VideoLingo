@@ -107,6 +107,8 @@ final class AppModel {
     var isSimpleMode = false
     var isMiniViewer = false
     var hideTranscriptPanel = false
+    /// macOS 네이티브 전체화면에서는 영상 이외의 앱 UI를 감추는 영화관 보기로 전환합니다.
+    var isTheaterMode = false
     var snapshot: JobSnapshot?
     var transcript: [TranscriptSegment] = []
     var translations: [UUID: TranslationSegment] = [:]

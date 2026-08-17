@@ -263,6 +263,7 @@ final class RecorderControl: NSView {
 }
 
 struct WindowModeAccessor: NSViewRepresentable {
+    let model: AppModel
     let mini: Bool
     let opacity: Double
     var translucent: Bool = false
@@ -272,6 +273,7 @@ struct WindowModeAccessor: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {
         DispatchQueue.main.async { [weak view] in
             guard let window = view?.window else { return }
+            context.coordinator.observeFullScreen(of: window, model: model)
             context.coordinator.apply(mini: mini, to: window)
             context.coordinator.apply(opacity: opacity, to: window)
             context.coordinator.apply(translucent: translucent, to: window)
@@ -284,6 +286,44 @@ struct WindowModeAccessor: NSViewRepresentable {
         private var appliedMini: Bool?
         private var appliedOpacity: Double?
         private var appliedTranslucent: Bool?
+        private weak var observedWindow: NSWindow?
+        private var fullScreenObservers: [NSObjectProtocol] = []
+        private var toolbarWasVisible = true
+
+        func observeFullScreen(of window: NSWindow, model: AppModel) {
+            guard observedWindow !== window else { return }
+            fullScreenObservers.forEach(NotificationCenter.default.removeObserver)
+            fullScreenObservers.removeAll()
+            observedWindow = window
+
+            let center = NotificationCenter.default
+            fullScreenObservers.append(center.addObserver(
+                forName: NSWindow.willEnterFullScreenNotification,
+                object: window,
+                queue: .main
+            ) { [weak window] _ in
+                MainActor.assumeIsolated {
+                    toolbarWasVisible = window?.toolbar?.isVisible ?? true
+                    window?.toolbar?.isVisible = false
+                    model.isTheaterMode = true
+                }
+            })
+            fullScreenObservers.append(center.addObserver(
+                forName: NSWindow.didExitFullScreenNotification,
+                object: window,
+                queue: .main
+            ) { [weak window] _ in
+                MainActor.assumeIsolated {
+                    model.isTheaterMode = false
+                    window?.toolbar?.isVisible = toolbarWasVisible
+                }
+            })
+
+            if window.styleMask.contains(.fullScreen) {
+                window.toolbar?.isVisible = false
+                model.isTheaterMode = true
+            }
+        }
 
         func apply(translucent: Bool, to window: NSWindow) {
             guard appliedTranslucent != translucent else { return }

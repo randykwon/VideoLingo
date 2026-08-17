@@ -16,6 +16,12 @@ struct ContentView: View {
 
     var body: some View {
         @Bindable var model = model
+        Group {
+        if model.isTheaterMode {
+            PlayerPane()
+                .background(Color.black)
+                .ignoresSafeArea()
+        } else {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             Group {
             if simpleSidebar {
@@ -228,7 +234,10 @@ struct ContentView: View {
             // 플레이어·자막·화면글자 번역은 별도 뷰로 분리해, 실시간 갱신이 툴바를 다시 계산하지 않도록 합니다.
             PlayerPane()
         }
+        }
+        }
         .toolbar {
+            if !model.isTheaterMode {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     model.toggleFullScreen()
@@ -274,6 +283,7 @@ struct ContentView: View {
                 }
                 .help(model.isSimpleMode ? "왼쪽 컨트롤과 자막 목록 표시" : "영상과 재생 자막만 표시")
             }
+            }
         }
         .onAppear {
             columnVisibility = model.isSimpleMode ? .detailOnly : .all
@@ -313,7 +323,7 @@ struct ContentView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
-        .background(WindowModeAccessor(mini: model.isMiniViewer, opacity: model.windowOpacity, translucent: theme.translucent))
+        .background(WindowModeAccessor(model: model, mini: model.isMiniViewer, opacity: model.windowOpacity, translucent: theme.translucent))
         .sheet(isPresented: $showDemosaicSheet) {
             DemosaicSheet()
                 .environment(model)
