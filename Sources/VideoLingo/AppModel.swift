@@ -124,6 +124,8 @@ final class AppModel {
     var settingsMessage = ""
     var settingsIsBusy = false
     var resultDirectoryURL: URL?
+    var isExportingMobilePackage = false
+    var mobileExportMessage = ""
 
     let languages = ["ko", "en", "ja", "zh", "es", "fr", "de", "pt", "it"]
     let sourceLanguages = [
@@ -870,6 +872,69 @@ final class AppModel {
             try SubtitleExporter.srt(transcript: transcript, translations: translations).write(to: url, atomically: true, encoding: .utf8)
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    func exportMobilePackage() {
+        refreshResults()
+        guard let mediaURL else {
+            errorMessage = String(localized: "먼저 영상을 열어 주세요.")
+            return
+        }
+        guard !transcript.isEmpty else {
+            errorMessage = String(localized: "공유할 STT 결과가 없습니다.")
+            return
+        }
+
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "\(mediaURL.deletingPathExtension().lastPathComponent).videolingo"
+        panel.directoryURL = resultDirectoryURL
+        panel.allowedContentTypes = [.videoLingoPackage]
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+
+        let transcriptTrack = VideoLingoCaptionTrack(
+            id: "transcript-\(sourceLanguage.isEmpty ? "auto" : sourceLanguage)",
+            kind: .transcript,
+            languageCode: sourceLanguage.isEmpty ? nil : sourceLanguage,
+            displayName: String(localized: "원문 STT"),
+            cues: transcript.map {
+                VideoLingoCaptionCue(startTime: $0.startTime, endTime: $0.endTime, text: $0.text)
+            }
+        )
+        let translatedCues = transcript.compactMap { segment -> VideoLingoCaptionCue? in
+            guard let text = translations[segment.id]?.text, !text.isEmpty else { return nil }
+            return VideoLingoCaptionCue(startTime: segment.startTime, endTime: segment.endTime, text: text)
+        }
+        var tracks = [transcriptTrack]
+        if !translatedCues.isEmpty {
+            tracks.append(VideoLingoCaptionTrack(
+                id: "translation-\(selectedLanguage)",
+                kind: .translation,
+                languageCode: selectedLanguage,
+                displayName: String(localized: "\(selectedLanguage) 번역"),
+                cues: translatedCues
+            ))
+        }
+
+        isExportingMobilePackage = true
+        mobileExportMessage = String(localized: "모바일 패키지를 만드는 중…")
+        let title = mediaURL.deletingPathExtension().lastPathComponent
+        Task {
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try VideoLingoPackageIO.write(
+                        to: destination,
+                        mediaURL: mediaURL,
+                        title: title,
+                        tracks: tracks
+                    )
+                }.value
+                mobileExportMessage = String(localized: "모바일 공유 패키지를 저장했습니다.")
+            } catch {
+                errorMessage = error.localizedDescription
+                mobileExportMessage = ""
+            }
+            isExportingMobilePackage = false
         }
     }
 

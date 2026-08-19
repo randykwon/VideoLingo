@@ -137,6 +137,8 @@ private struct VideoLingoCommands: Commands {
             Button("SRT 내보내기") { model?.exportSRT() }
                 .keyboardShortcut(shortcuts[.exportSRT].keyEquivalent, modifiers: shortcuts[.exportSRT].modifiers)
                 .disabled(model == nil)
+            Button("iPhone·iPad로 공유") { model?.exportMobilePackage() }
+                .disabled(model?.transcript.isEmpty ?? true)
             Button("결과 폴더 열기") { model?.revealOutput() }
                 .keyboardShortcut(shortcuts[.revealOutput].keyEquivalent, modifiers: shortcuts[.revealOutput].modifiers)
                 .disabled(model == nil)

@@ -75,6 +75,7 @@ targets:
       - path: Sources/VideoLingo
         excludes:
           - DesignAssets
+      - path: Sources/VideoLingoTransfer
     info:
       path: Sources/VideoLingo/Info.plist
       properties:
@@ -82,6 +83,19 @@ targets:
         CFBundleName: VideoLingo
         LSApplicationCategoryType: public.app-category.video
         NSMicrophoneUsageDescription: 음성 인식 기능에 필요합니다.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: VideoLingo Package
+            CFBundleTypeRole: Editor
+            LSItemContentTypes:
+              - com.vvv.videolingo.package
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.vvv.videolingo.package
+            UTTypeDescription: VideoLingo Package
+            UTTypeConformsTo:
+              - com.apple.package
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - videolingo
     entitlements:
       path: Sources/VideoLingo/VideoLingo.entitlements
       properties:
@@ -105,6 +119,7 @@ targets:
     deploymentTarget: "18.0"
     sources:
       - path: Sources/VideoLingoMobile
+      - path: Sources/VideoLingoTransfer
     info:
       path: Sources/VideoLingoMobile/Info.plist
       properties:
@@ -121,6 +136,20 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIRequiresFullScreen: false
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: VideoLingo Package
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.vvv.videolingo.package
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.vvv.videolingo.package
+            UTTypeDescription: VideoLingo Package
+            UTTypeConformsTo:
+              - com.apple.package
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - videolingo
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vvv.VideoLingo.mobile

@@ -173,7 +173,20 @@ struct ContentView: View {
                         }
                     }
                     Button("SRT 내보내기", systemImage: "square.and.arrow.up") { model.exportSRT() }
+                    Button("iPhone·iPad로 공유", systemImage: "iphone.and.arrow.forward") {
+                        model.exportMobilePackage()
+                    }
+                    .disabled(model.isExportingMobilePackage || model.transcript.isEmpty)
                     Button("영상 옆 결과 폴더 열기", systemImage: "folder") { model.revealOutput() }
+                    if model.isExportingMobilePackage {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    if !model.mobileExportMessage.isEmpty {
+                        Text(model.mobileExportMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Section("얼굴 모자이크 제거") {
                     Button("얼굴 모자이크 제거…", systemImage: "wand.and.stars") { showDemosaicSheet = true }
