@@ -46,7 +46,9 @@ open .build/DerivedData/Build/Products/Release/VideoLingo.app
 
 Xcode에서 `VideoLingoMobile` scheme과 iPhone/iPad 시뮬레이터 또는 연결된 기기를 선택해 실행합니다. 모바일 앱은 파일 앱에서 영상을 가져와 기기에 보관하고 재생하며, 화면 크기와 회전에 맞춰 iPhone 세로형 및 iPad 분할형 레이아웃으로 전환됩니다.
 
-현재 STT·번역·음성 합성·모자이크 처리는 macOS XPC 서비스에 의존하므로 Mac 앱에서만 제공됩니다. 모바일 1차 버전은 재생과 로컬 파일 보관을 지원합니다.
+Mac 앱에서 영상을 처리한 뒤 `iPhone·iPad로 공유`를 선택하면 MP4, 원문 STT, 생성된 모든 언어의 번역 자막이 하나의 `.videolingo` 패키지로 저장됩니다. 이 파일을 AirDrop, iCloud Drive 또는 파일 앱으로 모바일 기기에 전달한 뒤 열면 영상과 자막 트랙을 함께 사용할 수 있습니다.
+
+STT·번역·음성 합성·모자이크 연산 자체는 macOS XPC 서비스에서 실행됩니다. 모바일 앱은 Mac에서 생성된 결과 패키지의 수신·보관·재생과 자막 전환을 담당합니다.
 
 ### DMG 만들기
 

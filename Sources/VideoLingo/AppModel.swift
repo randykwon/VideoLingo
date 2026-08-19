@@ -901,19 +901,35 @@ final class AppModel {
                 VideoLingoCaptionCue(startTime: $0.startTime, endTime: $0.endTime, text: $0.text)
             }
         )
-        let translatedCues = transcript.compactMap { segment -> VideoLingoCaptionCue? in
-            guard let text = translations[segment.id]?.text, !text.isEmpty else { return nil }
-            return VideoLingoCaptionCue(startTime: segment.startTime, endTime: segment.endTime, text: text)
-        }
         var tracks = [transcriptTrack]
-        if !translatedCues.isEmpty {
-            tracks.append(VideoLingoCaptionTrack(
-                id: "translation-\(selectedLanguage)",
-                kind: .translation,
-                languageCode: selectedLanguage,
-                displayName: String(localized: "\(selectedLanguage) 번역"),
-                cues: translatedCues
-            ))
+        let languagesToExport = Array(Set(targetLanguages + [selectedLanguage])).sorted()
+        for language in languagesToExport {
+            let storedTranslations: [UUID: TranslationSegment]
+            if language == selectedLanguage {
+                storedTranslations = translations
+            } else if let currentJobID, let databaseURL,
+                      let values = try? store(at: databaseURL).translations(
+                        jobID: currentJobID,
+                        language: language,
+                        modelID: translationModel
+                      ) {
+                storedTranslations = values
+            } else {
+                storedTranslations = [:]
+            }
+            let translatedCues = transcript.compactMap { segment -> VideoLingoCaptionCue? in
+                guard let text = storedTranslations[segment.id]?.text, !text.isEmpty else { return nil }
+                return VideoLingoCaptionCue(startTime: segment.startTime, endTime: segment.endTime, text: text)
+            }
+            if !translatedCues.isEmpty {
+                tracks.append(VideoLingoCaptionTrack(
+                    id: "translation-\(language)",
+                    kind: .translation,
+                    languageCode: language,
+                    displayName: String(localized: "\(language) 번역"),
+                    cues: translatedCues
+                ))
+            }
         }
 
         isExportingMobilePackage = true
