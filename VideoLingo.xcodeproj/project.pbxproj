@@ -21,6 +21,8 @@
 		4714219B84AF56F87F6301FB /* VideoLingoCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		49383AFC6BB83EFEC4A62AC5 /* ModelEngines.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DC3B7097938C5DC4805FCA5 /* ModelEngines.swift */; };
 		5177BD6DE1C97C6978D5BA3D /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 301CAE7D02DB599971B5DA8D /* Models.swift */; };
+		5476A1E3FC0CDCEE511A4AC1 /* VideoLingoPackage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90D29C25E10A1B9B2BB883D /* VideoLingoPackage.swift */; };
+		5B587B4492F8F7AB42842A21 /* VideoLingoPackage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90D29C25E10A1B9B2BB883D /* VideoLingoPackage.swift */; };
 		66B4E95470361214F3F3B6BA /* TranscriptCoverage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8622B216D379DB3EFB80BE0B /* TranscriptCoverage.swift */; };
 		71AF96C00DB31CB885B81BB7 /* VideoLingoCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; };
 		76CC2D41CBE1755C0EF376A9 /* VideoLingoMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56207C7826B10154A0FE4983 /* VideoLingoMobileApp.swift */; };
@@ -163,6 +165,7 @@
 		C57EADFA1E673C871BB0BC1E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		C9DED6B67062A46FC6A28F0F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D4733F909A2286563C9BA2E3 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		D90D29C25E10A1B9B2BB883D /* VideoLingoPackage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoLingoPackage.swift; sourceTree = "<group>"; };
 		DCEB4D1A3FF1AF17DFE806A7 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		DED4EBD517BE61BC093C449E /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		E2876CAD09B83DF7F2EBD6CC /* TranscriptTextSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptTextSanitizer.swift; sourceTree = "<group>"; };
@@ -276,6 +279,14 @@
 			path = VideoLingoAIService;
 			sourceTree = "<group>";
 		};
+		2C7F85D51D2953AC8E34E078 /* VideoLingoTransfer */ = {
+			isa = PBXGroup;
+			children = (
+				D90D29C25E10A1B9B2BB883D /* VideoLingoPackage.swift */,
+			);
+			path = VideoLingoTransfer;
+			sourceTree = "<group>";
+		};
 		62D411D493D3AE8F24B571E0 /* VideoLingoCore */ = {
 			isa = PBXGroup;
 			children = (
@@ -300,6 +311,7 @@
 				26AE0B5E0CBEDBC3E650C6F0 /* VideoLingoAIService */,
 				62D411D493D3AE8F24B571E0 /* VideoLingoCore */,
 				E0CCF77DF2998D733C2B65B9 /* VideoLingoMobile */,
+				2C7F85D51D2953AC8E34E078 /* VideoLingoTransfer */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -576,6 +588,7 @@
 				C97B1CBA186832A181C6AC86 /* Localization.swift in Sources */,
 				010D9A1AF38E0CBA1C30A84B /* Theme.swift in Sources */,
 				96D173351507CA322D5DBE16 /* VideoLingoApp.swift in Sources */,
+				5B587B4492F8F7AB42842A21 /* VideoLingoPackage.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -586,6 +599,7 @@
 				36CD4058B1D2A97C02658AEB /* MobileContentView.swift in Sources */,
 				028C5D27CB1DD707DD397A4A /* MobileVideoLibrary.swift in Sources */,
 				76CC2D41CBE1755C0EF376A9 /* VideoLingoMobileApp.swift in Sources */,
+				5476A1E3FC0CDCEE511A4AC1 /* VideoLingoPackage.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
