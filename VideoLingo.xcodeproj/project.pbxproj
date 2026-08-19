@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		010D9A1AF38E0CBA1C30A84B /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = DED4EBD517BE61BC093C449E /* Theme.swift */; };
+		028C5D27CB1DD707DD397A4A /* MobileVideoLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 035614FDC96E1C02E6607D5C /* MobileVideoLibrary.swift */; };
 		061551E65D07226612088C6C /* VideoLingoCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; };
 		085EFE628D8152A4C81B5C0D /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DCEB4D1A3FF1AF17DFE806A7 /* AVFoundation.framework */; };
 		0C8FDFAF53413D28B007CDFF /* TTSKit in Frameworks */ = {isa = PBXBuildFile; productRef = FE13BDE472DA75F6E922952A /* TTSKit */; };
@@ -16,11 +17,14 @@
 		27055CA002B344DD1114FDF2 /* XPCProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 251F41FF88391DBF04DD4A1E /* XPCProtocol.swift */; };
 		2D7D2D866794BB6400F33680 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DCEB4D1A3FF1AF17DFE806A7 /* AVFoundation.framework */; };
 		2FCBE5EC766797589C3B1BF7 /* SpeakerLabelRewriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62775C242691BCD4B3C8EDBD /* SpeakerLabelRewriter.swift */; };
+		36CD4058B1D2A97C02658AEB /* MobileContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E62F296B7BDF8CB730EE7572 /* MobileContentView.swift */; };
 		4714219B84AF56F87F6301FB /* VideoLingoCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		49383AFC6BB83EFEC4A62AC5 /* ModelEngines.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DC3B7097938C5DC4805FCA5 /* ModelEngines.swift */; };
 		5177BD6DE1C97C6978D5BA3D /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 301CAE7D02DB599971B5DA8D /* Models.swift */; };
 		66B4E95470361214F3F3B6BA /* TranscriptCoverage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8622B216D379DB3EFB80BE0B /* TranscriptCoverage.swift */; };
 		71AF96C00DB31CB885B81BB7 /* VideoLingoCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; };
+		76CC2D41CBE1755C0EF376A9 /* VideoLingoMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56207C7826B10154A0FE4983 /* VideoLingoMobileApp.swift */; };
+		7B6E4D6AB96969EA70E57110 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A5043D4A8F25D593601FB90 /* UniformTypeIdentifiers.framework */; };
 		7ED19338E2E1FBC5B5FD6B20 /* DemosaicPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C832255181DE453DEE6FEEB /* DemosaicPipeline.swift */; };
 		8914F072CB83FEE3460D642F /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = F2540BFA03D82677F4CB2DD9 /* MLXLMCommon */; };
 		8BFEE98D0588EACC8EBE480B /* SegmentQualityComparator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D0E033737DF093CD2426172 /* SegmentQualityComparator.swift */; };
@@ -33,6 +37,7 @@
 		9ED15EC1D94252A1C51E13B0 /* BatchProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 709523048B431CBC0307F264 /* BatchProcessor.swift */; };
 		A5BDE1A2E1B2923093E32A58 /* VideoLingoCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; };
 		A61F1F9BDF5073A83EB01D09 /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4B5CA03129456DF44AEC88F4 /* FoundationModels.framework */; };
+		ABB785596B2AF8C31A9F3AEB /* AVKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1A29A29F494EC232C80E8516 /* AVKit.framework */; };
 		B839BBF2EF96D641D81AB093 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 79A156114B29D4BC57E93E1B /* libsqlite3.tbd */; };
 		BF025E77E1DEEB29DBBCB5A5 /* VideoLingoCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C8BE12B6F036CD694DEC0FA4 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = A3CBF9D6BA81D626EEA55469 /* MLXLLM */; };
@@ -120,6 +125,7 @@
 
 /* Begin PBXFileReference section */
 		030837DF8066B9905C335525 /* MediaPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPipeline.swift; sourceTree = "<group>"; };
+		035614FDC96E1C02E6607D5C /* MobileVideoLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileVideoLibrary.swift; sourceTree = "<group>"; };
 		0C832255181DE453DEE6FEEB /* DemosaicPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemosaicPipeline.swift; sourceTree = "<group>"; };
 		0DC3B7097938C5DC4805FCA5 /* ModelEngines.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelEngines.swift; sourceTree = "<group>"; };
 		0E827E047831CF98D776646F /* VideoLingoCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = VideoLingoCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -135,6 +141,7 @@
 		3C5C249F9EA92D76B0F1B57A /* VideoLingo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VideoLingo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4A14B444585205085F771932 /* JobStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobStore.swift; sourceTree = "<group>"; };
 		4B5CA03129456DF44AEC88F4 /* FoundationModels.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FoundationModels.framework; path = System/Library/Frameworks/FoundationModels.framework; sourceTree = SDKROOT; };
+		56207C7826B10154A0FE4983 /* VideoLingoMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoLingoMobileApp.swift; sourceTree = "<group>"; };
 		56255223A93BEE599B1BE55B /* KeyboardShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcuts.swift; sourceTree = "<group>"; };
 		62775C242691BCD4B3C8EDBD /* SpeakerLabelRewriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerLabelRewriter.swift; sourceTree = "<group>"; };
 		646E49E8FB61BA60715DD692 /* MediaSidecarStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaSidecarStore.swift; sourceTree = "<group>"; };
@@ -148,8 +155,10 @@
 		7A5043D4A8F25D593601FB90 /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
 		8622B216D379DB3EFB80BE0B /* TranscriptCoverage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptCoverage.swift; sourceTree = "<group>"; };
 		9DD89FEABFD63CD5DDE25032 /* VideoLingoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoLingoApp.swift; sourceTree = "<group>"; };
+		A349C763E7806063B6CC44B5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		A4C1EAFEF20CEC31F93495A2 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		A77000A3238B525A3BBEB590 /* ServiceDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServiceDelegate.swift; sourceTree = "<group>"; };
+		A9330574CAEDAD64EBA366D5 /* VideoLingoMobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = VideoLingoMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B7CD60344D8EAC5BD9D96EC7 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		C57EADFA1E673C871BB0BC1E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		C9DED6B67062A46FC6A28F0F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -157,6 +166,7 @@
 		DCEB4D1A3FF1AF17DFE806A7 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		DED4EBD517BE61BC093C449E /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		E2876CAD09B83DF7F2EBD6CC /* TranscriptTextSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptTextSanitizer.swift; sourceTree = "<group>"; };
+		E62F296B7BDF8CB730EE7572 /* MobileContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileContentView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -181,6 +191,15 @@
 				E931EE4288F424363A3C5A93 /* Hub in Frameworks */,
 				2D7D2D866794BB6400F33680 /* AVFoundation.framework in Frameworks */,
 				A61F1F9BDF5073A83EB01D09 /* FoundationModels.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A7CA8BA7E2AC345B0491018B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				ABB785596B2AF8C31A9F3AEB /* AVKit.framework in Frameworks */,
+				7B6E4D6AB96969EA70E57110 /* UniformTypeIdentifiers.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -231,6 +250,7 @@
 				1C2DCD3AC1DC0639EF79BA35 /* VideoLingoAIService.xpc */,
 				0E827E047831CF98D776646F /* VideoLingoCore.framework */,
 				1C1731F2F44296391874900D /* VideoLingoCoreTests.xctest */,
+				A9330574CAEDAD64EBA366D5 /* VideoLingoMobile.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -279,6 +299,7 @@
 				00BB11BF842110F498CCA595 /* VideoLingo */,
 				26AE0B5E0CBEDBC3E650C6F0 /* VideoLingoAIService */,
 				62D411D493D3AE8F24B571E0 /* VideoLingoCore */,
+				E0CCF77DF2998D733C2B65B9 /* VideoLingoMobile */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -321,6 +342,17 @@
 			path = VideoLingoCoreTests;
 			sourceTree = "<group>";
 		};
+		E0CCF77DF2998D733C2B65B9 /* VideoLingoMobile */ = {
+			isa = PBXGroup;
+			children = (
+				A349C763E7806063B6CC44B5 /* Info.plist */,
+				E62F296B7BDF8CB730EE7572 /* MobileContentView.swift */,
+				035614FDC96E1C02E6607D5C /* MobileVideoLibrary.swift */,
+				56207C7826B10154A0FE4983 /* VideoLingoMobileApp.swift */,
+			);
+			path = VideoLingoMobile;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -341,6 +373,24 @@
 			productName = VideoLingoCore;
 			productReference = 0E827E047831CF98D776646F /* VideoLingoCore.framework */;
 			productType = "com.apple.product-type.framework";
+		};
+		631E569CA225CBE9A0D644D7 /* VideoLingoMobile */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F4BCACAE6E9E185CAC0D5BDA /* Build configuration list for PBXNativeTarget "VideoLingoMobile" */;
+			buildPhases = (
+				A15E7A1C97208A3BFA22858C /* Sources */,
+				A7CA8BA7E2AC345B0491018B /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = VideoLingoMobile;
+			packageProductDependencies = (
+			);
+			productName = VideoLingoMobile;
+			productReference = A9330574CAEDAD64EBA366D5 /* VideoLingoMobile.app */;
+			productType = "com.apple.product-type.application";
 		};
 		861249E02F2765B51A6D3119 /* VideoLingoAIService */ = {
 			isa = PBXNativeTarget;
@@ -422,6 +472,9 @@
 					32BE5170565651747209E318 = {
 						ProvisioningStyle = Automatic;
 					};
+					631E569CA225CBE9A0D644D7 = {
+						ProvisioningStyle = Automatic;
+					};
 					861249E02F2765B51A6D3119 = {
 						ProvisioningStyle = Automatic;
 					};
@@ -457,6 +510,7 @@
 				861249E02F2765B51A6D3119 /* VideoLingoAIService */,
 				32BE5170565651747209E318 /* VideoLingoCore */,
 				E7495DC3E944A86E0077AF1B /* VideoLingoCoreTests */,
+				631E569CA225CBE9A0D644D7 /* VideoLingoMobile */,
 			);
 		};
 /* End PBXProject section */
@@ -522,6 +576,16 @@
 				C97B1CBA186832A181C6AC86 /* Localization.swift in Sources */,
 				010D9A1AF38E0CBA1C30A84B /* Theme.swift in Sources */,
 				96D173351507CA322D5DBE16 /* VideoLingoApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A15E7A1C97208A3BFA22858C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				36CD4058B1D2A97C02658AEB /* MobileContentView.swift in Sources */,
+				028C5D27CB1DD707DD397A4A /* MobileVideoLibrary.swift in Sources */,
+				76CC2D41CBE1755C0EF376A9 /* VideoLingoMobileApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -633,17 +697,57 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
+		};
+		17F87C1AACB56BBC34E0C273 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Sources/VideoLingoMobile/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.vvv.VideoLingo.mobile;
+				PRODUCT_NAME = VideoLingo;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		1DEEA08DA6F4E7F6AB80BA2C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Sources/VideoLingoMobile/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.vvv.VideoLingo.mobile;
+				PRODUCT_NAME = VideoLingo;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
 		};
 		3355DD3F585F6D19864B2401 /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -760,11 +864,11 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 6.0;
@@ -866,6 +970,15 @@
 			buildConfigurations = (
 				80C229076B850BC33AA02406 /* Debug */,
 				C0FFB15BEBC9C6C58455B4DA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F4BCACAE6E9E185CAC0D5BDA /* Build configuration list for PBXNativeTarget "VideoLingoMobile" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				17F87C1AACB56BBC34E0C273 /* Debug */,
+				1DEEA08DA6F4E7F6AB80BA2C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

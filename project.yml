@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.vvv
   deploymentTarget:
     macOS: "26.0"
+    iOS: "18.0"
   xcodeVersion: "26.0"
   createIntermediateGroups: true
   developmentLanguage: ko
@@ -98,6 +99,39 @@ targets:
       - sdk: AVKit.framework
       - sdk: UniformTypeIdentifiers.framework
 
+  VideoLingoMobile:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: Sources/VideoLingoMobile
+    info:
+      path: Sources/VideoLingoMobile/Info.plist
+      properties:
+        CFBundleDisplayName: VideoLingo
+        CFBundleName: VideoLingo
+        LSApplicationCategoryType: public.app-category.video
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIRequiresFullScreen: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vvv.VideoLingo.mobile
+        PRODUCT_NAME: VideoLingo
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+        GENERATE_INFOPLIST_FILE: NO
+    dependencies:
+      - sdk: AVKit.framework
+      - sdk: UniformTypeIdentifiers.framework
+
   VideoLingoCoreTests:
     type: bundle.unit-test
     platform: macOS
@@ -117,3 +151,7 @@ schemes:
     test:
       targets:
         - VideoLingoCoreTests
+  VideoLingoMobile:
+    build:
+      targets:
+        VideoLingoMobile: all
