@@ -42,6 +42,12 @@ open .build/DerivedData/Build/Products/Release/VideoLingo.app
 
 또는 `VideoLingo.xcodeproj`를 Xcode에서 열고 `VideoLingo` scheme을 실행합니다. `project.yml`을 변경했다면 먼저 `xcodegen generate`를 실행합니다.
 
+### iPhone 및 iPad
+
+Xcode에서 `VideoLingoMobile` scheme과 iPhone/iPad 시뮬레이터 또는 연결된 기기를 선택해 실행합니다. 모바일 앱은 파일 앱에서 영상을 가져와 기기에 보관하고 재생하며, 화면 크기와 회전에 맞춰 iPhone 세로형 및 iPad 분할형 레이아웃으로 전환됩니다.
+
+현재 STT·번역·음성 합성·모자이크 처리는 macOS XPC 서비스에 의존하므로 Mac 앱에서만 제공됩니다. 모바일 1차 버전은 재생과 로컬 파일 보관을 지원합니다.
+
 ### DMG 만들기
 
 ```bash
@@ -89,6 +95,7 @@ xcodebuild -project VideoLingo.xcodeproj \
 ## 주요 구조
 
 - `Sources/VideoLingo`: SwiftUI 앱, 플레이어, 작업 UI
+- `Sources/VideoLingoMobile`: iPhone/iPad 적응형 플레이어와 파일 가져오기
 - `Sources/VideoLingoAIService`: XPC 서비스, 미디어/STT/번역/TTS 파이프라인
 - `Sources/VideoLingoCore`: 공유 모델, SQLite 저장소, XPC 프로토콜, 자막 출력
 - `Tests/VideoLingoCoreTests`: 체크포인트 및 자막 테스트

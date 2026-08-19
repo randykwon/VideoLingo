@@ -40,6 +40,12 @@ open .build/DerivedData/Build/Products/Release/VideoLingo.app
 
 Alternatively, open `VideoLingo.xcodeproj` in Xcode and run the `VideoLingo` scheme. Run `xcodegen generate` first after changing `project.yml`.
 
+### iPhone and iPad
+
+In Xcode, select the `VideoLingoMobile` scheme and an iPhone/iPad simulator or connected device. The mobile app imports videos from Files, stores them on-device, and switches between a compact iPhone layout and a split iPad layout based on the available width and orientation.
+
+STT, translation, speech synthesis, and demosaicing currently depend on the macOS XPC service and remain Mac-only. The first mobile release supports playback and local file storage.
+
 ### Create a DMG
 
 ```bash
@@ -87,6 +93,7 @@ Automated tests currently cover SRT timing and translation selection, along with
 ## Project layout
 
 - `Sources/VideoLingo`: SwiftUI app, player, and job UI
+- `Sources/VideoLingoMobile`: adaptive iPhone/iPad player and file importing
 - `Sources/VideoLingoAIService`: XPC service and media/STT/translation/TTS pipelines
 - `Sources/VideoLingoCore`: shared models, SQLite store, XPC protocol, and subtitle output
 - `Tests/VideoLingoCoreTests`: checkpoint and subtitle tests
