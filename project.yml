@@ -137,6 +137,7 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         UIRequiresFullScreen: false
         LSSupportsOpeningDocumentsInPlace: true
+        UILaunchScreen: {}
         CFBundleDocumentTypes:
           - CFBundleTypeName: VideoLingo Package
             CFBundleTypeRole: Viewer
