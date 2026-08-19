@@ -22,14 +22,20 @@ struct MobileContentView: View {
             .toolbar { toolbarContent }
             .fileImporter(
                 isPresented: $isChoosingVideo,
-                allowedContentTypes: [.movie, .mpeg4Movie, .quickTimeMovie],
+                allowedContentTypes: [.videoLingoPackage, .movie, .mpeg4Movie, .quickTimeMovie],
                 allowsMultipleSelection: false
             ) { result in
                 guard case let .success(urls) = result, let url = urls.first else {
                     if case let .failure(error) = result { library.errorMessage = error.localizedDescription }
                     return
                 }
-                Task { await library.importVideo(from: url) }
+                Task {
+                    if url.pathExtension.lowercased() == "videolingo" {
+                        await library.importPackage(from: url)
+                    } else {
+                        await library.importVideo(from: url)
+                    }
+                }
             }
             .alert("영상을 열 수 없음", isPresented: errorBinding) {
                 Button("확인", role: .cancel) {}
@@ -39,6 +45,15 @@ struct MobileContentView: View {
             .sheet(isPresented: $showingInfo) { capabilityInfo }
             .overlay {
                 if library.isImporting { importingOverlay }
+            }
+            .onOpenURL { url in
+                Task {
+                    if url.pathExtension.lowercased() == "videolingo" {
+                        await library.importPackage(from: url)
+                    } else if UTType(filenameExtension: url.pathExtension)?.conforms(to: .movie) == true {
+                        await library.importVideo(from: url)
+                    }
+                }
             }
         }
     }
@@ -63,9 +78,22 @@ struct MobileContentView: View {
     }
 
     private func player(videoURL: URL) -> some View {
-        VideoPlayer(player: library.player)
-            .background(.black)
-            .accessibilityLabel("\(videoURL.lastPathComponent) 재생기")
+        VideoPlayer(player: library.player) {
+            if let caption = library.currentCaption {
+                Text(caption)
+                    .font(.title3.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.black.opacity(0.72), in: .rect(cornerRadius: 8))
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 32)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+            }
+        }
+        .background(.black)
+        .accessibilityLabel("\(videoURL.lastPathComponent) 재생기")
     }
 
     private var capabilityPanel: some View {
@@ -77,11 +105,21 @@ struct MobileContentView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
+                if !library.captionTracks.isEmpty {
+                    Picker("자막", selection: selectedTrackBinding) {
+                        ForEach(library.captionTracks) { track in
+                            Text(track.displayName).tag(Optional(track.id))
+                        }
+                        Text("자막 끄기").tag(String?.none)
+                    }
+                    .pickerStyle(.menu)
+                }
+
                 Divider()
 
                 Label("AI 자막·번역 처리", systemImage: "macbook")
                     .font(.headline)
-                Text("현재 AI 처리 엔진은 Mac의 내장 서비스에서 실행됩니다. 모바일에서는 재생과 파일 보관을 먼저 지원합니다.")
+                Text("Mac에서 만든 VideoLingo 패키지를 AirDrop 또는 iCloud Drive로 받아 영상과 STT·번역 자막을 함께 볼 수 있습니다.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -94,7 +132,7 @@ struct MobileContentView: View {
         ContentUnavailableView {
             Label("영상을 열어 보세요", systemImage: "play.rectangle")
         } description: {
-            Text("파일 앱에서 영상을 선택하면 iPhone 또는 iPad에서 바로 재생할 수 있습니다.")
+            Text("Mac에서 공유한 VideoLingo 패키지나 일반 영상을 파일 앱에서 선택하세요.")
         } actions: {
             Button("영상 선택", systemImage: "folder") { isChoosingVideo = true }
                 .buttonStyle(.borderedProminent)
@@ -123,7 +161,8 @@ struct MobileContentView: View {
         NavigationStack {
             List {
                 Section("iPhone 및 iPad") {
-                    Label("파일 앱에서 영상 가져오기", systemImage: "checkmark.circle.fill")
+                    Label("AirDrop·파일 앱에서 패키지 받기", systemImage: "checkmark.circle.fill")
+                    Label("영상과 STT·번역 자막 재생", systemImage: "checkmark.circle.fill")
                     Label("기기 회전과 iPad 분할 화면 대응", systemImage: "checkmark.circle.fill")
                     Label("시스템 비디오 플레이어로 재생", systemImage: "checkmark.circle.fill")
                 }
@@ -159,6 +198,13 @@ struct MobileContentView: View {
         Binding(
             get: { library.errorMessage != nil },
             set: { if !$0 { library.errorMessage = nil } }
+        )
+    }
+
+    private var selectedTrackBinding: Binding<String?> {
+        Binding(
+            get: { library.selectedTrackID },
+            set: { library.selectedTrackID = $0 }
         )
     }
 }
