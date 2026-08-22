@@ -96,7 +96,7 @@ final class ThemeManager {
     var density: InterfaceDensity {
         didSet { UserDefaults.standard.set(density.rawValue, forKey: "themeDensity") }
     }
-    /// 사이드바·창 배경을 vibrancy 머티리얼로 만들어 뒤 배경이 은은히 비치게 합니다.
+    /// 왼쪽 사이드바와 하단 결과 패널을 vibrancy 머티리얼로 만들어 뒤 배경이 은은히 비치게 합니다.
     var translucent: Bool {
         didSet { UserDefaults.standard.set(translucent, forKey: "themeTranslucent") }
     }

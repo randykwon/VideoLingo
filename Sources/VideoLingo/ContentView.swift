@@ -674,6 +674,7 @@ private enum RegenerationRequest: String, Identifiable {
 
 /// 하단 결과 패널 위의 드래그 핸들. 위아래로 끌어 패널 높이를 조절합니다.
 private struct PanelResizeHandle: View {
+    @Environment(ThemeManager.self) private var theme
     @Binding var height: Double
     @State private var startHeight: Double?
     private let minHeight: Double = 160
@@ -689,7 +690,13 @@ private struct PanelResizeHandle: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: 12)
-        .background(.background)
+        .background {
+            if theme.translucent {
+                VisualEffectView(material: .contentBackground)
+            } else {
+                Color(nsColor: .windowBackgroundColor)
+            }
+        }
         .contentShape(Rectangle())
         .onHover { inside in
             if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
@@ -904,6 +911,7 @@ private enum ResultDisplayMode: String, CaseIterable, Identifiable {
 
 private struct TranscriptInspector: View {
     @Environment(AppModel.self) private var model
+    @Environment(ThemeManager.self) private var theme
     @State private var displayMode: ResultDisplayMode = .both
     @State private var searchText = ""
     @State private var lastAutoScrolledSegmentID: UUID?
@@ -974,6 +982,7 @@ private struct TranscriptInspector: View {
                         )
                 }
                 .listStyle(.inset)
+                .scrollContentBackground(theme.translucent ? .hidden : .automatic)
                 .onChange(of: model.activeTranscriptSegment?.id) { _, segmentID in
                     guard searchText.isEmpty,
                           let segmentID,
@@ -984,7 +993,14 @@ private struct TranscriptInspector: View {
                     }
                 }
             }
-            .background(.background)
+            .background {
+                if theme.translucent {
+                    VisualEffectView(material: .contentBackground)
+                        .ignoresSafeArea()
+                } else {
+                    Color(nsColor: .windowBackgroundColor)
+                }
+            }
             .overlay {
                 if model.transcript.isEmpty {
                     ContentUnavailableView(
