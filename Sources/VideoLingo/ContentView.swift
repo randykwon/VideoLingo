@@ -429,13 +429,16 @@ private struct PlayerPane: View {
                                     y: geometry.size.height * subtitlePositionY
                                 )
                                 .contentShape(Rectangle())
-                                .gesture(subtitlePositionLocked ? nil : subtitleDragGesture(in: geometry.size))
-                                .contextMenu {
-                                    Button("자막 위치 초기화", systemImage: "arrow.counterclockwise") {
-                                        resetSubtitlePosition()
+                                .overlay {
+                                    if !subtitlePositionLocked {
+                                        RightMouseDragSurface { translation in
+                                            moveSubtitle(by: translation, in: geometry.size)
+                                        } onEnded: {
+                                            subtitleDragStart = nil
+                                        }
                                     }
                                 }
-                                .help(subtitlePositionLocked ? "자막 위치가 고정되어 있습니다" : "드래그해서 자막 위치 이동")
+                                .help(subtitlePositionLocked ? "자막 위치가 고정되어 있습니다" : "오른쪽 버튼을 누른 채 드래그해서 자막 위치 이동")
                         }
                     }
                 }
@@ -502,21 +505,78 @@ private struct PlayerPane: View {
         }
     }
 
-    private func subtitleDragGesture(in size: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 1)
-            .onChanged { value in
-                guard size.width > 0, size.height > 0 else { return }
-                let start = subtitleDragStart ?? CGPoint(x: subtitlePositionX, y: subtitlePositionY)
-                if subtitleDragStart == nil { subtitleDragStart = start }
-                subtitlePositionX = min(0.92, max(0.08, start.x + value.translation.width / size.width))
-                subtitlePositionY = min(0.92, max(0.08, start.y + value.translation.height / size.height))
-            }
-            .onEnded { _ in subtitleDragStart = nil }
+    private func moveSubtitle(by translation: CGSize, in size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return }
+        let start = subtitleDragStart ?? CGPoint(x: subtitlePositionX, y: subtitlePositionY)
+        if subtitleDragStart == nil { subtitleDragStart = start }
+        subtitlePositionX = min(0.92, max(0.08, start.x + translation.width / size.width))
+        subtitlePositionY = min(0.92, max(0.08, start.y + translation.height / size.height))
+    }
+}
+
+/// 왼쪽 클릭은 아래의 VideoPlayer로 통과시키고, 오른쪽 버튼 드래그만 자막 이동에 사용합니다.
+private struct RightMouseDragSurface: NSViewRepresentable {
+    let onChanged: (CGSize) -> Void
+    let onEnded: () -> Void
+
+    func makeNSView(context: Context) -> SurfaceView {
+        SurfaceView(onChanged: onChanged, onEnded: onEnded)
     }
 
-    private func resetSubtitlePosition() {
-        subtitlePositionX = 0.5
-        subtitlePositionY = 0.86
+    func updateNSView(_ view: SurfaceView, context: Context) {
+        view.onChanged = onChanged
+        view.onEnded = onEnded
+    }
+
+    final class SurfaceView: NSView {
+        var onChanged: (CGSize) -> Void
+        var onEnded: () -> Void
+        private var dragStart: NSPoint?
+
+        init(onChanged: @escaping (CGSize) -> Void, onEnded: @escaping () -> Void) {
+            self.onChanged = onChanged
+            self.onEnded = onEnded
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard let event = NSApp.currentEvent else { return nil }
+            switch event.type {
+            case .rightMouseDown, .rightMouseDragged, .rightMouseUp:
+                return super.hitTest(point)
+            default:
+                return nil
+            }
+        }
+
+        override func resetCursorRects() {
+            addCursorRect(bounds, cursor: .openHand)
+        }
+
+        override func rightMouseDown(with event: NSEvent) {
+            dragStart = event.locationInWindow
+            NSCursor.closedHand.set()
+        }
+
+        override func rightMouseDragged(with event: NSEvent) {
+            guard let dragStart else { return }
+            let current = event.locationInWindow
+            onChanged(CGSize(
+                width: current.x - dragStart.x,
+                height: dragStart.y - current.y
+            ))
+        }
+
+        override func rightMouseUp(with event: NSEvent) {
+            dragStart = nil
+            onEnded()
+            NSCursor.openHand.set()
+        }
     }
 }
 
@@ -1226,7 +1286,7 @@ private struct GeneralSettingsView: View {
                         subtitlePositionY = 0.86
                     }
                 }
-                Text("영상 오른쪽 상단의 잠금 버튼을 해제하면 자막을 드래그해 옮길 수 있습니다. 위치·잠금·색상은 자동으로 저장됩니다.")
+                Text("영상 오른쪽 상단의 잠금을 해제한 뒤 자막을 오른쪽 버튼으로 드래그해 옮길 수 있습니다. 왼쪽 클릭은 재생 조작에 사용됩니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
