@@ -937,7 +937,7 @@ final class AppModel {
         let title = mediaURL.deletingPathExtension().lastPathComponent
         Task {
             do {
-                try await Task.detached(priority: .userInitiated) {
+                try await Task.detached(priority: .userInitiated) { [destination, mediaURL, title, tracks] in
                     try VideoLingoPackageIO.write(
                         to: destination,
                         mediaURL: mediaURL,
