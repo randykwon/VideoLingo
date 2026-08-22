@@ -30,7 +30,7 @@ struct VideoLingoApp: App {
                 .controlSize(theme.controlSize)
                 .preferredColorScheme(theme.colorScheme)
         }
-        .windowStyle(.titleBar)
+        .windowStyle(.hiddenTitleBar)
         .commands {
             VideoLingoCommands(shortcuts: shortcuts)
         }
