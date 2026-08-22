@@ -292,6 +292,13 @@ struct ContentView: View {
             DemosaicSheet()
                 .environment(model)
         }
+        .overlay {
+            if model.isMiniViewer {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(.separator, lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 }
 
