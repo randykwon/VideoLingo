@@ -438,6 +438,7 @@ private struct PlayerPane: View {
     @AppStorage("transcriptPanelHeight") private var transcriptPanelHeight: Double = 320
     @AppStorage("subtitlePositionX") private var subtitlePositionX = 0.5
     @AppStorage("subtitlePositionY") private var subtitlePositionY = 0.86
+    @AppStorage("subtitlePositionLocked") private var subtitlePositionLocked = false
     @State private var subtitleDragStart: CGPoint?
 
     var body: some View {
@@ -462,14 +463,37 @@ private struct PlayerPane: View {
                                     y: geometry.size.height * subtitlePositionY
                                 )
                                 .contentShape(Rectangle())
-                                .gesture(subtitleDragGesture(in: geometry.size))
+                                .gesture(subtitlePositionLocked ? nil : subtitleDragGesture(in: geometry.size))
                                 .contextMenu {
                                     Button("자막 위치 초기화", systemImage: "arrow.counterclockwise") {
                                         resetSubtitlePosition()
                                     }
                                 }
-                                .help("드래그해서 자막 위치 이동")
+                                .help(subtitlePositionLocked ? "자막 위치가 고정되어 있습니다" : "드래그해서 자막 위치 이동")
                         }
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if model.mediaURL != nil {
+                        Button {
+                            subtitleDragStart = nil
+                            withAnimation(.snappy) {
+                                subtitlePositionLocked.toggle()
+                            }
+                        } label: {
+                            Label(
+                                subtitlePositionLocked ? "자막 위치 고정 해제" : "자막 위치 고정",
+                                systemImage: subtitlePositionLocked ? "lock.fill" : "lock.open"
+                            )
+                            .labelStyle(.iconOnly)
+                            .frame(width: 30, height: 30)
+                            .contentShape(Circle())
+                        }
+                        .buttonStyle(.borderless)
+                        .background(.regularMaterial, in: Circle())
+                        .help(subtitlePositionLocked ? "자막 위치 고정 해제" : "자막 위치 고정")
+                        .accessibilityValue(subtitlePositionLocked ? "고정됨" : "이동 가능")
+                        .padding(12)
                     }
                 }
             if !model.isSimpleMode && !model.hideTranscriptPanel {
@@ -1164,6 +1188,7 @@ private struct GeneralSettingsView: View {
     @Environment(AppModel.self) private var model
     @AppStorage("subtitlePositionX") private var subtitlePositionX = 0.5
     @AppStorage("subtitlePositionY") private var subtitlePositionY = 0.86
+    @AppStorage("subtitlePositionLocked") private var subtitlePositionLocked = false
 
     var body: some View {
         @Bindable var localization = localization
@@ -1225,6 +1250,7 @@ private struct GeneralSettingsView: View {
             }
             Section("화면 자막") {
                 ColorPicker("자막 색상", selection: $theme.subtitleColor, supportsOpacity: false)
+                Toggle("자막 위치 고정", isOn: $subtitlePositionLocked)
                 HStack {
                     Button("색상 초기화", systemImage: "paintbrush") {
                         theme.resetSubtitleColor()
@@ -1234,7 +1260,7 @@ private struct GeneralSettingsView: View {
                         subtitlePositionY = 0.86
                     }
                 }
-                Text("영상 위 자막을 마우스로 드래그해 옮길 수 있습니다. 위치와 색상은 자동으로 저장됩니다.")
+                Text("영상 오른쪽 상단의 잠금 버튼을 해제하면 자막을 드래그해 옮길 수 있습니다. 위치·잠금·색상은 자동으로 저장됩니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
