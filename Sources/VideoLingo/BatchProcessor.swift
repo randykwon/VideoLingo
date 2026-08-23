@@ -759,6 +759,7 @@ struct BatchTranslationView: View {
     @State private var selection: Set<UUID> = []
     @State private var showingActiveDeleteConfirmation = false
     @State private var showingDuplicateReview = false
+    @State private var showingDuplicateCleanupConfirmation = false
     @State private var listFilter: BatchListFilter = .all
 
     var body: some View {
@@ -955,6 +956,17 @@ struct BatchTranslationView: View {
         } message: {
             Text("완료된 STT·번역 결과는 저장소에 유지되며, 선택한 영상은 대량 번역 목록에서 제거됩니다.")
         }
+        .confirmationDialog(
+            "중복 영상 \(processor.duplicateFilenameRemovalCount)개를 목록에서 제거할까요?",
+            isPresented: $showingDuplicateCleanupConfirmation
+        ) {
+            Button("중복 영상 일괄 제거", role: .destructive) {
+                processor.remove(ids: processor.recommendedDuplicateRemovalIDs)
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("동일한 파일명마다 첫 번째 영상 1개를 유지하고 나머지를 대량 번역 목록에서 제거합니다. 실제 영상 파일과 저장된 STT·번역 결과는 삭제하지 않습니다.")
+        }
         .sheet(isPresented: $showingDuplicateReview) {
             DuplicateFilenameReviewView()
                 .environment(processor)
@@ -999,11 +1011,18 @@ struct BatchTranslationView: View {
                 }
                 .disabled(processor.isRunning || processor.isCheckingExistingResults || processor.items.isEmpty)
                 .help("현재 모델과 언어 기준으로 저장된 STT·번역 다시 확인")
-                Button("동일 이름 확인", systemImage: "doc.on.doc") {
-                    showingDuplicateReview = true
+                Menu("중복 파일 정리", systemImage: "doc.on.doc") {
+                    Button("중복 전체 일괄 제거", systemImage: "rectangle.stack.badge.minus") {
+                        showingDuplicateCleanupConfirmation = true
+                    }
+                    Button("경로별로 검토…", systemImage: "list.bullet.rectangle") {
+                        showingDuplicateReview = true
+                    }
                 }
                 .disabled(processor.isRunning || processor.duplicateFilenameGroups.isEmpty)
-                .help(processor.duplicateFilenameGroups.isEmpty ? "동일한 파일명의 영상이 없습니다" : "동일한 파일명의 영상을 경로별로 검토")
+                .help(processor.duplicateFilenameGroups.isEmpty
+                    ? "동일한 파일명의 영상이 없습니다"
+                    : "\(processor.duplicateFilenameGroups.count)개 중복 그룹에서 \(processor.duplicateFilenameRemovalCount)개를 정리")
                 Button("폴더 추가…", systemImage: "folder.badge.plus") { processor.addFolders() }
                     .disabled(processor.isScanningFolders)
                     .help("폴더와 하위 폴더에서 영상 검색")
@@ -1579,6 +1598,14 @@ private struct DuplicateFilenameReviewView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+                Button("중복 전체 선택") {
+                    removalSelection = processor.recommendedDuplicateRemovalIDs
+                }
+                .disabled(processor.recommendedDuplicateRemovalIDs.isEmpty || isMovingToTrash)
+                Button("선택 해제") {
+                    removalSelection.removeAll()
+                }
+                .disabled(removalSelection.isEmpty || isMovingToTrash)
                 Spacer()
                 Button("취소", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
