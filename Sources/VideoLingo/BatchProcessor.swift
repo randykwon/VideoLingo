@@ -615,6 +615,8 @@ struct BatchTranslationView: View {
     @Environment(BatchProcessor.self) private var processor
     @Environment(\.openWindow) private var openWindow
     @State private var isDropTargeted = false
+    @State private var selection: Set<UUID> = []
+    @State private var showingActiveDeleteConfirmation = false
 
     var body: some View {
         @Bindable var processor = processor
@@ -634,15 +636,15 @@ struct BatchTranslationView: View {
                     .controlSize(.large)
                 }
             } else {
-                List {
+                List(selection: $selection) {
                     ForEach(processor.items) { item in
                         BatchTranslationRow(item: item) {
                             processor.retry(item.id)
                         } onShowDetails: {
                             openWindow(id: "batch-detail", value: item.id)
                         }
+                        .tag(item.id)
                     }
-                    .onDelete(perform: processor.remove)
                 }
             }
 
@@ -709,6 +711,32 @@ struct BatchTranslationView: View {
                     }
                 }
 
+                if !selection.isEmpty {
+                    HStack(spacing: 8) {
+                        Text("\(selection.count)개 선택")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                        Button("선택 시작", systemImage: "play.fill") {
+                            processor.start(ids: selection)
+                        }
+                        .disabled(processor.isCheckingExistingResults || !canStartSelection)
+                        .help(canStartSelection ? "선택한 영상만 번역 시작 또는 재개" : "선택 항목 중 시작할 작업이 없습니다")
+                        Button("선택 중단", systemImage: "stop.fill", role: .destructive) {
+                            processor.stop(ids: selection)
+                        }
+                        .disabled(!processor.isRunning || !canStopSelection)
+                        .help(processor.isRunning ? "선택한 작업만 안전하게 중단하고 중간 결과 유지" : "현재 실행 중인 대량 번역이 없습니다")
+                        Spacer()
+                        Button("목록에서 삭제", systemImage: "trash", role: .destructive) {
+                            requestSelectedRemoval()
+                        }
+                        .keyboardShortcut(.delete, modifiers: [])
+                        .help("선택한 영상을 대량 번역 목록에서 삭제")
+                    }
+                    .controlSize(.small)
+                }
+
                 HStack {
                     Button("완료 항목 지우기", systemImage: "clear") { processor.clearFinished() }
                         .disabled(processor.isRunning || processor.completedCount == 0)
@@ -729,6 +757,25 @@ struct BatchTranslationView: View {
             .background(.bar)
         }
         .navigationTitle("대량 번역")
+        .onChange(of: selection) { _, newSelection in
+            if newSelection.count == 1, let id = newSelection.first {
+                openWindow(id: "batch-detail", value: id)
+            }
+        }
+        .onChange(of: Set(processor.items.map(\.id))) { _, availableIDs in
+            selection.formIntersection(availableIDs)
+        }
+        .confirmationDialog(
+            "실행 중인 선택 작업을 중단하고 삭제할까요?",
+            isPresented: $showingActiveDeleteConfirmation
+        ) {
+            Button("중단하고 목록에서 삭제", role: .destructive) {
+                removeSelection()
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("완료된 STT·번역 결과는 저장소에 유지되며, 선택한 영상은 대량 번역 목록에서 제거됩니다.")
+        }
         .dropDestination(for: URL.self) { urls, _ in
             processor.addDroppedURLs(urls)
         } isTargeted: { targeted in
@@ -771,6 +818,33 @@ struct BatchTranslationView: View {
                     .help("여러 영상 추가")
             }
         }
+    }
+
+    private var selectedItems: [BatchProcessor.Item] {
+        processor.items.filter { selection.contains($0.id) }
+    }
+
+    private var canStartSelection: Bool {
+        selectedItems.contains { $0.status != .completed && !$0.isProcessing }
+    }
+
+    private var canStopSelection: Bool {
+        selectedItems.contains { $0.isProcessing || !$0.isFinished }
+    }
+
+    private func requestSelectedRemoval() {
+        guard !selection.isEmpty else { return }
+        if selectedItems.contains(where: \.isProcessing) {
+            showingActiveDeleteConfirmation = true
+        } else {
+            removeSelection()
+        }
+    }
+
+    private func removeSelection() {
+        let ids = selection
+        selection.removeAll()
+        processor.remove(ids: ids)
     }
 }
 
@@ -837,8 +911,7 @@ private struct BatchTranslationRow: View {
         }
         .padding(.vertical, 8)
         .contentShape(Rectangle())
-        .onTapGesture(perform: onShowDetails)
-        .help("클릭하여 상세 진행 보기")
+        .help("클릭하여 선택 · 돋보기 버튼으로 상세 진행 보기")
         .animation(.smooth, value: item.status)
     }
 
