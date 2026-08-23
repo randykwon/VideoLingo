@@ -11,6 +11,16 @@ private struct BatchResultCandidate: Sendable {
     let jobID: UUID
 }
 
+private struct BatchTrashCandidate: Sendable {
+    let itemID: UUID
+    let url: URL
+}
+
+struct BatchTrashResult: Sendable {
+    let movedCount: Int
+    let failureMessage: String?
+}
+
 private enum BatchListFilter: String, CaseIterable, Identifiable {
     case all
     case active
@@ -310,6 +320,47 @@ final class BatchProcessor {
         guard !ids.isEmpty else { return }
         stop(ids: ids)
         items.removeAll { ids.contains($0.id) }
+    }
+
+    func moveVideosToTrash(ids: Set<UUID>) async -> BatchTrashResult {
+        guard !isRunning, !ids.isEmpty else {
+            return BatchTrashResult(movedCount: 0, failureMessage: String(localized: "실행 중에는 영상 파일을 이동할 수 없습니다."))
+        }
+        let candidates = items.compactMap { item in
+            ids.contains(item.id) ? BatchTrashCandidate(itemID: item.id, url: item.url.standardizedFileURL) : nil
+        }
+        guard candidates.count == ids.count else {
+            return BatchTrashResult(movedCount: 0, failureMessage: String(localized: "선택 항목 일부를 목록에서 찾을 수 없습니다."))
+        }
+
+        let outcome = await Task.detached(priority: .userInitiated) {
+            var movedIDs: [UUID] = []
+            var failure: String?
+            for candidate in candidates {
+                do {
+                    let values = try candidate.url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+                    guard values.isRegularFile == true, values.isSymbolicLink != true else {
+                        throw NSError(
+                            domain: "VideoLingo.BatchTrash",
+                            code: 1,
+                            userInfo: [NSLocalizedDescriptionKey: "일반 영상 파일이 아니거나 심볼릭 링크입니다."]
+                        )
+                    }
+                    let accessed = candidate.url.startAccessingSecurityScopedResource()
+                    defer { if accessed { candidate.url.stopAccessingSecurityScopedResource() } }
+                    try FileManager.default.trashItem(at: candidate.url, resultingItemURL: nil)
+                    movedIDs.append(candidate.itemID)
+                } catch {
+                    failure = "\(candidate.url.path): \(error.localizedDescription)"
+                    break
+                }
+            }
+            return (movedIDs, failure)
+        }.value
+
+        let movedSet = Set(outcome.0)
+        items.removeAll { movedSet.contains($0.id) }
+        return BatchTrashResult(movedCount: movedSet.count, failureMessage: outcome.1)
     }
 
     func duplicateNameCount(for itemID: UUID) -> Int {
