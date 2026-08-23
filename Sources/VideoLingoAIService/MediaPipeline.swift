@@ -23,9 +23,15 @@ final class MediaPipeline: @unchecked Sendable {
     func run(_ request: StartJobRequest) async {
         var snapshot = JobSnapshot(id: request.jobID)
         var accessedURL: URL?
+        var accessedResultDirectoryURL: URL?
         do {
             let mediaURL = try resolveMediaURL(request, accessedURL: &accessedURL)
             defer { accessedURL?.stopAccessingSecurityScopedResource() }
+            let alternateResultDirectoryURL = try resolveAlternateResultDirectoryURL(
+                request,
+                accessedURL: &accessedResultDirectoryURL
+            )
+            defer { accessedResultDirectoryURL?.stopAccessingSecurityScopedResource() }
 
             try FileManager.default.createDirectory(at: request.workspaceURL, withIntermediateDirectories: true)
             let chunksFolder = request.workspaceURL.appending(path: "AudioChunks", directoryHint: .isDirectory)
@@ -45,7 +51,8 @@ final class MediaPipeline: @unchecked Sendable {
                 mediaURL: mediaURL,
                 jobID: request.jobID,
                 sttModel: request.options.sttModel,
-                sourceLanguage: request.options.sourceLanguage
+                sourceLanguage: request.options.sourceLanguage,
+                alternateRootURL: alternateResultDirectoryURL
             )
             var existingByChunk = Dictionary(uniqueKeysWithValues: try store.transcript(jobID: request.jobID).map { ($0.chunkIndex, $0) })
             for transcript in try sidecar.loadTranscripts() where existingByChunk[transcript.chunkIndex] == nil {
@@ -841,6 +848,28 @@ final class MediaPipeline: @unchecked Sendable {
                 throw error
             }
             return request.mediaURL
+        }
+    }
+
+    private func resolveAlternateResultDirectoryURL(
+        _ request: StartJobRequest,
+        accessedURL: inout URL?
+    ) throws -> URL? {
+        guard let requestedURL = request.alternateResultDirectoryURL else { return nil }
+        guard let bookmark = request.alternateResultDirectoryBookmark else { return requestedURL }
+        do {
+            var stale = false
+            let url = try URL(
+                resolvingBookmarkData: bookmark,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            )
+            if url.startAccessingSecurityScopedResource() { accessedURL = url }
+            return url
+        } catch {
+            guard FileManager.default.isWritableFile(atPath: requestedURL.path) else { throw error }
+            return requestedURL
         }
     }
 

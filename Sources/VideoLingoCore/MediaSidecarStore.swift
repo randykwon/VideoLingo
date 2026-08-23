@@ -34,8 +34,10 @@ public final class MediaSidecarStore: @unchecked Sendable {
     private let sourceLanguage: String?
     private let lock = NSLock()
 
-    public init(mediaURL: URL, jobID: UUID, sttModel: String, sourceLanguage: String?) throws {
-        directoryURL = Self.directoryURL(for: mediaURL)
+    public init(mediaURL: URL, jobID: UUID, sttModel: String, sourceLanguage: String?, alternateRootURL: URL? = nil) throws {
+        directoryURL = alternateRootURL.map {
+            Self.alternateDirectoryURL(for: mediaURL, jobID: jobID, rootURL: $0)
+        } ?? Self.directoryURL(for: mediaURL)
         self.jobID = jobID
         self.sttModel = sttModel
         self.sourceLanguage = sourceLanguage
@@ -44,6 +46,15 @@ public final class MediaSidecarStore: @unchecked Sendable {
 
     public static func directoryURL(for mediaURL: URL) -> URL {
         mediaURL.deletingPathExtension().appendingPathExtension("videolingo")
+    }
+
+    public static func alternateDirectoryURL(for mediaURL: URL, jobID: UUID, rootURL: URL) -> URL {
+        let filename = mediaURL.deletingPathExtension().lastPathComponent
+        let suffix = String(jobID.uuidString.prefix(8)).lowercased()
+        return rootURL.appending(
+            path: "\(filename)-\(suffix).videolingo",
+            directoryHint: .isDirectory
+        )
     }
 
     public static func discoverResults(
