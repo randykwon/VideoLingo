@@ -11,6 +11,20 @@ import VideoLingoCore
 final class BatchProcessor {
     static let shared = BatchProcessor()
 
+    enum ExistingResultState: Equatable, Sendable {
+        case checking
+        case notFound
+        case transcriptOnly(count: Int)
+        case partial(completedLanguages: [String], missingLanguages: [String], fraction: Double)
+        case complete(languages: [String])
+        case error(String)
+
+        var isComplete: Bool {
+            if case .complete = self { return true }
+            return false
+        }
+    }
+
     struct Item: Identifiable {
         let id = UUID()
         let url: URL
@@ -25,6 +39,7 @@ final class BatchProcessor {
         var liveTranslationText: String?
         var lastTranscriptText: String?
         var lastTranslationText: String?
+        var existingResult: ExistingResultState = .checking
         var message: String = ""
         var isProcessing = false
 
@@ -34,7 +49,9 @@ final class BatchProcessor {
     var items: [Item] = []
     var isRunning = false
     var isScanningFolders = false
+    var isCheckingExistingResults = false
     var folderScanMessage = ""
+    var resultCheckMessage = ""
     var maximumConcurrentJobs: Int = {
         let stored = UserDefaults.standard.integer(forKey: "batchMaximumConcurrentJobs")
         return stored == 0 ? 5 : min(10, max(1, stored))
@@ -51,6 +68,7 @@ final class BatchProcessor {
     private var connection: NSXPCConnection?
     private var runTask: Task<Void, Never>?
     private var folderScanTask: Task<Void, Never>?
+    private var resultCheckTask: Task<Void, Never>?
     private var activeJobIDs: Set<UUID> = []
 
     private init() {}
@@ -58,6 +76,7 @@ final class BatchProcessor {
     var pendingCount: Int { items.filter { !$0.isFinished && !$0.isProcessing }.count }
     var runningCount: Int { items.filter(\.isProcessing).count }
     var completedCount: Int { items.filter { $0.status == .completed }.count }
+    var alreadyTranslatedCount: Int { items.filter { $0.existingResult.isComplete }.count }
     var overallProgress: Double {
         guard !items.isEmpty else { return 0 }
         return items.reduce(0) { $0 + ($1.isFinished ? 1 : $1.progress) } / Double(items.count)
@@ -70,6 +89,7 @@ final class BatchProcessor {
     func configure(options: ProcessingOptions) {
         guard !isRunning else { return }
         self.options = options
+        refreshExistingResults()
     }
 
     // MARK: 큐 편집
@@ -112,6 +132,7 @@ final class BatchProcessor {
             items.append(Item(url: url))
             addedCount += 1
         }
+        if addedCount > 0 { refreshExistingResults() }
         return addedCount
     }
 
@@ -213,14 +234,154 @@ final class BatchProcessor {
         items[index].liveTranslationText = nil
         items[index].lastTranscriptText = nil
         items[index].lastTranslationText = nil
+        items[index].existingResult = .notFound
         items[index].message = ""
         items[index].jobID = nil
     }
 
     // MARK: 실행
 
+    func refreshExistingResults() {
+        guard !isRunning, !items.isEmpty else { return }
+        resultCheckTask?.cancel()
+
+        let currentOptions = options
+        var candidates: [(itemID: UUID, url: URL, jobID: UUID)] = []
+        for index in items.indices where !items[index].isProcessing {
+            let jobID = AppModel.stableJobID(
+                forPath: items[index].url.path,
+                sttModel: currentOptions.sttModel,
+                sourceLanguage: currentOptions.sourceLanguage ?? "",
+                chunkDuration: currentOptions.chunkDuration
+            )
+            items[index].jobID = jobID
+            items[index].existingResult = .checking
+            items[index].status = .queued
+            items[index].progress = 0
+            items[index].sttProgress = 0
+            items[index].translationProgress = 0
+            items[index].message = String(localized: "기존 번역 결과 확인 중…")
+            candidates.append((items[index].id, items[index].url, jobID))
+        }
+
+        isCheckingExistingResults = true
+        resultCheckMessage = String(localized: "\(candidates.count)개 영상의 기존 STT·번역 확인 중…")
+        resultCheckTask = Task { [weak self] in
+            let worker = Task.detached(priority: .userInitiated) {
+                try Self.inspectExistingResults(candidates: candidates, options: currentOptions)
+            }
+            do {
+                let results = try await withTaskCancellationHandler {
+                    try await worker.value
+                } onCancel: {
+                    worker.cancel()
+                }
+                guard let self else { return }
+                for (itemID, result) in results {
+                    guard let index = self.items.firstIndex(where: { $0.id == itemID }), !self.items[index].isProcessing else { continue }
+                    self.applyExistingResult(result, at: index)
+                }
+                self.resultCheckMessage = String(localized: "확인 완료 · 이미 번역된 영상 \(self.alreadyTranslatedCount)개")
+            } catch is CancellationError {
+                self?.resultCheckMessage = String(localized: "기존 결과 확인을 취소했습니다.")
+            } catch {
+                self?.resultCheckMessage = String(localized: "기존 결과를 확인하지 못했습니다: \(error.localizedDescription)")
+            }
+            self?.isCheckingExistingResults = false
+            self?.resultCheckTask = nil
+        }
+    }
+
+    private func applyExistingResult(_ result: ExistingResultState, at index: Int) {
+        items[index].existingResult = result
+        switch result {
+        case .complete:
+            items[index].status = .completed
+            items[index].progress = 1
+            items[index].sttProgress = 1
+            items[index].translationProgress = 1
+            items[index].message = String(localized: "이미 STT·번역 완료 · 처리에서 제외")
+        case .partial(_, _, let fraction):
+            items[index].status = .queued
+            items[index].sttProgress = 1
+            items[index].translationProgress = fraction
+            items[index].progress = 0.5 + fraction * 0.5
+            items[index].message = String(localized: "기존 번역 일부 있음 · 누락 결과부터 재개")
+        case .transcriptOnly:
+            items[index].status = .queued
+            items[index].sttProgress = 1
+            items[index].message = String(localized: "기존 STT 있음 · 번역부터 재개")
+        case .notFound:
+            items[index].status = .queued
+            items[index].message = String(localized: "새 작업")
+        case .error(let message):
+            items[index].status = .queued
+            items[index].message = String(localized: "확인 실패 · 시작 시 다시 확인: \(message)")
+        case .checking:
+            break
+        }
+    }
+
+    nonisolated private static func inspectExistingResults(
+        candidates: [(itemID: UUID, url: URL, jobID: UUID)],
+        options: ProcessingOptions
+    ) throws -> [(UUID, ExistingResultState)] {
+        let paths = try AppPaths()
+        let store = try JobStore(url: paths.database)
+        var results: [(UUID, ExistingResultState)] = []
+
+        for candidate in candidates {
+            try Task.checkCancellation()
+            do {
+                let transcripts = try store.transcript(jobID: candidate.jobID)
+                guard !transcripts.isEmpty else {
+                    results.append((candidate.itemID, .notFound))
+                    continue
+                }
+
+                let transcriptIDs = Set(transcripts.map(\.id))
+                var completedLanguages: [String] = []
+                var missingLanguages: [String] = []
+                var translatedSegments = 0
+
+                for language in options.targetLanguages {
+                    let translations = try store.translations(
+                        jobID: candidate.jobID,
+                        language: language,
+                        modelID: options.translationModel
+                    )
+                    let completed = transcriptIDs.filter {
+                        translations[$0]?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                    }.count
+                    translatedSegments += completed
+                    if completed == transcriptIDs.count {
+                        completedLanguages.append(language)
+                    } else {
+                        missingLanguages.append(language)
+                    }
+                }
+
+                if options.targetLanguages.isEmpty || translatedSegments == 0 {
+                    results.append((candidate.itemID, .transcriptOnly(count: transcripts.count)))
+                } else if missingLanguages.isEmpty {
+                    results.append((candidate.itemID, .complete(languages: completedLanguages)))
+                } else {
+                    let denominator = max(1, transcriptIDs.count * options.targetLanguages.count)
+                    results.append((candidate.itemID, .partial(
+                        completedLanguages: completedLanguages,
+                        missingLanguages: missingLanguages,
+                        fraction: Double(translatedSegments) / Double(denominator)
+                    )))
+                }
+            } catch {
+                results.append((candidate.itemID, .error(error.localizedDescription)))
+            }
+        }
+        return results
+    }
+
     func start() {
-        guard !isRunning, items.contains(where: { !$0.isFinished }) else { return }
+        guard !isRunning, !isCheckingExistingResults, items.contains(where: { !$0.isFinished }) else { return }
         isRunning = true
         runTask = Task { [weak self] in await self?.runQueue() }
     }
@@ -312,7 +473,11 @@ final class BatchProcessor {
                     items[index].status = .completed
                     items[index].progress = 1
                     items[index].message = String(localized: "STT·번역 완료 · 품질 개선은 백그라운드에서 계속됩니다.")
+                    items[index].existingResult = .complete(languages: options.targetLanguages)
                     break
+                }
+                if snapshot.status == .completed {
+                    items[index].existingResult = .complete(languages: options.targetLanguages)
                 }
                 if [.completed, .failed, .cancelled].contains(snapshot.status) { break }
             }
