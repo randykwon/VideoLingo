@@ -85,6 +85,12 @@ final class BatchProcessor {
 
     private init() {}
 
+    let availableSourceLanguages = [
+        "", "ko", "ja", "en", "zh", "es", "fr", "de", "pt", "it",
+        "ru", "ar", "hi", "vi", "th", "id", "tr", "nl", "pl", "sv"
+    ]
+    let availableTargetLanguages = ["ko", "en", "ja", "zh", "es", "fr", "de", "pt", "it"]
+
     var pendingCount: Int { items.filter { !$0.isFinished && !$0.isProcessing }.count }
     var runningCount: Int { items.filter(\.isProcessing).count }
     var completedCount: Int { items.filter { $0.status == .completed }.count }
@@ -116,7 +122,37 @@ final class BatchProcessor {
     }
     var optionsSummary: String {
         let languages = options.targetLanguages.map { $0.uppercased() }.joined(separator: ", ")
-        return "\(options.sttModel) · \(options.translationModel) · \(languages)"
+        let source = options.sourceLanguage.map { $0.uppercased() } ?? String(localized: "자동 감지")
+        return "원어 \(source) → \(languages) · \(options.sttModel) · \(options.translationModel)"
+    }
+    var batchSourceLanguage: String { options.sourceLanguage ?? "" }
+    var batchTargetLanguages: [String] { options.targetLanguages }
+
+    func sourceLanguageName(_ code: String) -> String {
+        guard !code.isEmpty else { return String(localized: "자동 감지") }
+        let localized = Locale.current.localizedString(forLanguageCode: code) ?? code.uppercased()
+        return "\(localized) (\(code.uppercased()))"
+    }
+
+    func setBatchSourceLanguage(_ language: String) {
+        guard !isRunning, availableSourceLanguages.contains(language) else { return }
+        options.sourceLanguage = language.isEmpty ? nil : language
+        refreshExistingResults()
+    }
+
+    func toggleBatchTargetLanguage(_ language: String) {
+        guard !isRunning, availableTargetLanguages.contains(language) else { return }
+        if options.targetLanguages.contains(language) {
+            guard options.targetLanguages.count > 1 else { return }
+            options.targetLanguages.removeAll { $0 == language }
+        } else {
+            options.targetLanguages.append(language)
+            options.targetLanguages.sort {
+                (availableTargetLanguages.firstIndex(of: $0) ?? .max)
+                    < (availableTargetLanguages.firstIndex(of: $1) ?? .max)
+            }
+        }
+        refreshExistingResults()
     }
 
     func configure(options: ProcessingOptions) {
