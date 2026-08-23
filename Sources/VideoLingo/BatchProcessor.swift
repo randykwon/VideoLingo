@@ -1278,6 +1278,176 @@ private struct DuplicateFilenameReviewView: View {
     }
 }
 
+struct BatchCompletedPreviewView: View {
+    @Environment(BatchProcessor.self) private var processor
+    @State private var model = AppModel(autoloadLastVideo: false)
+    let itemID: UUID?
+
+    private var item: BatchProcessor.Item? {
+        processor.items.first { $0.id == itemID }
+    }
+
+    var body: some View {
+        Group {
+            if let item, item.status == .completed {
+                HSplitView {
+                    playerPane(item)
+                        .frame(minWidth: 560)
+                    resultList
+                        .frame(minWidth: 320, idealWidth: 380, maxWidth: 480)
+                }
+                .task(id: item.id) {
+                    model.loadBatchReviewVideo(item.url, options: processor.reviewOptions)
+                }
+            } else {
+                ContentUnavailableView(
+                    "완료된 번역을 찾을 수 없습니다",
+                    systemImage: "play.slash",
+                    description: Text("완료 목록에서 영상을 다시 선택하세요.")
+                )
+            }
+        }
+        .navigationTitle(item?.url.lastPathComponent ?? String(localized: "번역 결과 검토"))
+        .onDisappear { model.player.pause() }
+    }
+
+    private func playerPane(_ item: BatchProcessor.Item) -> some View {
+        VStack(spacing: 0) {
+            VideoPlayer(player: model.player)
+                .background(.black)
+                .overlay(alignment: .bottom) {
+                    if model.subtitlesEnabled, !model.activeSubtitle.isEmpty {
+                        VStack(spacing: 6) {
+                            BatchReviewCaption(text: model.activeSubtitle, isOriginal: false)
+                            if model.showOriginalWithTranslation,
+                               model.activeTranslationSubtitle != nil,
+                               !model.activeOriginalSubtitle.isEmpty {
+                                BatchReviewCaption(text: model.activeOriginalSubtitle, isOriginal: true)
+                                    .opacity(model.originalSubtitleTranslucent ? 0.68 : 1)
+                            }
+                        }
+                        .padding(.bottom, 44)
+                        .allowsHitTesting(false)
+                    }
+                }
+
+            Divider()
+            HStack(spacing: 12) {
+                Picker("번역 언어", selection: languageBinding) {
+                    ForEach(processor.batchTargetLanguages, id: \.self) { language in
+                        Text(language.uppercased()).tag(language)
+                    }
+                }
+                .frame(maxWidth: 220)
+                Toggle("원문 함께 보기", isOn: $model.showOriginalWithTranslation)
+                Spacer()
+                Label("STT \(model.transcript.count)", systemImage: "waveform")
+                Label("번역 \(model.translations.count)", systemImage: "character.book.closed")
+            }
+            .font(.caption)
+            .padding(12)
+            .background(.bar)
+        }
+    }
+
+    private var resultList: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("번역 결과")
+                        .font(.headline)
+                    Text("문장을 선택하면 해당 구간으로 이동합니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(16)
+            Divider()
+
+            if model.transcript.isEmpty {
+                ContentUnavailableView(
+                    "자막을 불러오는 중",
+                    systemImage: "captions.bubble",
+                    description: Text("저장된 STT·번역 결과를 확인하고 있습니다.")
+                )
+            } else {
+                List(model.transcript) { segment in
+                    Button {
+                        model.player.seek(
+                            to: CMTime(seconds: segment.startTime, preferredTimescale: 600),
+                            toleranceBefore: .zero,
+                            toleranceAfter: .zero
+                        )
+                    } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(timeText(segment.startTime))
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                            Text(segment.text)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                            if let translation = model.translations[segment.id]?.text,
+                               !translation.isEmpty {
+                                Text(translation)
+                                    .font(.body.weight(.medium))
+                                    .foregroundStyle(.primary)
+                            } else {
+                                Label("번역 없음", systemImage: "exclamationmark.triangle")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 6)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(
+                        model.activeTranscriptSegment?.id == segment.id
+                            ? Color.accentColor.opacity(0.10)
+                            : Color.clear
+                    )
+                }
+                .listStyle(.inset)
+            }
+        }
+    }
+
+    private var languageBinding: Binding<String> {
+        Binding(
+            get: { model.selectedLanguage },
+            set: {
+                model.selectedLanguage = $0
+                model.refreshResults()
+            }
+        )
+    }
+
+    private func timeText(_ seconds: TimeInterval) -> String {
+        let value = max(0, Int(seconds.rounded(.down)))
+        return String(format: "%d:%02d", value / 60, value % 60)
+    }
+}
+
+private struct BatchReviewCaption: View {
+    let text: String
+    let isOriginal: Bool
+
+    var body: some View {
+        Text(text)
+            .font(isOriginal ? .callout.italic() : .title3.weight(.semibold))
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .lineLimit(3)
+            .padding(.horizontal, isOriginal ? 12 : 16)
+            .padding(.vertical, isOriginal ? 6 : 8)
+            .background(.black.opacity(isOriginal ? 0.32 : 0.52), in: RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, 24)
+            .shadow(color: .black.opacity(0.8), radius: 3)
+    }
+}
+
 struct BatchTranslationDetailView: View {
     @Environment(BatchProcessor.self) private var processor
     let itemID: UUID?
