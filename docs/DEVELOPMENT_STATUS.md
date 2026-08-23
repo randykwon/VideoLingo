@@ -212,7 +212,7 @@ macOS 기본 저장 구조:
 
 | 구분 | 구성 | 결과 | 산출물 |
 |---|---|---|---|
-| macOS | Release, Apple Silicon | 성공 | `.build/DerivedData/Build/Products/Release/VideoLingo.app` |
+| macOS | Release, Universal (arm64·x86_64) | 성공 | `.build/DerivedData/Build/Products/Release/VideoLingo.app` |
 | iPhone/iPad | Debug, 범용 iOS Simulator | 성공 | `.build/MobileCurrent/Build/Products/Debug-iphonesimulator/VideoLingo.app` |
 
 - 앱 버전: `1.0 (1)`
