@@ -424,6 +424,7 @@ private struct PlayerPane: View {
                        !screenText.isEmpty {
                         PlayerCaption(text: screenText, color: .yellow)
                             .padding(.top, 14)
+                            .allowsHitTesting(false)
                     }
                 }
                 .overlay {

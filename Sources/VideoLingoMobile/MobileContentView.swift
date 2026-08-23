@@ -90,6 +90,8 @@ struct MobileContentView: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, 32)
                     .frame(maxHeight: .infinity, alignment: .bottom)
+                    // 자막은 표시 전용입니다. 터치는 아래 VideoPlayer의 재생 컨트롤로 전달합니다.
+                    .allowsHitTesting(false)
             }
         }
         .background(.black)
