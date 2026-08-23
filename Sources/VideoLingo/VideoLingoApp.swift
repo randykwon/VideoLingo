@@ -47,6 +47,17 @@ struct VideoLingoApp: App {
                 .frame(minWidth: 760, minHeight: 560)
         }
         .defaultSize(width: 920, height: 680)
+        Window("STT·번역 멀티 화면", id: "batch-monitor") {
+            BatchMultiMonitorView()
+                .environment(batchProcessor)
+                .environment(localization)
+                .environment(theme)
+                .environment(\.locale, localization.locale)
+                .tint(theme.accentColor)
+                .controlSize(theme.controlSize)
+                .preferredColorScheme(theme.colorScheme)
+        }
+        .defaultSize(width: 1_280, height: 820)
         WindowGroup("번역 상세 진행", id: "batch-detail", for: UUID.self) { $itemID in
             BatchTranslationDetailView(itemID: itemID)
                 .environment(batchProcessor)

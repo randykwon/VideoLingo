@@ -989,6 +989,11 @@ struct BatchTranslationView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                Button("멀티 화면 모니터", systemImage: "rectangle.grid.2x2") {
+                    openWindow(id: "batch-monitor")
+                }
+                .disabled(processor.items.isEmpty)
+                .help("여러 영상과 STT·번역 진행 상황을 한 화면에서 확인")
                 Button("기존 번역 확인", systemImage: "checkmark.magnifyingglass") {
                     processor.refreshExistingResults()
                 }
@@ -1051,6 +1056,263 @@ struct BatchTranslationView: View {
         let ids = selection
         selection.removeAll()
         processor.remove(ids: ids)
+    }
+}
+
+private enum BatchMonitorFilter: String, CaseIterable, Identifiable {
+    case active
+    case all
+    case completed
+
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .active: "실행 중"
+        case .all: "전체"
+        case .completed: "완료"
+        }
+    }
+}
+
+/// 여러 영상 화면과 실시간 STT·번역 결과를 한 창에서 동시에 관찰하는 대시보드입니다.
+struct BatchMultiMonitorView: View {
+    @Environment(BatchProcessor.self) private var processor
+    @Environment(\.openWindow) private var openWindow
+    @AppStorage("batchMonitorColumnCount") private var columnCount = 2
+    @State private var filter: BatchMonitorFilter = .active
+    @State private var automaticallyPlaysVideo = true
+
+    var body: some View {
+        VStack(spacing: 0) {
+            monitorHeader
+            Divider()
+
+            if processor.items.isEmpty {
+                ContentUnavailableView(
+                    "모니터링할 영상이 없습니다",
+                    systemImage: "rectangle.grid.2x2",
+                    description: Text("대량 번역 창에서 영상을 추가하면 각 영상과 STT·번역 진행 상황을 함께 볼 수 있습니다.")
+                )
+            } else if visibleItems.isEmpty {
+                ContentUnavailableView(
+                    filter == .active ? "현재 실행 중인 영상이 없습니다" : "완료된 영상이 없습니다",
+                    systemImage: filter == .active ? "pause.circle" : "checkmark.circle",
+                    description: Text(filter == .active
+                        ? "대량 번역을 시작하거나 ‘전체’ 화면을 선택하세요."
+                        : "번역이 끝난 영상은 이곳에 자동으로 나타납니다.")
+                )
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
+                        ForEach(visibleItems) { item in
+                            BatchMonitorTile(
+                                item: item,
+                                automaticallyPlaysVideo: automaticallyPlaysVideo,
+                                onShowDetails: { openWindow(id: "batch-detail", value: item.id) }
+                            )
+                        }
+                    }
+                    .padding(16)
+                }
+            }
+        }
+        .navigationTitle("STT·번역 멀티 화면")
+        .frame(minWidth: 880, minHeight: 600)
+    }
+
+    private var monitorHeader: some View {
+        HStack(spacing: 16) {
+            Picker("표시 항목", selection: $filter) {
+                ForEach(BatchMonitorFilter.allCases) { option in
+                    Text("\(option.title) \(count(for: option))").tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 400)
+
+            Spacer()
+
+            Label("실행 \(processor.runningCount) · 대기 \(processor.pendingCount) · 완료 \(processor.completedCount)",
+                  systemImage: processor.isRunning ? "dot.radiowaves.left.and.right" : "chart.bar")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+
+            Toggle("영상 자동 재생", isOn: $automaticallyPlaysVideo)
+                .toggleStyle(.switch)
+                .help("모든 미리보기는 소리 없이 재생됩니다")
+
+            Stepper(value: $columnCount, in: 1...4) {
+                Text("한 줄 \(columnCount)개")
+                    .monospacedDigit()
+            }
+            .frame(width: 125)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.bar)
+    }
+
+    private var visibleItems: [BatchProcessor.Item] {
+        switch filter {
+        case .active: processor.items.filter(\.isProcessing)
+        case .all: processor.items
+        case .completed: processor.items.filter { $0.status == .completed }
+        }
+    }
+
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 16), count: columnCount)
+    }
+
+    private func count(for option: BatchMonitorFilter) -> Int {
+        switch option {
+        case .active: processor.runningCount
+        case .all: processor.items.count
+        case .completed: processor.completedCount
+        }
+    }
+}
+
+private struct BatchMonitorTile: View {
+    let item: BatchProcessor.Item
+    let automaticallyPlaysVideo: Bool
+    let onShowDetails: () -> Void
+    @State private var player: AVPlayer
+
+    init(item: BatchProcessor.Item, automaticallyPlaysVideo: Bool, onShowDetails: @escaping () -> Void) {
+        self.item = item
+        self.automaticallyPlaysVideo = automaticallyPlaysVideo
+        self.onShowDetails = onShowDetails
+        _player = State(initialValue: AVPlayer(url: item.url))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .topLeading) {
+                BatchMonitorPlayer(player: player)
+                    .aspectRatio(16 / 9, contentMode: .fit)
+                    .background(.black)
+
+                HStack(spacing: 6) {
+                    Image(systemName: statusSymbol)
+                    Text(statusText)
+                    Spacer()
+                    Text(item.progress, format: .percent.precision(.fractionLength(0)))
+                        .monospacedDigit()
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(8)
+                .background(.black.opacity(0.58))
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(item.url.lastPathComponent)
+                        .font(.headline)
+                        .lineLimit(1)
+                    Spacer()
+                    if item.totalChunks > 0 {
+                        Text("청크 \(min(item.currentChunk + 1, item.totalChunks))/\(item.totalChunks)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    Button("상세 진행 보기", systemImage: "arrow.up.right.square", action: onShowDetails)
+                        .labelStyle(.iconOnly)
+                        .help("이 영상의 상세 진행 창 열기")
+                }
+
+                monitorProgress(title: "STT", value: item.sttProgress, icon: "waveform")
+                monitorProgress(title: "번역", value: item.translationProgress, icon: "character.book.closed")
+
+                liveText(title: "실시간 STT", text: item.liveTranscriptText ?? item.lastTranscriptText)
+                liveText(title: "실시간 번역", text: item.liveTranslationText ?? item.lastTranslationText)
+            }
+            .padding(12)
+        }
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(item.isProcessing ? Color.accentColor.opacity(0.55) : Color.secondary.opacity(0.2))
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .onAppear { updatePlayback() }
+        .onDisappear { player.pause() }
+        .onChange(of: automaticallyPlaysVideo) { _, _ in updatePlayback() }
+    }
+
+    private func monitorProgress(title: String, value: Double, icon: String) -> some View {
+        HStack(spacing: 8) {
+            Label(title, systemImage: icon)
+                .font(.caption.weight(.medium))
+                .frame(width: 62, alignment: .leading)
+            ProgressView(value: min(1, max(0, value)))
+            Text(value, format: .percent.precision(.fractionLength(0)))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 34, alignment: .trailing)
+        }
+    }
+
+    private func liveText(title: String, text: String?) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(text?.isEmpty == false ? text! : "결과를 기다리는 중…")
+                .font(.caption)
+                .foregroundStyle(text?.isEmpty == false ? .primary : .tertiary)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func updatePlayback() {
+        player.isMuted = true
+        if automaticallyPlaysVideo { player.play() } else { player.pause() }
+    }
+
+    private var statusText: String {
+        switch item.status {
+        case .queued: item.isProcessing ? "준비 중" : "대기 중"
+        case .extracting: "음성 추출"
+        case .transcribing: "STT 처리"
+        case .translating: "LLM 번역"
+        case .synthesizing: "음성 생성"
+        case .refining: "품질 개선"
+        case .completed: "완료"
+        case .paused: "일시 정지"
+        case .cancelled: "취소됨"
+        case .failed: "실패"
+        }
+    }
+
+    private var statusSymbol: String {
+        switch item.status {
+        case .completed: "checkmark.circle.fill"
+        case .failed: "exclamationmark.triangle.fill"
+        case .cancelled, .paused: "pause.circle.fill"
+        case .queued where !item.isProcessing: "clock"
+        default: "dot.radiowaves.left.and.right"
+        }
+    }
+}
+
+private struct BatchMonitorPlayer: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.player = player
+        view.controlsStyle = .none
+        view.videoGravity = .resizeAspect
+        return view
+    }
+
+    func updateNSView(_ view: AVPlayerView, context: Context) {
+        if view.player !== player { view.player = player }
     }
 }
 
