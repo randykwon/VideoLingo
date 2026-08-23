@@ -559,6 +559,10 @@ private struct PlayerPane: View {
     @AppStorage("subtitlePositionY") private var subtitlePositionY = 0.86
     @AppStorage("subtitlePositionLocked") private var subtitlePositionLocked = false
     @State private var subtitleDragStart: CGPoint?
+    @State private var swipeSeekStart: TimeInterval?
+    @State private var swipeSeekTarget: TimeInterval?
+    @State private var swipeSeekFeedback: TimeInterval?
+    @State private var swipeFeedbackID = UUID()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -632,6 +636,31 @@ private struct PlayerPane: View {
                         .padding(12)
                     }
                 }
+                .overlay {
+                    PlayerInteractionSurface {
+                        model.togglePlayback()
+                    } onHorizontalSwipe: { seconds in
+                        seekWithSwipe(by: seconds)
+                    } onSwipeEnded: {
+                        swipeSeekStart = nil
+                        swipeSeekTarget = nil
+                    }
+                }
+                .overlay {
+                    if let seconds = swipeSeekFeedback {
+                        Label(
+                            swipeFeedbackText(seconds),
+                            systemImage: seconds < 0 ? "gobackward" : "goforward"
+                        )
+                        .font(.headline)
+                        .monospacedDigit()
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(.regularMaterial, in: Capsule())
+                        .allowsHitTesting(false)
+                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                    }
+                }
                 .contextMenu {
                     Button {
                         model.subtitlesEnabled.toggle()
@@ -688,6 +717,122 @@ private struct PlayerPane: View {
         if subtitleDragStart == nil { subtitleDragStart = start }
         subtitlePositionX = min(0.92, max(0.08, start.x + translation.width / size.width))
         subtitlePositionY = min(0.92, max(0.08, start.y + translation.height / size.height))
+    }
+
+    private func seekWithSwipe(by seconds: TimeInterval) {
+        guard let item = model.player.currentItem else { return }
+        let current = model.player.currentTime().seconds
+        guard current.isFinite else { return }
+
+        let start = swipeSeekStart ?? current
+        let previousTarget = swipeSeekTarget ?? current
+        var target = max(0, previousTarget + seconds)
+        let duration = item.duration.seconds
+        if duration.isFinite, duration > 0 {
+            target = min(target, duration)
+        }
+        swipeSeekStart = start
+        swipeSeekTarget = target
+        model.player.seek(
+            to: CMTime(seconds: target, preferredTimescale: 600),
+            toleranceBefore: CMTime(seconds: 0.1, preferredTimescale: 600),
+            toleranceAfter: CMTime(seconds: 0.1, preferredTimescale: 600)
+        )
+
+        let feedbackID = UUID()
+        swipeFeedbackID = feedbackID
+        withAnimation(.snappy) {
+            swipeSeekFeedback = target - start
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard swipeFeedbackID == feedbackID else { return }
+            withAnimation(.snappy) {
+                swipeSeekFeedback = nil
+            }
+        }
+    }
+
+    private func swipeFeedbackText(_ seconds: TimeInterval) -> String {
+        let rounded = Int(abs(seconds).rounded())
+        return seconds < 0 ? "\(rounded)초 뒤로" : "\(rounded)초 앞으로"
+    }
+}
+
+/// AVPlayer의 기본 컨트롤은 그대로 통과시키면서 더블 클릭과 가로 스와이프만 받습니다.
+private struct PlayerInteractionSurface: NSViewRepresentable {
+    let onDoubleClick: () -> Void
+    let onHorizontalSwipe: (TimeInterval) -> Void
+    let onSwipeEnded: () -> Void
+
+    func makeNSView(context: Context) -> SurfaceView {
+        SurfaceView(
+            onDoubleClick: onDoubleClick,
+            onHorizontalSwipe: onHorizontalSwipe,
+            onSwipeEnded: onSwipeEnded
+        )
+    }
+
+    func updateNSView(_ view: SurfaceView, context: Context) {
+        view.onDoubleClick = onDoubleClick
+        view.onHorizontalSwipe = onHorizontalSwipe
+        view.onSwipeEnded = onSwipeEnded
+    }
+
+    final class SurfaceView: NSView {
+        var onDoubleClick: () -> Void
+        var onHorizontalSwipe: (TimeInterval) -> Void
+        var onSwipeEnded: () -> Void
+
+        init(
+            onDoubleClick: @escaping () -> Void,
+            onHorizontalSwipe: @escaping (TimeInterval) -> Void,
+            onSwipeEnded: @escaping () -> Void
+        ) {
+            self.onDoubleClick = onDoubleClick
+            self.onHorizontalSwipe = onHorizontalSwipe
+            self.onSwipeEnded = onSwipeEnded
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard let event = NSApp.currentEvent else { return nil }
+            if event.type == .leftMouseDown, event.clickCount >= 2 {
+                return self
+            }
+            if event.type == .scrollWheel,
+               abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY),
+               abs(event.scrollingDeltaX) > 0.1 {
+                return self
+            }
+            return nil
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            guard event.clickCount >= 2 else { return }
+            onDoubleClick()
+        }
+
+        override func scrollWheel(with event: NSEvent) {
+            let horizontal = event.scrollingDeltaX
+            guard abs(horizontal) > abs(event.scrollingDeltaY), abs(horizontal) > 0.1 else {
+                nextResponder?.scrollWheel(with: event)
+                return
+            }
+
+            // 정밀 트랙패드는 포인트 단위이므로 부드럽게, 휠은 한 단계씩 탐색합니다.
+            let multiplier = event.hasPreciseScrollingDeltas ? 0.18 : 2.0
+            let seconds = min(12, max(-12, horizontal * multiplier))
+            onHorizontalSwipe(seconds)
+            if event.phase == .ended || event.momentumPhase == .ended {
+                onSwipeEnded()
+            }
+        }
     }
 }
 

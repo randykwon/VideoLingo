@@ -142,6 +142,8 @@
 "자막 위치 고정 해제" = "Unlock Caption Position";
 "자막 끄기" = "Hide Captions";
 "자막 켜기" = "Show Captions";
+"%lld초 뒤로" = "%lld sec backward";
+"%lld초 앞으로" = "%lld sec forward";
 "고정됨" = "Locked";
 "이동 가능" = "Movable";
 "영상 위 자막을 마우스로 드래그해 옮길 수 있습니다. 위치와 색상은 자동으로 저장됩니다." = "Drag captions over the video to move them. Position and color are saved automatically.";
