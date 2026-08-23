@@ -360,7 +360,9 @@ final class AppModel {
         }
         sttModel = options.sttModel
         translationModel = options.translationModel
-        qualityMode = options.qualityMode
+        if let batchQualityMode = options.qualityMode {
+            qualityMode = batchQualityMode
+        }
         processingChunkDuration = options.chunkDuration
         playerMode = .viewing
         let jobID = Self.stableJobID(
@@ -1329,7 +1331,12 @@ final class AppModel {
             let paths = try AppPaths()
             databaseURL = paths.database
             let store = try store(at: paths.database)
-            let databaseJobID = preferredJobID ?? (try store.mostRecentJobID(for: url))
+            let databaseJobID: UUID?
+            if let preferredJobID {
+                databaseJobID = preferredJobID
+            } else {
+                databaseJobID = try store.mostRecentJobID(for: url)
+            }
             let databaseHasResults = try databaseJobID.map { try !store.transcript(jobID: $0).isEmpty } ?? false
             let discoveredSidecar = databaseHasResults ? nil : try MediaSidecarStore.discoverResults(
                 for: url,
