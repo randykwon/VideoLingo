@@ -708,6 +708,7 @@ struct BatchTranslationView: View {
     @State private var selection: Set<UUID> = []
     @State private var showingActiveDeleteConfirmation = false
     @State private var showingDuplicateReview = false
+    @State private var listFilter: BatchListFilter = .all
 
     var body: some View {
         @Bindable var processor = processor
@@ -727,17 +728,42 @@ struct BatchTranslationView: View {
                     .controlSize(.large)
                 }
             } else {
-                List(selection: $selection) {
-                    ForEach(processor.items) { item in
-                        BatchTranslationRow(
-                            item: item,
-                            duplicateNameCount: processor.duplicateNameCount(for: item.id)
-                        ) {
-                            processor.retry(item.id)
-                        } onShowDetails: {
-                            openWindow(id: "batch-detail", value: item.id)
+                VStack(spacing: 0) {
+                    Picker("목록 보기", selection: $listFilter) {
+                        ForEach(BatchListFilter.allCases) { filter in
+                            Text(filterTitle(filter)).tag(filter)
                         }
-                        .tag(item.id)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+
+                    Divider()
+
+                    if filteredItems.isEmpty {
+                        ContentUnavailableView(
+                            listFilter == .completed ? "완료된 번역이 없습니다" : "표시할 작업이 없습니다",
+                            systemImage: listFilter == .completed ? "checkmark.circle" : "tray",
+                            description: Text(listFilter == .completed
+                                ? "번역이 완료되면 이곳에서 영상을 재생하고 결과를 확인할 수 있습니다."
+                                : "다른 목록 보기를 선택하거나 영상을 추가하세요.")
+                        )
+                    } else {
+                        List(selection: $selection) {
+                            ForEach(filteredItems) { item in
+                                BatchTranslationRow(
+                                    item: item,
+                                    duplicateNameCount: processor.duplicateNameCount(for: item.id),
+                                    onRetry: { processor.retry(item.id) },
+                                    onShowDetails: { openWindow(id: "batch-detail", value: item.id) },
+                                    onPreview: item.status == .completed
+                                        ? { openWindow(id: "batch-preview", value: item.id) }
+                                        : nil
+                                )
+                                .tag(item.id)
+                            }
+                        }
                     }
                 }
             }
@@ -855,9 +881,15 @@ struct BatchTranslationView: View {
         .navigationTitle("대량 번역")
         .onChange(of: selection) { _, newSelection in
             if newSelection.count == 1, let id = newSelection.first {
-                openWindow(id: "batch-detail", value: id)
+                if listFilter == .completed,
+                   processor.items.first(where: { $0.id == id })?.status == .completed {
+                    openWindow(id: "batch-preview", value: id)
+                } else {
+                    openWindow(id: "batch-detail", value: id)
+                }
             }
         }
+        .onChange(of: listFilter) { _, _ in selection.removeAll() }
         .onChange(of: Set(processor.items.map(\.id))) { _, availableIDs in
             selection.formIntersection(availableIDs)
         }
@@ -929,6 +961,24 @@ struct BatchTranslationView: View {
         processor.items.filter { selection.contains($0.id) }
     }
 
+    private var filteredItems: [BatchProcessor.Item] {
+        switch listFilter {
+        case .all: processor.items
+        case .active: processor.items.filter { $0.status != .completed }
+        case .completed: processor.items.filter { $0.status == .completed }
+        }
+    }
+
+    private func filterTitle(_ filter: BatchListFilter) -> String {
+        let count: Int
+        switch filter {
+        case .all: count = processor.items.count
+        case .active: count = processor.items.filter { $0.status != .completed }.count
+        case .completed: count = processor.completedCount
+        }
+        return "\(filter.title) \(count)"
+    }
+
     private var canStartSelection: Bool {
         selectedItems.contains { $0.status != .completed && !$0.isProcessing }
     }
@@ -958,6 +1008,7 @@ private struct BatchTranslationRow: View {
     let duplicateNameCount: Int
     let onRetry: () -> Void
     let onShowDetails: () -> Void
+    let onPreview: (() -> Void)?
     @State private var showLiveDetails = false
 
     var body: some View {
@@ -1009,6 +1060,12 @@ private struct BatchTranslationRow: View {
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
                     .help("STT·번역 상세 진행 창 열기")
+                if let onPreview {
+                    Button("번역 결과 재생", systemImage: "play.rectangle.fill", action: onPreview)
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .help("영상을 재생하며 원문·번역 자막 확인")
+                }
             }
 
             BatchPipelineView(item: item)
