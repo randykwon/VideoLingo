@@ -584,6 +584,24 @@ struct BatchTranslationView: View {
                     }
                 }
 
+                if processor.isCheckingExistingResults || !processor.resultCheckMessage.isEmpty {
+                    HStack(spacing: 8) {
+                        if processor.isCheckingExistingResults { ProgressView().controlSize(.small) }
+                        Text(processor.resultCheckMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Spacer()
+                        if !processor.isRunning {
+                            Button("다시 확인", systemImage: "arrow.clockwise") {
+                                processor.refreshExistingResults()
+                            }
+                            .controlSize(.small)
+                            .disabled(processor.isCheckingExistingResults || processor.items.isEmpty)
+                        }
+                    }
+                }
+
                 if processor.isScanningFolders || !processor.folderScanMessage.isEmpty {
                     HStack(spacing: 8) {
                         if processor.isScanningFolders { ProgressView().controlSize(.small) }
@@ -610,7 +628,7 @@ struct BatchTranslationView: View {
                     } else {
                         Button("대량 번역 시작", systemImage: "play.fill") { processor.start() }
                             .buttonStyle(.borderedProminent)
-                            .disabled(!processor.items.contains(where: { !$0.isFinished }))
+                            .disabled(processor.isCheckingExistingResults || !processor.items.contains(where: { !$0.isFinished }))
                             .keyboardShortcut(.defaultAction)
                     }
                 }
@@ -649,6 +667,11 @@ struct BatchTranslationView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                Button("기존 번역 확인", systemImage: "checkmark.magnifyingglass") {
+                    processor.refreshExistingResults()
+                }
+                .disabled(processor.isRunning || processor.isCheckingExistingResults || processor.items.isEmpty)
+                .help("현재 모델과 언어 기준으로 저장된 STT·번역 다시 확인")
                 Button("폴더 추가…", systemImage: "folder.badge.plus") { processor.addFolders() }
                     .disabled(processor.isScanningFolders)
                     .help("폴더와 하위 폴더에서 영상 검색")
@@ -679,6 +702,7 @@ private struct BatchTranslationRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                    ExistingResultBadge(state: item.existingResult)
                 }
                 Spacer(minLength: 12)
                 if item.totalChunks > 0 {
@@ -750,6 +774,59 @@ private struct BatchTranslationRow: View {
         case .cancelled: .secondary
         case .queued where !item.isProcessing: .secondary
         default: .blue
+        }
+    }
+}
+
+private struct ExistingResultBadge: View {
+    let state: BatchProcessor.ExistingResultState
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if case .checking = state {
+                ProgressView().controlSize(.mini)
+            } else {
+                Image(systemName: symbol)
+            }
+            Text(label)
+                .lineLimit(1)
+        }
+        .font(.caption2.weight(.medium))
+        .foregroundStyle(color)
+        .accessibilityLabel(label)
+    }
+
+    private var label: String {
+        switch state {
+        case .checking: "기존 결과 확인 중"
+        case .notFound: "미처리"
+        case .transcriptOnly(let count): "STT \(count)구간 있음 · 번역 필요"
+        case .partial(let completed, let missing, _):
+            completed.isEmpty
+                ? "번역 일부 있음 · \(missing.map { $0.uppercased() }.joined(separator: ", ")) 미완료"
+                : "\(completed.map { $0.uppercased() }.joined(separator: ", ")) 완료 · 나머지 재개"
+        case .complete(let languages):
+            "이미 번역 완료 · \(languages.map { $0.uppercased() }.joined(separator: ", "))"
+        case .error: "기존 결과 확인 실패"
+        }
+    }
+
+    private var symbol: String {
+        switch state {
+        case .complete: "checkmark.seal.fill"
+        case .partial, .transcriptOnly: "clock.badge.checkmark"
+        case .notFound: "circle.dashed"
+        case .error: "exclamationmark.triangle.fill"
+        case .checking: "clock"
+        }
+    }
+
+    private var color: Color {
+        switch state {
+        case .complete: .green
+        case .partial, .transcriptOnly: .orange
+        case .error: .red
+        case .checking, .notFound: .secondary
         }
     }
 }
