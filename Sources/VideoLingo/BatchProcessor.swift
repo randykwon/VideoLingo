@@ -568,8 +568,11 @@ final class BatchProcessor {
                 }
                 if [.completed, .failed, .cancelled].contains(snapshot.status) { break }
             }
-            if Task.isCancelled, !items[index].isFinished {
+            if Task.isCancelled,
+               let index = items.firstIndex(where: { $0.id == itemID }),
+               !items[index].isFinished {
                 items[index].status = .cancelled
+                items[index].message = String(localized: "대량 번역을 중단했습니다. 저장된 결과에서 재개할 수 있습니다.")
             }
         } catch {
             if let index = items.firstIndex(where: { $0.id == itemID }) {
@@ -1147,7 +1150,8 @@ struct BatchTranslationDetailView: View {
         switch item.status {
         case .completed: .green
         case .failed: .red
-        case .cancelled, .queued where !item.isProcessing: .secondary
+        case .cancelled: .secondary
+        case .queued where !item.isProcessing: .secondary
         default: .accentColor
         }
     }
