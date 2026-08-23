@@ -351,6 +351,21 @@ final class AppModel {
         loadVideo(url, remember: true)
     }
 
+    /// 대량 번역과 동일한 작업 키로 저장된 STT·번역을 불러오는 완료 결과 검토용 진입점입니다.
+    func loadBatchReviewVideo(_ url: URL, options: ProcessingOptions) {
+        sourceLanguage = options.sourceLanguage ?? ""
+        targetLanguages = options.targetLanguages
+        if !targetLanguages.contains(selectedLanguage) {
+            selectedLanguage = targetLanguages.first ?? selectedLanguage
+        }
+        sttModel = options.sttModel
+        translationModel = options.translationModel
+        qualityMode = options.qualityMode
+        processingChunkDuration = options.chunkDuration
+        playerMode = .viewing
+        loadVideo(url, remember: false)
+    }
+
     func seekVideo(by seconds: TimeInterval) {
         guard player.currentItem != nil else { return }
         let current = player.currentTime().seconds
