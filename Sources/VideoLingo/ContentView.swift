@@ -329,6 +329,7 @@ private struct SimpleSidebarView: View {
     }
 
     var body: some View {
+        @Bindable var model = model
         VStack(alignment: .leading, spacing: 20) {
             Picker("플레이어 모드", selection: $model.playerMode) {
                 ForEach(PlayerWorkspaceMode.allCases) { mode in
