@@ -927,6 +927,7 @@ struct BatchTranslationView: View {
     @State private var isDropTargeted = false
     @State private var selection: Set<UUID> = []
     @State private var showingActiveDeleteConfirmation = false
+    @State private var pendingRemovalIDs: Set<UUID> = []
     @State private var showingDuplicateReview = false
     @State private var showingDuplicateCleanupConfirmation = false
     @State private var showingStartConfirmation = false
@@ -979,6 +980,13 @@ struct BatchTranslationView: View {
                                     item: item,
                                     duplicateNameCount: processor.duplicateNameCount(for: item.id),
                                     onRetry: { processor.retry(item.id) },
+                                    onRestart: { requestStart(ids: [item.id]) },
+                                    onPause: { processor.pause(ids: [item.id]) },
+                                    onCancel: { processor.stop(ids: [item.id]) },
+                                    onRemove: { requestRemoval(ids: [item.id]) },
+                                    canRestart: !item.isProcessing && [.failed, .cancelled, .paused].contains(item.status),
+                                    canPause: processor.isRunning && !item.isFinished && item.status != .paused,
+                                    canCancel: item.isProcessing || !item.isFinished,
                                     onShowDetails: { openWindow(id: "batch-detail", value: item.id) },
                                     onPreview: item.status == .completed
                                         ? { openWindow(id: "batch-preview", value: item.id) }
@@ -1173,7 +1181,7 @@ struct BatchTranslationView: View {
             isPresented: $showingActiveDeleteConfirmation
         ) {
             Button("중단하고 목록에서 삭제", role: .destructive) {
-                removeSelection()
+                removePendingItems()
             }
             Button("취소", role: .cancel) {}
         } message: {
@@ -1287,17 +1295,23 @@ struct BatchTranslationView: View {
     }
 
     private func requestSelectedRemoval() {
-        guard !selection.isEmpty else { return }
-        if selectedItems.contains(where: \.isProcessing) {
+        requestRemoval(ids: selection)
+    }
+
+    private func requestRemoval(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        pendingRemovalIDs = ids
+        if processor.items.contains(where: { ids.contains($0.id) && $0.isProcessing }) {
             showingActiveDeleteConfirmation = true
         } else {
-            removeSelection()
+            removePendingItems()
         }
     }
 
-    private func removeSelection() {
-        let ids = selection
-        selection.removeAll()
+    private func removePendingItems() {
+        let ids = pendingRemovalIDs
+        pendingRemovalIDs.removeAll()
+        selection.subtract(ids)
         processor.remove(ids: ids)
     }
 
@@ -1770,6 +1784,13 @@ private struct BatchTranslationRow: View {
     let item: BatchProcessor.Item
     let duplicateNameCount: Int
     let onRetry: () -> Void
+    let onRestart: () -> Void
+    let onPause: () -> Void
+    let onCancel: () -> Void
+    let onRemove: () -> Void
+    let canRestart: Bool
+    let canPause: Bool
+    let canCancel: Bool
     let onShowDetails: () -> Void
     let onPreview: (() -> Void)?
     @State private var showLiveDetails = false
@@ -1844,6 +1865,16 @@ private struct BatchTranslationRow: View {
         .padding(.vertical, 8)
         .contentShape(Rectangle())
         .help("클릭하여 선택 · 돋보기 버튼으로 상세 진행 보기")
+        .contextMenu {
+            Button("재시작", systemImage: "arrow.clockwise", action: onRestart)
+                .disabled(!canRestart)
+            Button("일시 정지", systemImage: "pause.fill", action: onPause)
+                .disabled(!canPause)
+            Button("취소", systemImage: "stop.fill", role: .destructive, action: onCancel)
+                .disabled(!canCancel)
+            Divider()
+            Button("목록에서 삭제", systemImage: "trash", role: .destructive, action: onRemove)
+        }
         .animation(.smooth, value: item.status)
     }
 
@@ -1857,6 +1888,7 @@ private struct BatchTranslationRow: View {
         case .queued: "대기 중"
         case .completed: "완료"
         case .failed: "실패"
+        case .paused: "일시 정지됨"
         case .cancelled: "취소됨"
         default: "처리 중"
         }
@@ -1866,6 +1898,7 @@ private struct BatchTranslationRow: View {
         switch item.status {
         case .completed: "checkmark.circle.fill"
         case .failed: "exclamationmark.circle.fill"
+        case .paused: "pause.circle.fill"
         case .cancelled: "stop.circle.fill"
         case .queued where !item.isProcessing: "clock"
         default: "arrow.trianglehead.2.clockwise.rotate.90"
@@ -1876,6 +1909,7 @@ private struct BatchTranslationRow: View {
         switch item.status {
         case .completed: .green
         case .failed: .red
+        case .paused: .orange
         case .cancelled: .secondary
         case .queued where !item.isProcessing: .secondary
         default: .blue
