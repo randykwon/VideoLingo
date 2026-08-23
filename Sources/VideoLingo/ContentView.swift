@@ -632,6 +632,16 @@ private struct PlayerPane: View {
                         .padding(12)
                     }
                 }
+                .contextMenu {
+                    Button {
+                        model.subtitlesEnabled.toggle()
+                    } label: {
+                        Label(
+                            model.subtitlesEnabled ? "자막 끄기" : "자막 켜기",
+                            systemImage: model.subtitlesEnabled ? "captions.bubble.fill" : "captions.bubble"
+                        )
+                    }
+                }
             if model.playerMode == .translation && !model.isSimpleMode && !model.hideTranscriptPanel {
                 PanelResizeHandle(height: $transcriptPanelHeight)
                 TranscriptInspector()
