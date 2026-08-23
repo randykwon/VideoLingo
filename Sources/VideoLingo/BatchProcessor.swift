@@ -33,6 +33,8 @@ final class BatchProcessor {
 
     var items: [Item] = []
     var isRunning = false
+    var isScanningFolders = false
+    var folderScanMessage = ""
     var maximumConcurrentJobs: Int = {
         let stored = UserDefaults.standard.integer(forKey: "batchMaximumConcurrentJobs")
         return stored == 0 ? 5 : min(10, max(1, stored))
@@ -48,6 +50,7 @@ final class BatchProcessor {
     private var options = ProcessingOptions()
     private var connection: NSXPCConnection?
     private var runTask: Task<Void, Never>?
+    private var folderScanTask: Task<Void, Never>?
     private var activeJobIDs: Set<UUID> = []
 
     private init() {}
@@ -80,6 +83,26 @@ final class BatchProcessor {
         add(panel.urls)
     }
 
+    func addFolders() {
+        let panel = NSOpenPanel()
+        panel.title = String(localized: "하위 영상을 검색할 폴더를 선택하세요")
+        panel.prompt = String(localized: "폴더 검색")
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        guard panel.runModal() == .OK else { return }
+        scanFolders(panel.urls)
+    }
+
+    @discardableResult
+    func addDroppedURLs(_ urls: [URL]) -> Bool {
+        let folders = urls.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+        let files = urls.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true }
+        let addedFiles = add(files)
+        if !folders.isEmpty { scanFolders(folders) }
+        return addedFiles > 0 || !folders.isEmpty
+    }
+
     @discardableResult
     func add(_ urls: [URL]) -> Int {
         var addedCount = 0
@@ -93,7 +116,76 @@ final class BatchProcessor {
     }
 
     private func isSupportedVideo(_ url: URL) -> Bool {
-        if let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType {
+        Self.isSupportedVideoURL(url)
+    }
+
+    func cancelFolderScan() {
+        folderScanTask?.cancel()
+    }
+
+    private func scanFolders(_ roots: [URL]) {
+        guard !isScanningFolders, !roots.isEmpty else { return }
+        isScanningFolders = true
+        folderScanMessage = roots.count == 1
+            ? String(localized: "\(roots[0].lastPathComponent) 하위 영상 검색 중…")
+            : String(localized: "선택한 \(roots.count)개 폴더의 하위 영상 검색 중…")
+
+        folderScanTask = Task { [weak self] in
+            let worker = Task.detached(priority: .userInitiated) {
+                try Self.discoverVideos(in: roots)
+            }
+            do {
+                let discovered = try await withTaskCancellationHandler {
+                    try await worker.value
+                } onCancel: {
+                    worker.cancel()
+                }
+                guard let self else { return }
+                let added = self.add(discovered)
+                self.folderScanMessage = String(localized: "영상 \(discovered.count)개 발견 · 새로 \(added)개 추가")
+            } catch is CancellationError {
+                self?.folderScanMessage = String(localized: "폴더 검색을 취소했습니다.")
+            } catch {
+                self?.folderScanMessage = String(localized: "폴더를 검색하지 못했습니다: \(error.localizedDescription)")
+            }
+            self?.isScanningFolders = false
+            self?.folderScanTask = nil
+        }
+    }
+
+    nonisolated private static func discoverVideos(in roots: [URL]) throws -> [URL] {
+        let manager = FileManager.default
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .contentTypeKey]
+        var discovered: [URL] = []
+
+        for root in roots {
+            try Task.checkCancellation()
+            guard let enumerator = manager.enumerator(
+                at: root,
+                includingPropertiesForKeys: keys,
+                options: [.skipsHiddenFiles, .skipsPackageDescendants],
+                errorHandler: { _, _ in true }
+            ) else { continue }
+
+            for case let url as URL in enumerator {
+                try Task.checkCancellation()
+                guard let values = try? url.resourceValues(forKeys: Set(keys)) else { continue }
+                if values.isSymbolicLink == true {
+                    if values.isDirectory == true { enumerator.skipDescendants() }
+                    continue
+                }
+                guard values.isRegularFile == true, isSupportedVideoURL(url, contentType: values.contentType) else { continue }
+                discovered.append(url.standardizedFileURL)
+            }
+        }
+
+        return Array(Set(discovered)).sorted {
+            $0.path.localizedStandardCompare($1.path) == .orderedAscending
+        }
+    }
+
+    nonisolated private static func isSupportedVideoURL(_ url: URL, contentType: UTType? = nil) -> Bool {
+        if let type = contentType ?? (try? url.resourceValues(forKeys: [.contentTypeKey]).contentType) {
             return type.conforms(to: .movie) || type.conforms(to: .audiovisualContent)
         }
         return UTType(filenameExtension: url.pathExtension)?.conforms(to: .audiovisualContent) == true
@@ -278,9 +370,13 @@ struct BatchTranslationView: View {
                 } description: {
                     Text("Finder에서 영상을 끌어 놓거나 직접 선택하면 현재 STT·LLM 설정으로 동시에 처리합니다.")
                 } actions: {
-                    Button("영상 추가…", systemImage: "plus") { processor.addFiles() }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
+                    HStack {
+                        Button("영상 추가…", systemImage: "plus") { processor.addFiles() }
+                            .buttonStyle(.borderedProminent)
+                        Button("폴더 추가…", systemImage: "folder.badge.plus") { processor.addFolders() }
+                            .buttonStyle(.bordered)
+                    }
+                    .controlSize(.large)
                 }
             } else {
                 List {
@@ -323,6 +419,21 @@ struct BatchTranslationView: View {
                     }
                 }
 
+                if processor.isScanningFolders || !processor.folderScanMessage.isEmpty {
+                    HStack(spacing: 8) {
+                        if processor.isScanningFolders { ProgressView().controlSize(.small) }
+                        Text(processor.folderScanMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Spacer()
+                        if processor.isScanningFolders {
+                            Button("검색 취소", role: .cancel) { processor.cancelFolderScan() }
+                                .controlSize(.small)
+                        }
+                    }
+                }
+
                 HStack {
                     Button("완료 항목 지우기", systemImage: "clear") { processor.clearFinished() }
                         .disabled(processor.isRunning || processor.completedCount == 0)
@@ -344,7 +455,7 @@ struct BatchTranslationView: View {
         }
         .navigationTitle("대량 번역")
         .dropDestination(for: URL.self) { urls, _ in
-            processor.add(urls) > 0
+            processor.addDroppedURLs(urls)
         } isTargeted: { targeted in
             withAnimation(.snappy) { isDropTargeted = targeted }
         }
@@ -361,7 +472,7 @@ struct BatchTranslationView: View {
                             .foregroundStyle(Color.accentColor)
                         Text("여기에 영상을 놓아 추가")
                             .font(.headline)
-                        Text("이미 추가된 파일과 영상이 아닌 파일은 제외됩니다.")
+                        Text("폴더를 놓으면 하위 영상까지 검색합니다. 중복과 영상이 아닌 파일은 제외됩니다.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -373,6 +484,9 @@ struct BatchTranslationView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                Button("폴더 추가…", systemImage: "folder.badge.plus") { processor.addFolders() }
+                    .disabled(processor.isScanningFolders)
+                    .help("폴더와 하위 폴더에서 영상 검색")
                 Button("영상 추가…", systemImage: "plus") { processor.addFiles() }
                     .help("여러 영상 추가")
             }
