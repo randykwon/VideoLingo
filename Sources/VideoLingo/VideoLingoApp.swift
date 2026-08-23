@@ -17,6 +17,7 @@ struct VideoLingoApp: App {
     @State private var shortcuts = ShortcutSettings()
     @State private var localization = LocalizationManager.shared
     @State private var theme = ThemeManager.shared
+    @State private var batchProcessor = BatchProcessor.shared
     // 설정 창은 영상 플레이어가 필요 없으므로 마지막 영상은 복원하지 않는 전용 모델을 사용합니다.
     @State private var settingsModel = AppModel(autoloadLastVideo: false)
 
@@ -32,8 +33,20 @@ struct VideoLingoApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
-            VideoLingoCommands(shortcuts: shortcuts)
+            VideoLingoCommands(shortcuts: shortcuts, batchProcessor: batchProcessor)
         }
+        Window("대량 번역", id: "batch") {
+            BatchTranslationView()
+                .environment(batchProcessor)
+                .environment(localization)
+                .environment(theme)
+                .environment(\.locale, localization.locale)
+                .tint(theme.accentColor)
+                .controlSize(theme.controlSize)
+                .preferredColorScheme(theme.colorScheme)
+                .frame(minWidth: 760, minHeight: 560)
+        }
+        .defaultSize(width: 920, height: 680)
         Settings {
             SettingsView()
                 .environment(settingsModel)
@@ -75,6 +88,7 @@ private struct PlayerWindow: View {
 /// 전역 메뉴 명령. 포커스된 플레이어 창의 AppModel을 대상으로 동작합니다.
 private struct VideoLingoCommands: Commands {
     let shortcuts: ShortcutSettings
+    let batchProcessor: BatchProcessor
     @FocusedValue(\.appModel) private var model: AppModel?
     @Environment(\.openWindow) private var openWindow
 
@@ -85,6 +99,11 @@ private struct VideoLingoCommands: Commands {
             Button("영상 열기…") { model?.openVideo() }
                 .keyboardShortcut(shortcuts[.openVideo].keyEquivalent, modifiers: shortcuts[.openVideo].modifiers)
                 .disabled(model == nil)
+            Button("대량 번역…") {
+                if let model { batchProcessor.configure(options: model.currentProcessingOptions()) }
+                openWindow(id: "batch")
+            }
+            .keyboardShortcut("b", modifiers: [.command, .shift])
         }
         CommandMenu("재생 제어") {
             Button("재생/일시 정지") { model?.togglePlayback() }
@@ -128,6 +147,12 @@ private struct VideoLingoCommands: Commands {
                 .keyboardShortcut(shortcuts[.hideApp].keyEquivalent, modifiers: shortcuts[.hideApp].modifiers)
         }
         CommandMenu("STT·번역") {
+            Button("대량 번역…") {
+                if let model { batchProcessor.configure(options: model.currentProcessingOptions()) }
+                openWindow(id: "batch")
+            }
+            .keyboardShortcut("b", modifiers: [.command, .shift])
+            Divider()
             Button("시작/재개") { model?.startOrResume() }
                 .keyboardShortcut(shortcuts[.startOrResume].keyEquivalent, modifiers: shortcuts[.startOrResume].modifiers)
                 .disabled(!(model?.canStart ?? false))

@@ -6,6 +6,7 @@ import VideoLingoCore
 struct ContentView: View {
     @Environment(AppModel.self) private var model
     @Environment(ThemeManager.self) private var theme
+    @Environment(\.openWindow) private var openWindow
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showDemosaicSheet = false
     @AppStorage("simpleSidebar") private var simpleSidebar = false
@@ -33,6 +34,11 @@ struct ContentView: View {
                 }
                 Section("영상") {
                     Button("MP4 영상 열기…", systemImage: "film") { model.openVideo() }
+                    Button("대량 번역…", systemImage: "rectangle.stack.badge.play") {
+                        BatchProcessor.shared.configure(options: model.currentProcessingOptions())
+                        openWindow(id: "batch")
+                    }
+                    .help("여러 영상을 새 창에서 동시에 STT·LLM 번역합니다")
                     if let url = model.mediaURL {
                         Text(url.lastPathComponent).lineLimit(2).font(.caption)
                         if let resultURL = model.resultDirectoryURL {
