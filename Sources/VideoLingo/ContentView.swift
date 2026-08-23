@@ -754,8 +754,11 @@ private struct PlayerPane: View {
     }
 
     private func swipeFeedbackText(_ seconds: TimeInterval) -> String {
-        let rounded = Int(abs(seconds).rounded())
-        return seconds < 0 ? "\(rounded)초 뒤로" : "\(rounded)초 앞으로"
+        let rounded = Int64(abs(seconds).rounded())
+        let format = seconds < 0
+            ? String(localized: "%lld초 뒤로")
+            : String(localized: "%lld초 앞으로")
+        return String(format: format, rounded)
     }
 }
 
