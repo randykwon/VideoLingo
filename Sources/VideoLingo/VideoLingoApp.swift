@@ -86,8 +86,8 @@ private struct PlayerWindow: View {
         ContentView()
             .environment(model)
             .frame(
-                minWidth: model.isMiniViewer ? 360 : 1_050,
-                minHeight: model.isMiniViewer ? 240 : 680
+                minWidth: model.isMiniViewer ? 360 : model.playerMode == .viewing ? 820 : 1_050,
+                minHeight: model.isMiniViewer ? 240 : model.playerMode == .viewing ? 560 : 680
             )
             // 언어 변경 시 문구만 새로 그리고, 창의 모델(플레이어·작업)은 그대로 유지합니다.
             .environment(\.locale, localization.locale)
@@ -139,6 +139,20 @@ private struct VideoLingoCommands: Commands {
             }
                 .keyboardShortcut(shortcuts[.volumeDown].keyEquivalent, modifiers: shortcuts[.volumeDown].modifiers)
                 .disabled(model?.mediaURL == nil)
+        }
+        CommandMenu("플레이어 모드") {
+            Button {
+                model?.playerMode = .viewing
+            } label: {
+                Label("영상 감상 모드", systemImage: model?.playerMode == .viewing ? "checkmark" : "play.rectangle")
+            }
+            .disabled(model == nil)
+            Button {
+                model?.playerMode = .translation
+            } label: {
+                Label("번역 모드", systemImage: model?.playerMode == .translation ? "checkmark" : "character.book.closed")
+            }
+            .disabled(model == nil)
         }
         CommandMenu("보기") {
             Button("전체화면 전환") { model?.toggleFullScreen() }
