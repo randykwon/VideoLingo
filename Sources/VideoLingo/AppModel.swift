@@ -74,14 +74,17 @@ final class AppModel {
     var rememberPlaybackPosition = UserDefaults.standard.object(forKey: "rememberPlaybackPosition") as? Bool ?? true {
         didSet { UserDefaults.standard.set(rememberPlaybackPosition, forKey: "rememberPlaybackPosition") }
     }
-    var volumeAdjustmentStep: Double = {
-        let stored = UserDefaults.standard.double(forKey: "volumeAdjustmentStep")
-        return [0.01, 0.02, 0.05, 0.10].contains(stored) ? stored : 0.10
-    }() {
-        didSet {
+    var volumeAdjustmentStep: Double {
+        get {
+            let stored = UserDefaults.standard.double(forKey: "volumeAdjustmentStep")
+            return [0.01, 0.02, 0.05, 0.10].contains(stored) ? stored : 0.10
+        }
+        set {
             let allowed = [0.01, 0.02, 0.05, 0.10]
-            if !allowed.contains(volumeAdjustmentStep) { volumeAdjustmentStep = 0.10 }
-            UserDefaults.standard.set(volumeAdjustmentStep, forKey: "volumeAdjustmentStep")
+            UserDefaults.standard.set(
+                allowed.contains(newValue) ? newValue : 0.10,
+                forKey: "volumeAdjustmentStep"
+            )
         }
     }
 
