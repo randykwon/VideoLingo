@@ -880,12 +880,21 @@ struct BatchTranslationView: View {
                             .lineLimit(1)
                     }
                     Spacer()
-                    Stepper(value: $processor.maximumConcurrentJobs, in: 1...10) {
-                        Text("동시 처리 \(processor.maximumConcurrentJobs)개")
-                            .monospacedDigit()
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Toggle("Mac 성능에 맞게 자동 조정", isOn: $processor.automaticallyAdjustConcurrentJobs)
+                            .disabled(processor.isRunning)
+                        Stepper(value: $processor.maximumConcurrentJobs, in: 1...10) {
+                            Text(processor.automaticallyAdjustConcurrentJobs
+                                ? "자동 동시 처리 \(processor.effectiveConcurrentJobs)개"
+                                : "수동 동시 처리 \(processor.maximumConcurrentJobs)개")
+                                .monospacedDigit()
+                        }
+                        .disabled(processor.isRunning || processor.automaticallyAdjustConcurrentJobs)
+                        Text(processor.automaticConcurrencySummary)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
-                    .disabled(processor.isRunning)
-                    .help("로컬 메모리와 GPU 사용량에 맞춰 1~10개 사이에서 설정합니다")
+                    .help("메모리·CPU·열 상태를 기준으로 안전한 동시 처리 수를 정합니다")
                 }
 
                 if processor.isRunning || processor.completedCount > 0 {
@@ -1175,9 +1184,18 @@ private struct BatchStartConfirmationView: View {
                             .lineLimit(1)
                     }
                     LabeledContent("동시 처리") {
-                        Stepper(value: $processor.maximumConcurrentJobs, in: 1...10) {
-                            Text("\(processor.maximumConcurrentJobs)개")
-                                .monospacedDigit()
+                        VStack(alignment: .trailing, spacing: 6) {
+                            Toggle("Mac 성능에 맞게 자동 조정", isOn: $processor.automaticallyAdjustConcurrentJobs)
+                            Stepper(value: $processor.maximumConcurrentJobs, in: 1...10) {
+                                Text(processor.automaticallyAdjustConcurrentJobs
+                                    ? "자동 \(processor.effectiveConcurrentJobs)개"
+                                    : "수동 \(processor.maximumConcurrentJobs)개")
+                                    .monospacedDigit()
+                            }
+                            .disabled(processor.automaticallyAdjustConcurrentJobs)
+                            Text(processor.automaticConcurrencySummary)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
