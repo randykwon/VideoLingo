@@ -79,6 +79,8 @@ struct ContentView: View {
                         ForEach(model.targetLanguages, id: \.self) { Text($0.uppercased()).tag($0) }
                     }
                     .onChange(of: model.selectedLanguage) { _, _ in model.refreshResults() }
+                    Toggle("원문과 번역 자막 함께 보기", isOn: $model.showOriginalWithTranslation)
+                        .help("번역 자막 아래에 같은 구간의 원문 STT를 함께 표시합니다")
                     Text("언어를 추가한 뒤 시작/재개하면 기존 STT로 추가 번역만 생성합니다.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -436,7 +438,20 @@ private struct PlayerPane: View {
                 .overlay {
                     GeometryReader { geometry in
                         if !model.activeSubtitle.isEmpty {
-                            PlayerCaption(text: model.activeSubtitle, color: theme.subtitleColor)
+                            VStack(spacing: 6) {
+                                PlayerCaption(text: model.activeSubtitle, color: theme.subtitleColor)
+                                if model.showOriginalWithTranslation,
+                                   model.activeTranslationSubtitle != nil,
+                                   !model.activeOriginalSubtitle.isEmpty {
+                                    PlayerCaption(
+                                        text: model.activeOriginalSubtitle,
+                                        color: .white,
+                                        isSecondary: true,
+                                        isItalic: model.originalSubtitleItalic,
+                                        opacity: model.originalSubtitleTranslucent ? 0.68 : 1
+                                    )
+                                }
+                            }
                                 .frame(maxWidth: max(0, geometry.size.width - 48))
                                 .position(
                                     x: geometry.size.width * subtitlePositionX,
@@ -726,10 +741,22 @@ private struct PanelResizeHandle: View {
 private struct PlayerCaption: View {
     let text: String
     var color: Color?
+    var isSecondary: Bool
+    var isItalic: Bool
+    var opacity: Double
 
-    init(text: String, color: Color? = nil) {
+    init(
+        text: String,
+        color: Color? = nil,
+        isSecondary: Bool = false,
+        isItalic: Bool = false,
+        opacity: Double = 1
+    ) {
         self.text = text
         self.color = color
+        self.isSecondary = isSecondary
+        self.isItalic = isItalic
+        self.opacity = opacity
     }
 
     var body: some View {
@@ -741,17 +768,23 @@ private struct PlayerCaption: View {
                     SpeakerColoredText(text: text, defaultColor: .white)
                 }
             }
-            .font(.title3.weight(.semibold))
+            .font(captionFont)
             .multilineTextAlignment(.center)
-            .lineLimit(2)
+            .lineLimit(isSecondary ? 2 : 3)
             .truncationMode(.tail)
             .shadow(color: .black.opacity(0.85), radius: 3)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(.black.opacity(0.42), in: RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, isSecondary ? 12 : 16)
+            .padding(.vertical, isSecondary ? 6 : 8)
+            .background(.black.opacity(isSecondary ? 0.32 : 0.42), in: RoundedRectangle(cornerRadius: 10))
             .padding(.horizontal, 24)
+            .opacity(min(1, max(0.35, opacity)))
             .accessibilityLabel(text)
         }
+    }
+
+    private var captionFont: Font {
+        let base: Font = isSecondary ? .callout.weight(.medium) : .title3.weight(.semibold)
+        return isItalic ? base.italic() : base
     }
 }
 
@@ -1306,6 +1339,11 @@ private struct GeneralSettingsView: View {
             }
             Section("화면 자막") {
                 ColorPicker("자막 색상", selection: $theme.subtitleColor, supportsOpacity: false)
+                Toggle("원문과 번역 자막 함께 보기", isOn: $model.showOriginalWithTranslation)
+                Toggle("원문 자막 반투명", isOn: $model.originalSubtitleTranslucent)
+                    .disabled(!model.showOriginalWithTranslation)
+                Toggle("원문 자막 이탤릭체", isOn: $model.originalSubtitleItalic)
+                    .disabled(!model.showOriginalWithTranslation)
                 Toggle("자막 위치 고정", isOn: $subtitlePositionLocked)
                 HStack {
                     Button("색상 초기화", systemImage: "paintbrush") {
@@ -1316,7 +1354,7 @@ private struct GeneralSettingsView: View {
                         subtitlePositionY = 0.86
                     }
                 }
-                Text("영상 오른쪽 상단의 잠금을 해제한 뒤 자막을 오른쪽 버튼으로 드래그해 옮길 수 있습니다. 왼쪽 클릭은 재생 조작에 사용됩니다.")
+                Text("이중 자막을 켜면 번역 아래에 원문 STT를 표시합니다. 잠금을 해제한 뒤 자막을 오른쪽 버튼으로 드래그해 옮길 수 있으며 왼쪽 클릭은 재생 조작에 사용됩니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
