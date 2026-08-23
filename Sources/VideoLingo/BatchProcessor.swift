@@ -149,8 +149,22 @@ final class BatchProcessor {
     private var resultCheckTask: Task<Void, Never>?
     private var activeJobIDsByItem: [UUID: UUID] = [:]
     private var scheduledItemIDs: Set<UUID> = []
+    private var alternateResultDirectoryBookmark: Data?
+    var alternateResultDirectoryURL: URL?
 
-    private init() {}
+    private init() {
+        guard let bookmark = UserDefaults.standard.data(forKey: "batchAlternateResultDirectoryBookmark") else { return }
+        var stale = false
+        if let url = try? URL(
+            resolvingBookmarkData: bookmark,
+            options: [.withSecurityScope],
+            relativeTo: nil,
+            bookmarkDataIsStale: &stale
+        ) {
+            alternateResultDirectoryBookmark = bookmark
+            alternateResultDirectoryURL = url
+        }
+    }
 
     let availableSourceLanguages = [
         "", "ko", "ja", "en", "zh", "es", "fr", "de", "pt", "it",
@@ -197,6 +211,47 @@ final class BatchProcessor {
     var batchSTTModelName: String { options.sttModel }
     var batchTranslationModelName: String { options.translationModel }
     var reviewOptions: ProcessingOptions { options }
+    var alternateResultDirectoryDisplayPath: String? { alternateResultDirectoryURL?.path(percentEncoded: false) }
+
+    func readOnlyItemCount(in ids: Set<UUID>? = nil) -> Int {
+        items.filter { item in
+            (ids == nil || ids?.contains(item.id) == true) && needsAlternateResultDirectory(item.url)
+        }.count
+    }
+
+    func chooseAlternateResultDirectory() {
+        guard !isRunning else { return }
+        let panel = NSOpenPanel()
+        panel.title = String(localized: "읽기 전용 영상의 STT·번역 결과 저장 폴더")
+        panel.prompt = String(localized: "이 폴더 사용")
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let bookmark = try? url.bookmarkData(
+            options: [.withSecurityScope],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        ) else { return }
+        alternateResultDirectoryURL = url.standardizedFileURL
+        alternateResultDirectoryBookmark = bookmark
+        UserDefaults.standard.set(bookmark, forKey: "batchAlternateResultDirectoryBookmark")
+    }
+
+    func clearAlternateResultDirectory() {
+        guard !isRunning else { return }
+        alternateResultDirectoryURL = nil
+        alternateResultDirectoryBookmark = nil
+        UserDefaults.standard.removeObject(forKey: "batchAlternateResultDirectoryBookmark")
+    }
+
+    private func needsAlternateResultDirectory(_ mediaURL: URL) -> Bool {
+        if (try? mediaURL.resourceValues(forKeys: [.volumeIsReadOnlyKey]).volumeIsReadOnly) == true {
+            return true
+        }
+        return !FileManager.default.isWritableFile(atPath: mediaURL.deletingLastPathComponent().path)
+    }
 
     func sourceLanguageName(_ code: String) -> String {
         guard !code.isEmpty else { return String(localized: "자동 감지") }
@@ -704,13 +759,16 @@ final class BatchProcessor {
             let workspace = paths.workspace(for: jobID)
             try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
             let bookmark = try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
+            let needsAlternateDirectory = needsAlternateResultDirectory(url)
             let request = StartJobRequest(
                 jobID: jobID,
                 mediaURL: url,
                 securityScopedBookmark: bookmark,
                 options: options,
                 databaseURL: paths.database,
-                workspaceURL: workspace
+                workspaceURL: workspace,
+                alternateResultDirectoryURL: needsAlternateDirectory ? alternateResultDirectoryURL : nil,
+                alternateResultDirectoryBookmark: needsAlternateDirectory ? alternateResultDirectoryBookmark : nil
             )
             try JobStore(url: paths.database).createJob(id: jobID, mediaURL: url, options: options)
             items[requestIndex].status = .queued
