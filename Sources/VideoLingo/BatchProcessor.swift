@@ -100,6 +100,47 @@ final class BatchProcessor {
             )
         }
     }
+    var automaticallyAdjustConcurrentJobs: Bool = UserDefaults.standard.object(forKey: "batchAutomaticallyAdjustConcurrentJobs") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(automaticallyAdjustConcurrentJobs, forKey: "batchAutomaticallyAdjustConcurrentJobs") }
+    }
+
+    var recommendedConcurrentJobs: Int {
+        let process = ProcessInfo.processInfo
+        let memoryGB = Double(process.physicalMemory) / 1_073_741_824
+        let memoryLimit: Int
+        switch memoryGB {
+        case ..<12: memoryLimit = 1
+        case ..<20: memoryLimit = 2
+        case ..<28: memoryLimit = 3
+        case ..<48: memoryLimit = 4
+        default: memoryLimit = 5
+        }
+        let hardwareLimit = min(memoryLimit, max(1, min(5, process.activeProcessorCount / 3)))
+        switch process.thermalState {
+        case .fair: return min(2, hardwareLimit)
+        case .serious, .critical: return 1
+        case .nominal: return hardwareLimit
+        @unknown default: return min(2, hardwareLimit)
+        }
+    }
+
+    var effectiveConcurrentJobs: Int {
+        automaticallyAdjustConcurrentJobs ? recommendedConcurrentJobs : maximumConcurrentJobs
+    }
+
+    var automaticConcurrencySummary: String {
+        let process = ProcessInfo.processInfo
+        let memoryGB = Int((Double(process.physicalMemory) / 1_073_741_824).rounded())
+        let thermal: String
+        switch process.thermalState {
+        case .nominal: thermal = String(localized: "정상")
+        case .fair: thermal = String(localized: "주의")
+        case .serious: thermal = String(localized: "높음")
+        case .critical: thermal = String(localized: "위험")
+        @unknown default: thermal = String(localized: "알 수 없음")
+        }
+        return String(localized: "메모리 \(memoryGB)GB · CPU \(process.activeProcessorCount)코어 · 열 상태 \(thermal)")
+    }
 
     private var options = ProcessingOptions()
     private var connection: NSXPCConnection?
@@ -603,7 +644,7 @@ final class BatchProcessor {
     }
 
     private func runQueue() async {
-        let concurrency = maximumConcurrentJobs
+        let concurrency = effectiveConcurrentJobs
         await withTaskGroup(of: Void.self) { group in
             var activeTasks = 0
             while !Task.isCancelled {
@@ -678,7 +719,8 @@ final class BatchProcessor {
             _ = try await send(service, payload: WireCodec.encode(request))
 
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(500))
+                // 고빈도 실시간 갱신은 재설계 전까지 중단하고 저빈도 상태 확인만 유지합니다.
+                try? await Task.sleep(for: .seconds(2))
                 guard let snapshot = await snapshot(service, jobID: jobID) else { continue }
                 guard let index = items.firstIndex(where: { $0.id == itemID }) else {
                     service.cancelJob(jobID.uuidString) { _ in }
