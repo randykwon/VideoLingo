@@ -760,6 +760,8 @@ struct BatchTranslationView: View {
     @State private var showingActiveDeleteConfirmation = false
     @State private var showingDuplicateReview = false
     @State private var showingDuplicateCleanupConfirmation = false
+    @State private var showingStartConfirmation = false
+    @State private var pendingStartIDs: Set<UUID> = []
     @State private var listFilter: BatchListFilter = .all
 
     var body: some View {
@@ -892,7 +894,7 @@ struct BatchTranslationView: View {
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                         Button("선택 시작", systemImage: "play.fill") {
-                            processor.start(ids: selection)
+                            requestStart(ids: selection)
                         }
                         .disabled(processor.isCheckingExistingResults || !canStartSelection)
                         .help(canStartSelection ? "선택한 영상만 번역 시작 또는 재개" : "선택 항목 중 시작할 작업이 없습니다")
@@ -920,7 +922,9 @@ struct BatchTranslationView: View {
                             processor.cancelAll()
                         }
                     } else {
-                        Button("대량 번역 시작", systemImage: "play.fill") { processor.start() }
+                        Button("대량 번역 시작", systemImage: "play.fill") {
+                            requestStart(ids: Set(processor.items.filter { !$0.isFinished }.map(\.id)))
+                        }
                             .buttonStyle(.borderedProminent)
                             .disabled(processor.isCheckingExistingResults || !processor.items.contains(where: { !$0.isFinished }))
                             .keyboardShortcut(.defaultAction)
@@ -959,6 +963,14 @@ struct BatchTranslationView: View {
         .sheet(isPresented: $showingDuplicateCleanupConfirmation) {
             DuplicateBatchCleanupView()
                 .environment(processor)
+        }
+        .sheet(isPresented: $showingStartConfirmation) {
+            BatchStartConfirmationView(itemIDs: pendingStartIDs) {
+                let ids = pendingStartIDs
+                pendingStartIDs.removeAll()
+                processor.start(ids: ids)
+            }
+            .environment(processor)
         }
         .sheet(isPresented: $showingDuplicateReview) {
             DuplicateFilenameReviewView()
@@ -1068,6 +1080,106 @@ struct BatchTranslationView: View {
         let ids = selection
         selection.removeAll()
         processor.remove(ids: ids)
+    }
+
+    private func requestStart(ids: Set<UUID>) {
+        let availableIDs = Set(processor.items.filter {
+            ids.contains($0.id) && $0.status != .completed && !$0.isProcessing
+        }.map(\.id))
+        guard !availableIDs.isEmpty else { return }
+        pendingStartIDs = availableIDs
+        showingStartConfirmation = true
+    }
+}
+
+private struct BatchStartConfirmationView: View {
+    @Environment(BatchProcessor.self) private var processor
+    @Environment(\.dismiss) private var dismiss
+    let itemIDs: Set<UUID>
+    let onStart: () -> Void
+
+    var body: some View {
+        @Bindable var processor = processor
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("대량 번역 시작 전 확인", systemImage: "checklist.checked")
+                    .font(.title2.weight(.semibold))
+                Text("STT 원어와 번역 대상 언어가 올바른지 확인한 뒤 시작하세요.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            GroupBox {
+                BatchLanguageSettingsView()
+                    .padding(4)
+            } label: {
+                Label("언어 설정", systemImage: "globe")
+            }
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    LabeledContent("실행 대상") {
+                        Text("\(startableCount)개 영상")
+                            .monospacedDigit()
+                    }
+                    LabeledContent("STT 모델") {
+                        Text(processor.options.sttModel)
+                            .lineLimit(1)
+                    }
+                    LabeledContent("번역 모델") {
+                        Text(processor.options.translationModel)
+                            .lineLimit(1)
+                    }
+                    LabeledContent("동시 처리") {
+                        Stepper(value: $processor.maximumConcurrentJobs, in: 1...10) {
+                            Text("\(processor.maximumConcurrentJobs)개")
+                                .monospacedDigit()
+                        }
+                    }
+                }
+                .padding(4)
+            } label: {
+                Label("처리 설정", systemImage: "gearshape.2")
+            }
+
+            if processor.isCheckingExistingResults {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("변경한 언어 설정으로 기존 결과를 다시 확인 중…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if processor.batchSourceLanguage.isEmpty {
+                Label("STT 원어는 영상마다 자동 감지됩니다.", systemImage: "waveform.badge.magnifyingglass")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("취소", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("확인하고 번역 시작", systemImage: "play.fill") {
+                    dismiss()
+                    onStart()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(processor.isCheckingExistingResults || processor.batchTargetLanguages.isEmpty || startableCount == 0)
+                .help(processor.isCheckingExistingResults ? "기존 결과 확인이 끝나면 시작할 수 있습니다" : "확인한 설정으로 대량 번역 시작")
+            }
+        }
+        .padding(24)
+        .frame(width: 600)
+        .interactiveDismissDisabled(processor.isCheckingExistingResults)
+    }
+
+    private var startableCount: Int {
+        processor.items.filter {
+            itemIDs.contains($0.id) && $0.status != .completed && !$0.isProcessing
+        }.count
     }
 }
 
