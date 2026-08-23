@@ -16,6 +16,12 @@ private struct BatchResultCandidate: Sendable {
 final class BatchProcessor {
     static let shared = BatchProcessor()
 
+    struct DuplicateFilenameGroup: Identifiable {
+        let id: String
+        let displayName: String
+        let items: [Item]
+    }
+
     enum ExistingResultState: Equatable, Sendable {
         case checking
         case notFound
@@ -83,6 +89,27 @@ final class BatchProcessor {
     var runningCount: Int { items.filter(\.isProcessing).count }
     var completedCount: Int { items.filter { $0.status == .completed }.count }
     var alreadyTranslatedCount: Int { items.filter { $0.existingResult.isComplete }.count }
+    var duplicateFilenameGroups: [DuplicateFilenameGroup] {
+        let grouped = Dictionary(grouping: items) { item in
+            item.url.lastPathComponent.folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: .current
+            )
+        }
+        return grouped.compactMap { key, groupedItems in
+            guard groupedItems.count > 1 else { return nil }
+            return DuplicateFilenameGroup(
+                id: key,
+                displayName: groupedItems[0].url.lastPathComponent,
+                items: groupedItems
+            )
+        }
+        .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+    }
+    var recommendedDuplicateRemovalIDs: Set<UUID> {
+        Set(duplicateFilenameGroups.flatMap { $0.items.dropFirst().map(\.id) })
+    }
+    var duplicateFilenameRemovalCount: Int { recommendedDuplicateRemovalIDs.count }
     var overallProgress: Double {
         guard !items.isEmpty else { return 0 }
         return items.reduce(0) { $0 + ($1.isFinished ? 1 : $1.progress) } / Double(items.count)
@@ -169,7 +196,10 @@ final class BatchProcessor {
                 }
                 guard let self else { return }
                 let added = self.add(discovered)
-                self.folderScanMessage = String(localized: "영상 \(discovered.count)개 발견 · 새로 \(added)개 추가")
+                let duplicates = self.duplicateFilenameRemovalCount
+                self.folderScanMessage = duplicates > 0
+                    ? String(localized: "영상 \(discovered.count)개 발견 · 새로 \(added)개 추가 · 동일 이름 \(duplicates)개 확인 필요")
+                    : String(localized: "영상 \(discovered.count)개 발견 · 새로 \(added)개 추가 · 동일 이름 없음")
             } catch is CancellationError {
                 self?.folderScanMessage = String(localized: "폴더 검색을 취소했습니다.")
             } catch {
@@ -227,6 +257,10 @@ final class BatchProcessor {
         guard !ids.isEmpty else { return }
         stop(ids: ids)
         items.removeAll { ids.contains($0.id) }
+    }
+
+    func duplicateNameCount(for itemID: UUID) -> Int {
+        duplicateFilenameGroups.first(where: { group in group.items.contains { $0.id == itemID } })?.items.count ?? 0
     }
 
     func clearFinished() {
