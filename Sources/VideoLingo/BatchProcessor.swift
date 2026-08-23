@@ -1,4 +1,5 @@
 import AppKit
+import AVKit
 import Foundation
 import Observation
 import SwiftUI
@@ -8,6 +9,21 @@ import VideoLingoCore
 private struct BatchResultCandidate: Sendable {
     let itemID: UUID
     let jobID: UUID
+}
+
+private enum BatchListFilter: String, CaseIterable, Identifiable {
+    case all
+    case active
+    case completed
+
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .all: "전체"
+        case .active: "진행·대기"
+        case .completed: "번역 완료"
+        }
+    }
 }
 
 /// 여러 영상을 큐에 넣고 설정된 동시 처리 수만큼 STT·LLM 번역을 병렬 실행합니다.
@@ -127,6 +143,7 @@ final class BatchProcessor {
     }
     var batchSourceLanguage: String { options.sourceLanguage ?? "" }
     var batchTargetLanguages: [String] { options.targetLanguages }
+    var reviewOptions: ProcessingOptions { options }
 
     func sourceLanguageName(_ code: String) -> String {
         guard !code.isEmpty else { return String(localized: "자동 감지") }
