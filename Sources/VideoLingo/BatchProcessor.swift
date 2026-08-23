@@ -153,6 +153,8 @@ final class BatchProcessor {
     }
     var batchSourceLanguage: String { options.sourceLanguage ?? "" }
     var batchTargetLanguages: [String] { options.targetLanguages }
+    var batchSTTModelName: String { options.sttModel }
+    var batchTranslationModelName: String { options.translationModel }
     var reviewOptions: ProcessingOptions { options }
 
     func sourceLanguageName(_ code: String) -> String {
@@ -1123,11 +1125,11 @@ private struct BatchStartConfirmationView: View {
                             .monospacedDigit()
                     }
                     LabeledContent("STT 모델") {
-                        Text(processor.options.sttModel)
+                        Text(processor.batchSTTModelName)
                             .lineLimit(1)
                     }
                     LabeledContent("번역 모델") {
-                        Text(processor.options.translationModel)
+                        Text(processor.batchTranslationModelName)
                             .lineLimit(1)
                     }
                     LabeledContent("동시 처리") {
