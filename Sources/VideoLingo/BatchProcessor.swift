@@ -1,10 +1,10 @@
 import AppKit
 import Foundation
 import Observation
+import SwiftUI
 import VideoLingoCore
 
-/// 여러 MP4를 큐에 넣어 현재 설정으로 순차 STT·번역 처리하는 배치 매니저.
-/// XPC 서비스는 작업을 동시 실행할 수 있지만, 로컬 자원(STT/번역 모델) 부하를 고려해 한 번에 하나씩 처리합니다.
+/// 여러 영상을 큐에 넣고 설정된 동시 처리 수만큼 STT·LLM 번역을 병렬 실행합니다.
 @MainActor
 @Observable
 final class BatchProcessor {
@@ -17,19 +17,46 @@ final class BatchProcessor {
         var status: JobStatus = .queued
         var progress: Double = 0
         var message: String = ""
+        var isProcessing = false
 
         var isFinished: Bool { [.completed, .failed, .cancelled].contains(status) }
     }
 
     var items: [Item] = []
     var isRunning = false
+    var maximumConcurrentJobs: Int = {
+        let stored = UserDefaults.standard.integer(forKey: "batchMaximumConcurrentJobs")
+        return stored == 0 ? 5 : min(10, max(1, stored))
+    }() {
+        didSet {
+            maximumConcurrentJobs = min(10, max(1, maximumConcurrentJobs))
+            UserDefaults.standard.set(maximumConcurrentJobs, forKey: "batchMaximumConcurrentJobs")
+        }
+    }
 
     private var options = ProcessingOptions()
     private var connection: NSXPCConnection?
     private var runTask: Task<Void, Never>?
-    private var activeJobID: UUID?
+    private var activeJobIDs: Set<UUID> = []
 
     private init() {}
+
+    var pendingCount: Int { items.filter { !$0.isFinished && !$0.isProcessing }.count }
+    var runningCount: Int { items.filter(\.isProcessing).count }
+    var completedCount: Int { items.filter { $0.status == .completed }.count }
+    var overallProgress: Double {
+        guard !items.isEmpty else { return 0 }
+        return items.reduce(0) { $0 + ($1.isFinished ? 1 : $1.progress) } / Double(items.count)
+    }
+    var optionsSummary: String {
+        let languages = options.targetLanguages.map { $0.uppercased() }.joined(separator: ", ")
+        return "\(options.sttModel) · \(options.translationModel) · \(languages)"
+    }
+
+    func configure(options: ProcessingOptions) {
+        guard !isRunning else { return }
+        self.options = options
+    }
 
     // MARK: 큐 편집
 
@@ -58,31 +85,56 @@ final class BatchProcessor {
         items.removeAll { $0.isFinished }
     }
 
+    func retry(_ id: UUID) {
+        guard !isRunning, let index = items.firstIndex(where: { $0.id == id }), items[index].isFinished else { return }
+        items[index].status = .queued
+        items[index].progress = 0
+        items[index].message = ""
+        items[index].jobID = nil
+    }
+
     // MARK: 실행
 
-    func start(options: ProcessingOptions) {
+    func start() {
         guard !isRunning, items.contains(where: { !$0.isFinished }) else { return }
-        self.options = options
         isRunning = true
         runTask = Task { [weak self] in await self?.runQueue() }
     }
 
     func cancelAll() {
         runTask?.cancel()
-        if let id = activeJobID { service()?.cancelJob(id.uuidString) { _ in } }
-        isRunning = false
+        let ids = activeJobIDs
+        for id in ids { service()?.cancelJob(id.uuidString) { _ in } }
     }
 
     private func runQueue() async {
-        // 실행 중에는 추가(맨 뒤 append)만 허용하므로 인덱스가 어긋나지 않습니다.
-        while !Task.isCancelled, let index = items.firstIndex(where: { !$0.isFinished }) {
-            await process(index)
+        let concurrency = maximumConcurrentJobs
+        await withTaskGroup(of: Void.self) { group in
+            var activeTasks = 0
+            while !Task.isCancelled {
+                while activeTasks < concurrency,
+                      let index = items.firstIndex(where: { !$0.isFinished && !$0.isProcessing }) {
+                    items[index].isProcessing = true
+                    activeTasks += 1
+                    group.addTask { [weak self] in await self?.process(index) }
+                }
+                guard activeTasks > 0 else { break }
+                await group.next()
+                activeTasks -= 1
+            }
+            group.cancelAll()
         }
-        activeJobID = nil
+        for index in items.indices where items[index].isProcessing {
+            items[index].isProcessing = false
+            if !items[index].isFinished { items[index].status = .cancelled }
+        }
+        activeJobIDs.removeAll()
         isRunning = false
+        runTask = nil
     }
 
     private func process(_ index: Int) async {
+        defer { items[index].isProcessing = false }
         let url = items[index].url
         guard let service = service() else {
             items[index].status = .failed
@@ -98,7 +150,8 @@ final class BatchProcessor {
                 chunkDuration: options.chunkDuration
             )
             items[index].jobID = jobID
-            activeJobID = jobID
+            activeJobIDs.insert(jobID)
+            defer { activeJobIDs.remove(jobID) }
             let workspace = paths.workspace(for: jobID)
             try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
             let bookmark = try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
@@ -165,6 +218,160 @@ final class BatchProcessor {
             service.snapshot(for: jobID.uuidString) { data, _ in
                 continuation.resume(returning: data.flatMap { try? WireCodec.decode(JobSnapshot.self, from: $0) })
             }
+        }
+    }
+}
+
+struct BatchTranslationView: View {
+    @Environment(BatchProcessor.self) private var processor
+
+    var body: some View {
+        @Bindable var processor = processor
+        VStack(spacing: 0) {
+            if processor.items.isEmpty {
+                ContentUnavailableView {
+                    Label("대량 번역할 영상을 추가하세요", systemImage: "rectangle.stack.badge.plus")
+                } description: {
+                    Text("여러 영상을 선택하면 현재 STT·LLM 설정으로 동시에 처리합니다.")
+                } actions: {
+                    Button("영상 추가…", systemImage: "plus") { processor.addFiles() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                }
+            } else {
+                List {
+                    ForEach(processor.items) { item in
+                        BatchTranslationRow(item: item) {
+                            processor.retry(item.id)
+                        }
+                    }
+                    .onDelete(perform: processor.remove)
+                }
+            }
+
+            Divider()
+            VStack(spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("처리 설정")
+                            .font(.headline)
+                        Text(processor.optionsSummary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Stepper(value: $processor.maximumConcurrentJobs, in: 1...10) {
+                        Text("동시 처리 (processor.maximumConcurrentJobs)개")
+                            .monospacedDigit()
+                    }
+                    .disabled(processor.isRunning)
+                    .help("로컬 메모리와 GPU 사용량에 맞춰 1~10개 사이에서 설정합니다")
+                }
+
+                if processor.isRunning || processor.completedCount > 0 {
+                    HStack(spacing: 12) {
+                        ProgressView(value: processor.overallProgress)
+                        Text("실행 (processor.runningCount) · 대기 (processor.pendingCount) · 완료 (processor.completedCount)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+
+                HStack {
+                    Button("완료 항목 지우기", systemImage: "clear") { processor.clearFinished() }
+                        .disabled(processor.isRunning || processor.completedCount == 0)
+                    Spacer()
+                    if processor.isRunning {
+                        Button("전체 취소", systemImage: "stop.fill", role: .destructive) {
+                            processor.cancelAll()
+                        }
+                    } else {
+                        Button("대량 번역 시작", systemImage: "play.fill") { processor.start() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(!processor.items.contains(where: { !$0.isFinished }))
+                            .keyboardShortcut(.defaultAction)
+                    }
+                }
+            }
+            .padding(16)
+            .background(.bar)
+        }
+        .navigationTitle("대량 번역")
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button("영상 추가…", systemImage: "plus") { processor.addFiles() }
+                    .help("여러 영상 추가")
+            }
+        }
+    }
+}
+
+private struct BatchTranslationRow: View {
+    let item: BatchProcessor.Item
+    let onRetry: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: statusSymbol)
+                .foregroundStyle(statusColor)
+                .frame(width: 20)
+                .accessibilityLabel(statusText)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(item.url.lastPathComponent)
+                    .font(.body.weight(.medium))
+                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    ProgressView(value: item.progress)
+                        .frame(maxWidth: 220)
+                    Text(item.progress, format: .percent.precision(.fractionLength(0)))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                Text(item.message.isEmpty ? statusText : item.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 12)
+            if item.isFinished && item.status != .completed {
+                Button("다시 시도", systemImage: "arrow.clockwise", action: onRetry)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help("이 영상 다시 시도")
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var statusText: String {
+        switch item.status {
+        case .queued: "대기 중"
+        case .completed: "완료"
+        case .failed: "실패"
+        case .cancelled: "취소됨"
+        default: "처리 중"
+        }
+    }
+
+    private var statusSymbol: String {
+        switch item.status {
+        case .completed: "checkmark.circle.fill"
+        case .failed: "exclamationmark.circle.fill"
+        case .cancelled: "stop.circle.fill"
+        case .queued where !item.isProcessing: "clock"
+        default: "arrow.trianglehead.2.clockwise.rotate.90"
+        }
+    }
+
+    private var statusColor: Color {
+        switch item.status {
+        case .completed: .green
+        case .failed: .red
+        case .cancelled: .secondary
+        case .queued where !item.isProcessing: .secondary
+        default: .blue
         }
     }
 }
