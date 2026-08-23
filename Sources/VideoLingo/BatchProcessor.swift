@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Observation
 import SwiftUI
+import UniformTypeIdentifiers
 import VideoLingoCore
 
 /// 여러 영상을 큐에 넣고 설정된 동시 처리 수만큼 STT·LLM 번역을 병렬 실행합니다.
@@ -71,10 +72,23 @@ final class BatchProcessor {
         add(panel.urls)
     }
 
-    func add(_ urls: [URL]) {
-        for url in urls where !items.contains(where: { $0.url == url }) {
+    @discardableResult
+    func add(_ urls: [URL]) -> Int {
+        var addedCount = 0
+        for rawURL in urls {
+            let url = rawURL.standardizedFileURL
+            guard isSupportedVideo(url), !items.contains(where: { $0.url.standardizedFileURL == url }) else { continue }
             items.append(Item(url: url))
+            addedCount += 1
         }
+        return addedCount
+    }
+
+    private func isSupportedVideo(_ url: URL) -> Bool {
+        if let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType {
+            return type.conforms(to: .movie) || type.conforms(to: .audiovisualContent)
+        }
+        return UTType(filenameExtension: url.pathExtension)?.conforms(to: .audiovisualContent) == true
     }
 
     func remove(at offsets: IndexSet) {
@@ -226,6 +240,7 @@ final class BatchProcessor {
 
 struct BatchTranslationView: View {
     @Environment(BatchProcessor.self) private var processor
+    @State private var isDropTargeted = false
 
     var body: some View {
         @Bindable var processor = processor
@@ -234,7 +249,7 @@ struct BatchTranslationView: View {
                 ContentUnavailableView {
                     Label("대량 번역할 영상을 추가하세요", systemImage: "rectangle.stack.badge.plus")
                 } description: {
-                    Text("여러 영상을 선택하면 현재 STT·LLM 설정으로 동시에 처리합니다.")
+                    Text("Finder에서 영상을 끌어 놓거나 직접 선택하면 현재 STT·LLM 설정으로 동시에 처리합니다.")
                 } actions: {
                     Button("영상 추가…", systemImage: "plus") { processor.addFiles() }
                         .buttonStyle(.borderedProminent)
@@ -274,7 +289,7 @@ struct BatchTranslationView: View {
                 if processor.isRunning || processor.completedCount > 0 {
                     HStack(spacing: 12) {
                         ProgressView(value: processor.overallProgress)
-                        Text("실행 (processor.runningCount) · 대기 (processor.pendingCount) · 완료 (processor.completedCount)")
+                        Text("실행 \(processor.runningCount) · 대기 \(processor.pendingCount) · 완료 \(processor.completedCount)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
@@ -301,6 +316,34 @@ struct BatchTranslationView: View {
             .background(.bar)
         }
         .navigationTitle("대량 번역")
+        .dropDestination(for: URL.self) { urls, _ in
+            processor.add(urls) > 0
+        } isTargeted: { targeted in
+            withAnimation(.snappy) { isDropTargeted = targeted }
+        }
+        .overlay {
+            if isDropTargeted {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(.thinMaterial)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [8, 5]))
+                    VStack(spacing: 12) {
+                        Image(systemName: "rectangle.stack.badge.plus")
+                            .font(.largeTitle)
+                            .foregroundStyle(Color.accentColor)
+                        Text("여기에 영상을 놓아 추가")
+                            .font(.headline)
+                        Text("이미 추가된 파일과 영상이 아닌 파일은 제외됩니다.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(8)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
+        }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button("영상 추가…", systemImage: "plus") { processor.addFiles() }
