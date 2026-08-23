@@ -6,6 +6,15 @@ import Observation
 import Vision
 import VideoLingoCore
 
+enum PlayerWorkspaceMode: String, CaseIterable, Identifiable {
+    case translation
+    case viewing
+
+    var id: Self { self }
+    var title: String { self == .translation ? "번역 모드" : "영상 감상 모드" }
+    var symbol: String { self == .translation ? "character.book.closed" : "play.rectangle.fill" }
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -52,6 +61,9 @@ final class AppModel {
     }
     var originalSubtitleItalic = UserDefaults.standard.object(forKey: "originalSubtitleItalic") as? Bool ?? true {
         didSet { UserDefaults.standard.set(originalSubtitleItalic, forKey: "originalSubtitleItalic") }
+    }
+    var subtitlesEnabled = UserDefaults.standard.object(forKey: "subtitlesEnabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(subtitlesEnabled, forKey: "subtitlesEnabled") }
     }
 
     // 화면 글자 OCR 번역 자막 (재생 중 실시간). recognized→translated는 Translation 프레임워크가 채웁니다.
@@ -127,6 +139,11 @@ final class AppModel {
 
     // 창별 보기 모드입니다. 창마다 전체보기·심플 보기·미니 뷰어를 독립적으로 전환합니다.
     var isSimpleMode = false
+    var playerMode = PlayerWorkspaceMode(
+        rawValue: UserDefaults.standard.string(forKey: "playerWorkspaceMode") ?? "translation"
+    ) ?? .translation {
+        didSet { UserDefaults.standard.set(playerMode.rawValue, forKey: "playerWorkspaceMode") }
+    }
     var isMiniViewer = false
     var hideTranscriptPanel = false
     /// macOS 네이티브 전체화면에서는 영상 이외의 앱 UI를 감추는 영화관 보기로 전환합니다.

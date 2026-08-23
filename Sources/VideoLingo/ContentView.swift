@@ -25,11 +25,19 @@ struct ContentView: View {
         } else {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             Group {
-            if simpleSidebar {
+            if model.playerMode == .viewing {
+                ViewingSidebarView()
+            } else if simpleSidebar {
                 SimpleSidebarView(simpleSidebar: $simpleSidebar)
             } else {
             Form {
                 Section {
+                    Picker("플레이어 모드", selection: $model.playerMode) {
+                        ForEach(PlayerWorkspaceMode.allCases) { mode in
+                            Label(mode.title, systemImage: mode.symbol).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
                     Button("심플 메뉴로 전환", systemImage: "list.bullet") { simpleSidebar = true }
                 }
                 Section("영상") {
@@ -322,6 +330,14 @@ private struct SimpleSidebarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
+            Picker("플레이어 모드", selection: $model.playerMode) {
+                ForEach(PlayerWorkspaceMode.allCases) { mode in
+                    Label(mode.title, systemImage: mode.symbol).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
             // 영상
             VStack(alignment: .leading, spacing: 8) {
                 Button {
@@ -410,6 +426,124 @@ private struct SimpleSidebarView: View {
     }
 }
 
+/// AI 작업 설정을 감추고 재생·자막·화면 제어만 제공하는 영상 감상 전용 사이드바입니다.
+private struct ViewingSidebarView: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        Form {
+            Section {
+                Picker("플레이어 모드", selection: $model.playerMode) {
+                    ForEach(PlayerWorkspaceMode.allCases) { mode in
+                        Label(mode.title, systemImage: mode.symbol).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            Section("영상") {
+                Button("영상 열기…", systemImage: "film") { model.openVideo() }
+                    .buttonStyle(.borderedProminent)
+                if let url = model.mediaURL {
+                    Text(url.lastPathComponent)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                }
+            }
+
+            Section("재생") {
+                HStack(spacing: 8) {
+                    Button("10초 뒤로", systemImage: "gobackward.10") { model.seekVideo(by: -10) }
+                        .labelStyle(.iconOnly)
+                    Button(playbackTitle, systemImage: playbackSymbol) { model.togglePlayback() }
+                        .buttonStyle(.borderedProminent)
+                    Button("10초 앞으로", systemImage: "goforward.10") { model.seekVideo(by: 10) }
+                        .labelStyle(.iconOnly)
+                }
+                .controlSize(.large)
+                .disabled(model.mediaURL == nil)
+
+                HStack(spacing: 8) {
+                    Image(systemName: "speaker.fill")
+                        .foregroundStyle(.secondary)
+                    Slider(value: volumeBinding, in: 0...1)
+                    Text(model.player.volume, format: .percent.precision(.fractionLength(0)))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 36, alignment: .trailing)
+                }
+                .disabled(model.mediaURL == nil)
+
+                Text("\(timeText(model.currentTime)) / \(timeText(duration))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("자막") {
+                Toggle("자막 표시", isOn: $model.subtitlesEnabled)
+                Picker("번역 언어", selection: $model.selectedLanguage) {
+                    ForEach(model.targetLanguages, id: \.self) { language in
+                        Text(language.uppercased()).tag(language)
+                    }
+                }
+                .disabled(!model.subtitlesEnabled || model.targetLanguages.isEmpty)
+                .onChange(of: model.selectedLanguage) { _, _ in model.refreshResults() }
+                Toggle("원문과 번역 함께 보기", isOn: $model.showOriginalWithTranslation)
+                    .disabled(!model.subtitlesEnabled)
+            }
+
+            Section("화면") {
+                Button("전체 화면", systemImage: "arrow.up.left.and.arrow.down.right") {
+                    model.toggleFullScreen()
+                }
+                Button(model.isMiniViewer ? "미니 뷰어 종료" : "미니 뷰어", systemImage: "pip") {
+                    model.isMiniViewer.toggle()
+                }
+                Button("영화관 보기", systemImage: "rectangle.inset.filled") {
+                    model.isTheaterMode = true
+                    model.toggleFullScreen()
+                }
+            }
+            .disabled(model.mediaURL == nil)
+
+            Section {
+                Text("STT·번역 작업이 실행 중이어도 감상 모드에서는 백그라운드에서 계속됩니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var playbackTitle: String {
+        model.player.timeControlStatus == .playing ? "일시 정지" : "재생"
+    }
+
+    private var playbackSymbol: String {
+        model.player.timeControlStatus == .playing ? "pause.fill" : "play.fill"
+    }
+
+    private var volumeBinding: Binding<Double> {
+        Binding(
+            get: { Double(model.player.volume) },
+            set: { model.player.volume = Float($0) }
+        )
+    }
+
+    private var duration: TimeInterval {
+        let seconds = model.player.currentItem?.duration.seconds ?? 0
+        return seconds.isFinite ? seconds : 0
+    }
+
+    private func timeText(_ seconds: TimeInterval) -> String {
+        let value = max(0, Int(seconds.rounded(.down)))
+        return String(format: "%d:%02d", value / 60, value % 60)
+    }
+}
+
 /// 영상 재생 영역. 화면글자 OCR 번역의 실시간 상태 변화를 이 뷰 안으로 가둬,
 /// 툴바를 호스팅하는 ContentView가 매번 다시 계산되어 크래시하는 것을 방지합니다.
 private struct PlayerPane: View {
@@ -437,7 +571,7 @@ private struct PlayerPane: View {
                 }
                 .overlay {
                     GeometryReader { geometry in
-                        if !model.activeSubtitle.isEmpty {
+                        if model.subtitlesEnabled, !model.activeSubtitle.isEmpty {
                             VStack(spacing: 6) {
                                 PlayerCaption(text: model.activeSubtitle, color: theme.subtitleColor)
                                 if model.showOriginalWithTranslation,
@@ -494,7 +628,7 @@ private struct PlayerPane: View {
                         .padding(12)
                     }
                 }
-            if !model.isSimpleMode && !model.hideTranscriptPanel {
+            if model.playerMode == .translation && !model.isSimpleMode && !model.hideTranscriptPanel {
                 PanelResizeHandle(height: $transcriptPanelHeight)
                 TranscriptInspector()
                     .frame(height: max(160, min(700, transcriptPanelHeight)))
