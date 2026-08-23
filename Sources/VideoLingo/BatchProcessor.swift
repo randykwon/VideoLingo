@@ -1237,15 +1237,24 @@ private struct DuplicateFilenameReviewView: View {
     @Environment(BatchProcessor.self) private var processor
     @Environment(\.dismiss) private var dismiss
     @State private var removalSelection: Set<UUID> = []
+    @State private var showingTrashConfirmation = false
+    @State private var isMovingToTrash = false
+    @State private var trashStatusMessage = ""
 
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("동일한 이름의 영상 확인")
                     .font(.title2.weight(.semibold))
-                Text("경로를 비교해 목록에서 제외할 영상을 선택하세요. 원본 영상 파일은 디스크에서 삭제되지 않습니다.")
+                Text("경로를 비교해 제외할 영상을 선택하세요. 기본 동작은 목록에서만 제거하며, 필요하면 실제 파일을 macOS 휴지통으로 이동할 수 있습니다.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                if !trashStatusMessage.isEmpty {
+                    Text(trashStatusMessage)
+                        .font(.caption)
+                        .foregroundStyle(trashStatusMessage.contains("실패") ? .red : .secondary)
+                        .textSelection(.enabled)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(20)
@@ -1311,7 +1320,12 @@ private struct DuplicateFilenameReviewView: View {
                 Spacer()
                 Button("취소", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("선택 항목 목록에서 제거", systemImage: "trash", role: .destructive) {
+                Button("실제 영상을 휴지통으로 이동", systemImage: "trash", role: .destructive) {
+                    showingTrashConfirmation = true
+                }
+                .disabled(removalSelection.isEmpty || processor.isRunning || isMovingToTrash)
+                .help("선택한 실제 영상 파일을 macOS 휴지통으로 이동합니다")
+                Button("선택 항목 목록에서 제거", systemImage: "rectangle.badge.minus", role: .destructive) {
                     processor.remove(ids: removalSelection)
                     removalSelection.removeAll()
                     if processor.duplicateFilenameGroups.isEmpty { dismiss() }
@@ -1325,6 +1339,34 @@ private struct DuplicateFilenameReviewView: View {
         .frame(width: 720, height: 560)
         .onAppear {
             removalSelection = processor.recommendedDuplicateRemovalIDs
+        }
+        .confirmationDialog(
+            "선택한 실제 영상 \(removalSelection.count)개를 휴지통으로 이동할까요?",
+            isPresented: $showingTrashConfirmation
+        ) {
+            Button("영상 파일을 휴지통으로 이동", role: .destructive) {
+                moveSelectionToTrash()
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("영상은 대량 번역 목록에서도 제거됩니다. STT·번역 데이터베이스 결과는 유지되며, 영상 파일은 Finder의 휴지통에서 복구할 수 있습니다.")
+        }
+    }
+
+    private func moveSelectionToTrash() {
+        let ids = removalSelection
+        isMovingToTrash = true
+        trashStatusMessage = String(localized: "선택한 영상 파일을 휴지통으로 이동 중…")
+        Task {
+            let result = await processor.moveVideosToTrash(ids: ids)
+            isMovingToTrash = false
+            removalSelection.subtract(ids)
+            if let failure = result.failureMessage {
+                trashStatusMessage = String(localized: "\(result.movedCount)개 이동 후 실패: \(failure)")
+            } else {
+                trashStatusMessage = String(localized: "영상 \(result.movedCount)개를 휴지통으로 이동했습니다.")
+                if processor.duplicateFilenameGroups.isEmpty { dismiss() }
+            }
         }
     }
 }
