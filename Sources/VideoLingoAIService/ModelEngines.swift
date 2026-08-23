@@ -397,6 +397,22 @@ actor FoundationTranslationEngine {
             )
         } catch {
             let reason = error.localizedDescription
+            if reason.localizedCaseInsensitiveContains("context window"),
+               !previousContext.isEmpty || !nextContext.isEmpty {
+                return try await translate(
+                    text,
+                    jobID: jobID,
+                    sourceLanguage: sourceLanguage,
+                    targetLanguage: targetLanguage,
+                    modelID: modelID,
+                    modelsURL: modelsURL,
+                    previousContext: [],
+                    nextContext: [],
+                    glossary: glossary,
+                    qualityMode: .fast,
+                    onPartialText: onPartialText
+                )
+            }
             if reason.localizedCaseInsensitiveContains("unsafe") {
                 return TranslationOutput(
                     text: text,
