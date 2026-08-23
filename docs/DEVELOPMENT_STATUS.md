@@ -28,6 +28,8 @@ Swift 6과 SwiftUI를 사용하며 프로젝트 정의는 `project.yml`, 생성 
 - 창 투명도 및 테마 설정
 - 재생 중 현재 구간의 원문 또는 번역 자막 표시
 - 자막 위치와 색상 저장
+- 자막 위치 잠금·해제 및 오른쪽 버튼 드래그 이동
+- 자막이 표시된 상태에서도 왼쪽 클릭 재생 조작 유지
 
 ### STT
 
@@ -39,6 +41,8 @@ Swift 6과 SwiftUI를 사용하며 프로젝트 정의는 `project.yml`, 생성 
 - 전체 STT 재생성 및 개별 구간 재생성
 - 기존 결과와 새 결과의 품질 비교 후 선택적 교체
 - 처리되지 않은 구간 자동 재시도
+- 화자 구분 분석과 화자 이름 적용
+- 자막·결과 목록에서 화자별 색상 구분
 
 ### 번역
 
@@ -203,6 +207,21 @@ macOS 기본 저장 구조:
 모바일 앱은 가져온 일반 영상과 `.videolingo` 패키지를 각각 Application Support의 `Imported Videos`, `Imported Packages` 아래에 저장한다.
 
 ## 7. 현재 검증 상태
+
+### 2026-08-23 현재 빌드
+
+| 구분 | 구성 | 결과 | 산출물 |
+|---|---|---|---|
+| macOS | Release, Apple Silicon | 성공 | `.build/DerivedData/Build/Products/Release/VideoLingo.app` |
+| iPhone/iPad | Debug, 범용 iOS Simulator | 성공 | `.build/MobileCurrent/Build/Products/Debug-iphonesimulator/VideoLingo.app` |
+
+- 앱 버전: `1.0 (1)`
+- macOS 최소 버전: macOS 26.0
+- iOS/iPadOS 최소 버전: 18.0
+- macOS Release 앱 크기: 약 84MB
+- 검증한 Git 리비전: `f247628`
+- macOS 빌드에 포함된 구성: 본체, `VideoLingoAIService` XPC, `VideoLingoCore`, MLX·WhisperKit 의존성
+- App Intents 미사용에 따른 메타데이터 생략과 MLX 번들 관련 비차단 경고가 있었으며 빌드는 정상 완료됨
 
 - XcodeGen 프로젝트 생성 성공
 - 모바일 Swift 소스 컴파일 성공
