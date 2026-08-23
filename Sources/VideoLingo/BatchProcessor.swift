@@ -29,8 +29,10 @@ final class BatchProcessor {
         return stored == 0 ? 5 : min(10, max(1, stored))
     }() {
         didSet {
-            maximumConcurrentJobs = min(10, max(1, maximumConcurrentJobs))
-            UserDefaults.standard.set(maximumConcurrentJobs, forKey: "batchMaximumConcurrentJobs")
+            UserDefaults.standard.set(
+                min(10, max(1, maximumConcurrentJobs)),
+                forKey: "batchMaximumConcurrentJobs"
+            )
         }
     }
 
@@ -262,7 +264,7 @@ struct BatchTranslationView: View {
                     }
                     Spacer()
                     Stepper(value: $processor.maximumConcurrentJobs, in: 1...10) {
-                        Text("동시 처리 (processor.maximumConcurrentJobs)개")
+                        Text("동시 처리 \(processor.maximumConcurrentJobs)개")
                             .monospacedDigit()
                     }
                     .disabled(processor.isRunning)
