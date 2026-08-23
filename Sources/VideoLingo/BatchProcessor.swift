@@ -727,6 +727,8 @@ struct BatchTranslationView: View {
 
             Divider()
             VStack(spacing: 12) {
+                BatchLanguageSettingsView()
+
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("처리 설정")
@@ -1044,6 +1046,68 @@ private struct BatchTranslationRow: View {
     }
 }
 
+private struct BatchLanguageSettingsView: View {
+    @Environment(BatchProcessor.self) private var processor
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Picker("STT 원어", selection: sourceBinding) {
+                    ForEach(processor.availableSourceLanguages, id: \.self) { language in
+                        Text(processor.sourceLanguageName(language)).tag(language)
+                    }
+                }
+                .frame(maxWidth: 300)
+                .help("자동 감지하거나 모든 대량 번역 영상에 공통으로 사용할 원어를 선택합니다")
+
+                Menu {
+                    ForEach(processor.availableTargetLanguages, id: \.self) { language in
+                        Button {
+                            processor.toggleBatchTargetLanguage(language)
+                        } label: {
+                            Label(
+                                processor.sourceLanguageName(language),
+                                systemImage: processor.batchTargetLanguages.contains(language)
+                                    ? "checkmark.circle.fill"
+                                    : "circle"
+                            )
+                        }
+                        .disabled(
+                            processor.batchTargetLanguages.count == 1
+                                && processor.batchTargetLanguages.contains(language)
+                        )
+                    }
+                } label: {
+                    Label(
+                        "번역 언어 · \(processor.batchTargetLanguages.map { $0.uppercased() }.joined(separator: ", "))",
+                        systemImage: "globe"
+                    )
+                }
+                .help("하나 이상의 번역 대상 언어를 선택합니다")
+
+                Spacer(minLength: 8)
+                if processor.isRunning {
+                    Label("실행 중 변경 잠김", systemImage: "lock.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .disabled(processor.isRunning || processor.isCheckingExistingResults)
+
+            Text("대량 번역 전체 파일에 적용됩니다. 변경하면 현재 설정 기준으로 기존 STT·번역 결과를 다시 확인합니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var sourceBinding: Binding<String> {
+        Binding(
+            get: { processor.batchSourceLanguage },
+            set: { processor.setBatchSourceLanguage($0) }
+        )
+    }
+}
+
 private struct DuplicateFilenameReviewView: View {
     @Environment(BatchProcessor.self) private var processor
     @Environment(\.dismiss) private var dismiss
@@ -1168,6 +1232,10 @@ struct BatchTranslationDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     header(item)
+                    GroupBox("대량 번역 언어 설정") {
+                        BatchLanguageSettingsView()
+                            .padding(12)
+                    }
                     BatchPipelineView(item: item)
                     metrics(item)
                     liveResults(item)
