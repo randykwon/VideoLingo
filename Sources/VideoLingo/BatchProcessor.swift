@@ -17,6 +17,14 @@ final class BatchProcessor {
         var jobID: UUID?
         var status: JobStatus = .queued
         var progress: Double = 0
+        var sttProgress: Double = 0
+        var translationProgress: Double = 0
+        var currentChunk: Int = 0
+        var totalChunks: Int = 0
+        var liveTranscriptText: String?
+        var liveTranslationText: String?
+        var lastTranscriptText: String?
+        var lastTranslationText: String?
         var message: String = ""
         var isProcessing = false
 
@@ -105,6 +113,14 @@ final class BatchProcessor {
         guard !isRunning, let index = items.firstIndex(where: { $0.id == id }), items[index].isFinished else { return }
         items[index].status = .queued
         items[index].progress = 0
+        items[index].sttProgress = 0
+        items[index].translationProgress = 0
+        items[index].currentChunk = 0
+        items[index].totalChunks = 0
+        items[index].liveTranscriptText = nil
+        items[index].liveTranslationText = nil
+        items[index].lastTranscriptText = nil
+        items[index].lastTranslationText = nil
         items[index].message = ""
         items[index].jobID = nil
     }
@@ -189,10 +205,21 @@ final class BatchProcessor {
                 try? await Task.sleep(for: .milliseconds(500))
                 guard let snapshot = await snapshot(service, jobID: jobID) else { continue }
                 items[index].progress = snapshot.progress
+                items[index].sttProgress = snapshot.sttProgress
+                items[index].translationProgress = snapshot.translationProgress
+                items[index].currentChunk = snapshot.currentChunk
+                items[index].totalChunks = snapshot.totalChunks
+                items[index].liveTranscriptText = snapshot.liveTranscriptText
+                items[index].liveTranslationText = snapshot.liveTranslationText
+                items[index].lastTranscriptText = snapshot.lastTranscriptText
+                items[index].lastTranslationText = snapshot.lastTranslationText
                 items[index].status = snapshot.status
                 items[index].message = snapshot.message
                 if snapshot.status == .refining {
                     // 품질 개선 단계는 결과가 이미 나온 상태이므로 배치에서는 완료로 간주하고 다음 파일로 넘어갑니다.
+                    items[index].status = .completed
+                    items[index].progress = 1
+                    items[index].message = String(localized: "STT·번역 완료 · 품질 개선은 백그라운드에서 계속됩니다.")
                     break
                 }
                 if [.completed, .failed, .cancelled].contains(snapshot.status) { break }
@@ -356,38 +383,65 @@ struct BatchTranslationView: View {
 private struct BatchTranslationRow: View {
     let item: BatchProcessor.Item
     let onRetry: () -> Void
+    @State private var showLiveDetails = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: statusSymbol)
-                .foregroundStyle(statusColor)
-                .frame(width: 20)
-                .accessibilityLabel(statusText)
-            VStack(alignment: .leading, spacing: 5) {
-                Text(item.url.lastPathComponent)
-                    .font(.body.weight(.medium))
-                    .lineLimit(1)
-                HStack(spacing: 8) {
-                    ProgressView(value: item.progress)
-                        .frame(maxWidth: 220)
-                    Text(item.progress, format: .percent.precision(.fractionLength(0)))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: statusSymbol)
+                    .foregroundStyle(statusColor)
+                    .frame(width: 20)
+                    .accessibilityLabel(statusText)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.url.lastPathComponent)
+                        .font(.body.weight(.semibold))
+                        .lineLimit(1)
+                    Text(item.message.isEmpty ? statusText : item.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 12)
+                if item.totalChunks > 0 {
+                    Text("청크 \(min(item.currentChunk + 1, item.totalChunks))/\(item.totalChunks)")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
-                Text(item.message.isEmpty ? statusText : item.message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 12)
-            if item.isFinished && item.status != .completed {
-                Button("다시 시도", systemImage: "arrow.clockwise", action: onRetry)
+                Text(item.progress, format: .percent.precision(.fractionLength(0)))
+                    .font(.callout.monospacedDigit().weight(.medium))
+                if hasLiveDetails {
+                    Button(showLiveDetails ? "실시간 내용 감추기" : "실시간 내용 보기", systemImage: "waveform") {
+                        withAnimation(.snappy) { showLiveDetails.toggle() }
+                    }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
-                    .help("이 영상 다시 시도")
+                    .help(showLiveDetails ? "실시간 내용 감추기" : "실시간 STT·번역 내용 보기")
+                }
+                if item.isFinished && item.status != .completed {
+                    Button("다시 시도", systemImage: "arrow.clockwise", action: onRetry)
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .help("이 영상 다시 시도")
+                }
+            }
+
+            BatchPipelineView(item: item)
+
+            if showLiveDetails, hasLiveDetails {
+                BatchLiveTextView(
+                    transcript: item.liveTranscriptText ?? item.lastTranscriptText,
+                    translation: item.liveTranslationText ?? item.lastTranslationText
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 8)
+        .animation(.smooth, value: item.status)
+    }
+
+    private var hasLiveDetails: Bool {
+        [item.liveTranscriptText, item.liveTranslationText, item.lastTranscriptText, item.lastTranslationText]
+            .contains { text in text?.isEmpty == false }
     }
 
     private var statusText: String {
@@ -418,5 +472,89 @@ private struct BatchTranslationRow: View {
         case .queued where !item.isProcessing: .secondary
         default: .blue
         }
+    }
+}
+
+private struct BatchPipelineView: View {
+    let item: BatchProcessor.Item
+
+    var body: some View {
+        HStack(spacing: 10) {
+            stage(
+                title: "STT",
+                icon: "waveform",
+                progress: item.sttProgress,
+                isActive: [.extracting, .transcribing].contains(item.status)
+            )
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(item.sttProgress >= 1 ? Color.green : Color.secondary.opacity(0.45))
+            stage(
+                title: "LLM 번역",
+                icon: "character.book.closed",
+                progress: item.translationProgress,
+                isActive: [.translating, .refining].contains(item.status)
+            )
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(item.translationProgress >= 1 ? Color.green : Color.secondary.opacity(0.45))
+            Label(item.status == .completed ? "완료" : "결과", systemImage: item.status == .completed ? "checkmark.circle.fill" : "circle")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(item.status == .completed ? Color.green : Color.secondary)
+                .frame(minWidth: 58)
+        }
+    }
+
+    private func stage(title: String, icon: String, progress: Double, isActive: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 5) {
+                Image(systemName: isActive ? "dot.radiowaves.left.and.right" : icon)
+                    .foregroundStyle(isActive ? Color.accentColor : progress >= 1 ? Color.green : Color.secondary)
+                Text(title)
+                    .font(.caption.weight(.medium))
+                Spacer(minLength: 4)
+                Text(progress, format: .percent.precision(.fractionLength(0)))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            ProgressView(value: min(1, max(0, progress)))
+                .tint(progress >= 1 ? .green : .accentColor)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(8)
+        .background(isActive ? Color.accentColor.opacity(0.08) : Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(isActive ? Color.accentColor.opacity(0.35) : Color.clear)
+        }
+    }
+}
+
+private struct BatchLiveTextView: View {
+    let transcript: String?
+    let translation: String?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            liveColumn(title: "실시간 STT", icon: "waveform", text: transcript)
+            liveColumn(title: "실시간 LLM 번역", icon: "character.book.closed", text: translation)
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func liveColumn(title: String, icon: String, text: String?) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label(title, systemImage: icon)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tint)
+            Text(text?.isEmpty == false ? text! : "결과를 기다리는 중…")
+                .font(.caption)
+                .foregroundStyle(text?.isEmpty == false ? .primary : .tertiary)
+                .lineLimit(3)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
