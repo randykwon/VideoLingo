@@ -261,11 +261,6 @@ actor FoundationTranslationEngine {
         let basis: String?
     }
 
-    private struct SessionState {
-        let session: LanguageModelSession
-        var requestCount: Int
-    }
-    private var sessions: [String: SessionState] = [:]
     private var mlxContainers: [String: ModelContainer] = [:]
 
     func resolveSpeakerNames(
@@ -373,23 +368,16 @@ actor FoundationTranslationEngine {
         guard case .available = model.availability else {
             throw VideoLingoError.modelUnavailable("Apple Intelligence 언어 모델이 현재 사용 불가합니다.")
         }
-        let session: LanguageModelSession
-        let sessionKey = "\(jobID.uuidString)|\(sourceLanguage ?? "auto")|\(targetLanguage)"
-        if let existing = sessions[sessionKey], existing.requestCount < 12 {
-            session = existing.session
-            sessions[sessionKey]?.requestCount += 1
-        } else {
-            let source = languageName(sourceLanguage)
-            let created = LanguageModelSession(model: model, instructions: """
-                영상 자막을 \(source)에서 \(languageName(targetLanguage))로 번역하세요.
-                이전 문장은 문맥 확인에만 사용하고 CURRENT SUBTITLE만 번역하세요.
-                대괄호 안의 화자 라벨(예: [화자 1], [김민수], [진행자])은 번역하거나 제거하지 말고 각 화자의 줄 구분을 그대로 유지하세요.
-                의미, 이름, 숫자, 존댓말과 말투를 보존하고 설명이나 따옴표를 추가하지 마세요.
-                자연스럽고 간결한 번역문만 출력하세요.
-                """)
-            sessions[sessionKey] = SessionState(session: created, requestCount: 1)
-            session = created
-        }
+        // LanguageModelSession은 이전 요청의 문맥을 보존합니다. 긴 배치에서 세션을
+        // 재사용하면 자막이 누적되어 모델 컨텍스트 한도를 넘으므로 청크마다 분리합니다.
+        let source = languageName(sourceLanguage)
+        let session = LanguageModelSession(model: model, instructions: """
+            영상 자막을 \(source)에서 \(languageName(targetLanguage))로 번역하세요.
+            이전 문장은 문맥 확인에만 사용하고 CURRENT SUBTITLE만 번역하세요.
+            대괄호 안의 화자 라벨(예: [화자 1], [김민수], [진행자])은 번역하거나 제거하지 말고 각 화자의 줄 구분을 그대로 유지하세요.
+            의미, 이름, 숫자, 존댓말과 말투를 보존하고 설명이나 따옴표를 추가하지 마세요.
+            자연스럽고 간결한 번역문만 출력하세요.
+            """)
         var translated = ""
         let prompt = translationPrompt(text: text, previousContext: previousContext, nextContext: nextContext, glossary: glossary)
         let options = GenerationOptions(
@@ -397,15 +385,27 @@ actor FoundationTranslationEngine {
             temperature: 0,
             maximumResponseTokens: min(512, max(64, text.count * 2))
         )
-        for try await partial in session.streamResponse(to: prompt, options: options) {
-            translated = partial.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !translated.isEmpty { onPartialText(translated) }
+        do {
+            for try await partial in session.streamResponse(to: prompt, options: options) {
+                translated = partial.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !translated.isEmpty { onPartialText(translated) }
+            }
+            return try await finalizeTranslation(
+                source: text, draft: translated, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage,
+                modelID: modelID, modelsURL: modelsURL, glossary: glossary, qualityMode: qualityMode,
+                onPartialText: onPartialText
+            )
+        } catch {
+            let reason = error.localizedDescription
+            if reason.localizedCaseInsensitiveContains("unsafe") {
+                return TranslationOutput(
+                    text: text,
+                    qualityStatus: .warning,
+                    qualityNotes: ["Apple 안전 필터로 자동 번역하지 못해 원문을 보존했습니다."]
+                )
+            }
+            throw error
         }
-        return try await finalizeTranslation(
-            source: text, draft: translated, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage,
-            modelID: modelID, modelsURL: modelsURL, glossary: glossary, qualityMode: qualityMode,
-            onPartialText: onPartialText
-        )
     }
 
     private func translateWithMLX(

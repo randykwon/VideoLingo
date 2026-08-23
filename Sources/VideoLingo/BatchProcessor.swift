@@ -1281,6 +1281,7 @@ private struct BatchStartConfirmationView: View {
     @Environment(\.dismiss) private var dismiss
     let itemIDs: Set<UUID>
     let onStart: () -> Void
+    @State private var languagesConfirmed = false
 
     var body: some View {
         @Bindable var processor = processor
@@ -1298,6 +1299,16 @@ private struct BatchStartConfirmationView: View {
                     .padding(4)
             } label: {
                 Label("언어 설정", systemImage: "globe")
+            }
+
+            Toggle(isOn: $languagesConfirmed) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("STT 원어와 번역 언어를 확인했습니다")
+                        .font(.callout.weight(.semibold))
+                    Text("\(confirmedSourceLanguage) → \(confirmedTargetLanguages)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             GroupBox {
@@ -1343,7 +1354,7 @@ private struct BatchStartConfirmationView: View {
                             : "checkmark.circle.fill")
                             .foregroundStyle(processor.alternateResultDirectoryURL == nil ? .orange : .green)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("읽기 전용 위치의 영상 (readOnlyCount)개")
+                            Text("읽기 전용 위치의 영상 \(readOnlyCount)개")
                                 .font(.callout.weight(.semibold))
                             Text(processor.alternateResultDirectoryDisplayPath
                                 ?? "STT·번역 결과를 저장할 쓰기 가능한 폴더가 필요합니다.")
@@ -1389,6 +1400,7 @@ private struct BatchStartConfirmationView: View {
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(processor.isCheckingExistingResults
+                    || !languagesConfirmed
                     || processor.batchTargetLanguages.isEmpty
                     || startableCount == 0
                     || (readOnlyCount > 0 && processor.alternateResultDirectoryURL == nil))
@@ -1398,6 +1410,8 @@ private struct BatchStartConfirmationView: View {
         .padding(24)
         .frame(width: 600)
         .interactiveDismissDisabled(processor.isCheckingExistingResults)
+        .onChange(of: processor.batchSourceLanguage) { _, _ in languagesConfirmed = false }
+        .onChange(of: processor.batchTargetLanguages) { _, _ in languagesConfirmed = false }
     }
 
     private var startableCount: Int {
@@ -1408,6 +1422,16 @@ private struct BatchStartConfirmationView: View {
 
     private var readOnlyCount: Int {
         processor.readOnlyItemCount(in: itemIDs)
+    }
+
+    private var confirmedSourceLanguage: String {
+        processor.sourceLanguageName(processor.batchSourceLanguage)
+    }
+
+    private var confirmedTargetLanguages: String {
+        processor.batchTargetLanguages
+            .map { processor.sourceLanguageName($0) }
+            .joined(separator: ", ")
     }
 }
 
