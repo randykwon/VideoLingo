@@ -539,6 +539,7 @@ final class BatchProcessor {
 
 struct BatchTranslationView: View {
     @Environment(BatchProcessor.self) private var processor
+    @Environment(\.openWindow) private var openWindow
     @State private var isDropTargeted = false
 
     var body: some View {
@@ -563,6 +564,8 @@ struct BatchTranslationView: View {
                     ForEach(processor.items) { item in
                         BatchTranslationRow(item: item) {
                             processor.retry(item.id)
+                        } onShowDetails: {
+                            openWindow(id: "batch-detail", value: item.id)
                         }
                     }
                     .onDelete(perform: processor.remove)
@@ -700,6 +703,7 @@ struct BatchTranslationView: View {
 private struct BatchTranslationRow: View {
     let item: BatchProcessor.Item
     let onRetry: () -> Void
+    let onShowDetails: () -> Void
     @State private var showLiveDetails = false
 
     var body: some View {
@@ -741,6 +745,10 @@ private struct BatchTranslationRow: View {
                         .buttonStyle(.borderless)
                         .help("이 영상 다시 시도")
                 }
+                Button("상세 진행 보기", systemImage: "doc.text.magnifyingglass", action: onShowDetails)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help("STT·번역 상세 진행 창 열기")
             }
 
             BatchPipelineView(item: item)
@@ -754,6 +762,9 @@ private struct BatchTranslationRow: View {
             }
         }
         .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onShowDetails)
+        .help("클릭하여 상세 진행 보기")
         .animation(.smooth, value: item.status)
     }
 
@@ -789,6 +800,204 @@ private struct BatchTranslationRow: View {
         case .cancelled: .secondary
         case .queued where !item.isProcessing: .secondary
         default: .blue
+        }
+    }
+}
+
+struct BatchTranslationDetailView: View {
+    @Environment(BatchProcessor.self) private var processor
+    let itemID: UUID?
+
+    private var item: BatchProcessor.Item? {
+        processor.items.first { $0.id == itemID }
+    }
+
+    var body: some View {
+        Group {
+            if let item {
+                detail(item)
+            } else {
+                ContentUnavailableView(
+                    "작업을 찾을 수 없습니다",
+                    systemImage: "doc.questionmark",
+                    description: Text("대량 번역 목록에서 항목이 제거되었거나 아직 선택되지 않았습니다.")
+                )
+            }
+        }
+        .navigationTitle(item?.url.lastPathComponent ?? String(localized: "번역 상세 진행"))
+    }
+
+    private func detail(_ item: BatchProcessor.Item) -> some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    header(item)
+                    BatchPipelineView(item: item)
+                    metrics(item)
+                    liveResults(item)
+                }
+                .padding(20)
+            }
+
+            Divider()
+            HStack {
+                Label(statusText(item), systemImage: statusSymbol(item))
+                    .foregroundStyle(statusColor(item))
+                Text(item.message.isEmpty ? statusText(item) : item.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer()
+                if item.isFinished && item.status != .completed {
+                    Button("다시 시도", systemImage: "arrow.clockwise") {
+                        processor.retry(item.id)
+                    }
+                    .disabled(processor.isRunning)
+                    .help(processor.isRunning ? "대량 번역 실행이 끝난 뒤 다시 시도할 수 있습니다" : "저장된 결과부터 다시 시도")
+                }
+            }
+            .padding(16)
+            .background(.bar)
+        }
+    }
+
+    private func header(_ item: BatchProcessor.Item) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: statusSymbol(item))
+                    .font(.title2)
+                    .foregroundStyle(statusColor(item))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.url.lastPathComponent)
+                        .font(.title2.weight(.semibold))
+                        .textSelection(.enabled)
+                    Text(item.url.deletingLastPathComponent().path)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+                Spacer(minLength: 12)
+                Text(item.progress, format: .percent.precision(.fractionLength(0)))
+                    .font(.title2.monospacedDigit().weight(.medium))
+            }
+            ProgressView(value: min(1, max(0, item.progress)))
+                .controlSize(.large)
+            Text(item.message.isEmpty ? statusText(item) : item.message)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func metrics(_ item: BatchProcessor.Item) -> some View {
+        Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 8) {
+            GridRow {
+                metric("현재 상태", value: statusText(item), icon: statusSymbol(item))
+                metric("현재 청크", value: chunkText(item), icon: "square.stack.3d.up")
+            }
+            GridRow {
+                metric("STT 진행률", value: item.sttProgress.formatted(.percent.precision(.fractionLength(0))), icon: "waveform")
+                metric("번역 진행률", value: item.translationProgress.formatted(.percent.precision(.fractionLength(0))), icon: "character.book.closed")
+            }
+        }
+    }
+
+    private func metric(_ title: String, value: String, icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(title, systemImage: icon)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.body.monospacedDigit().weight(.medium))
+                .textSelection(.enabled)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func liveResults(_ item: BatchProcessor.Item) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            livePanel(
+                title: "실시간 STT",
+                icon: "waveform",
+                current: item.liveTranscriptText,
+                latest: item.lastTranscriptText
+            )
+            livePanel(
+                title: "실시간 LLM 번역",
+                icon: "character.book.closed",
+                current: item.liveTranslationText,
+                latest: item.lastTranslationText
+            )
+        }
+    }
+
+    private func livePanel(title: String, icon: String, current: String?, latest: String?) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(title, systemImage: icon)
+                .font(.headline)
+                .foregroundStyle(.tint)
+            liveSection("현재 생성 중", text: current)
+            Divider()
+            liveSection("최근 완료 내용", text: latest)
+        }
+        .frame(maxWidth: .infinity, minHeight: 280, alignment: .topLeading)
+        .padding(16)
+        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func liveSection(_ title: String, text: String?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(text?.isEmpty == false ? text! : "결과를 기다리는 중…")
+                .font(.body)
+                .foregroundStyle(text?.isEmpty == false ? .primary : .tertiary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
+        }
+    }
+
+    private func chunkText(_ item: BatchProcessor.Item) -> String {
+        guard item.totalChunks > 0 else { return "대기 중" }
+        return "\(min(item.currentChunk + 1, item.totalChunks)) / \(item.totalChunks)"
+    }
+
+    private func statusText(_ item: BatchProcessor.Item) -> String {
+        switch item.status {
+        case .queued: item.isProcessing ? "작업 준비 중" : "대기 중"
+        case .extracting: "오디오 추출 중"
+        case .transcribing: "STT 진행 중"
+        case .translating: "LLM 번역 중"
+        case .refining: "번역 품질 개선 중"
+        case .completed: "완료"
+        case .failed: "실패"
+        case .cancelled: "취소됨"
+        }
+    }
+
+    private func statusSymbol(_ item: BatchProcessor.Item) -> String {
+        switch item.status {
+        case .completed: "checkmark.circle.fill"
+        case .failed: "exclamationmark.circle.fill"
+        case .cancelled: "stop.circle.fill"
+        case .queued where !item.isProcessing: "clock"
+        case .extracting: "waveform.badge.magnifyingglass"
+        case .transcribing: "waveform"
+        case .translating, .refining: "character.book.closed"
+        default: "arrow.trianglehead.2.clockwise.rotate.90"
+        }
+    }
+
+    private func statusColor(_ item: BatchProcessor.Item) -> Color {
+        switch item.status {
+        case .completed: .green
+        case .failed: .red
+        case .cancelled, .queued where !item.isProcessing: .secondary
+        default: .accentColor
         }
     }
 }
