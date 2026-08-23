@@ -271,10 +271,11 @@ final class BatchProcessor {
 
         isCheckingExistingResults = true
         resultCheckMessage = String(localized: "\(candidates.count)개 영상의 기존 STT·번역 확인 중…")
+        let worker = Self.makeExistingResultInspectionTask(
+            candidates: candidates,
+            options: currentOptions
+        )
         resultCheckTask = Task { [weak self] in
-            let worker = Task.detached(priority: .userInitiated) {
-                try Self.inspectExistingResults(candidates: candidates, options: currentOptions)
-            }
             do {
                 let results = try await withTaskCancellationHandler {
                     try await worker.value
@@ -294,6 +295,15 @@ final class BatchProcessor {
             }
             self?.isCheckingExistingResults = false
             self?.resultCheckTask = nil
+        }
+    }
+
+    nonisolated private static func makeExistingResultInspectionTask(
+        candidates: [BatchResultCandidate],
+        options: ProcessingOptions
+    ) -> Task<[(UUID, ExistingResultState)], Error> {
+        Task.detached(priority: .userInitiated) {
+            try inspectExistingResults(candidates: candidates, options: options)
         }
     }
 
