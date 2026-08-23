@@ -74,7 +74,8 @@ final class BatchProcessor {
     private var runTask: Task<Void, Never>?
     private var folderScanTask: Task<Void, Never>?
     private var resultCheckTask: Task<Void, Never>?
-    private var activeJobIDs: Set<UUID> = []
+    private var activeJobIDsByItem: [UUID: UUID] = [:]
+    private var scheduledItemIDs: Set<UUID> = []
 
     private init() {}
 
@@ -220,6 +221,12 @@ final class BatchProcessor {
     func remove(at offsets: IndexSet) {
         guard !isRunning else { return }   // 실행 중에는 인덱스 무효화 방지를 위해 편집 금지
         items.remove(atOffsets: offsets)
+    }
+
+    func remove(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        stop(ids: ids)
+        items.removeAll { ids.contains($0.id) }
     }
 
     func clearFinished() {
@@ -396,15 +403,63 @@ final class BatchProcessor {
     }
 
     func start() {
-        guard !isRunning, !isCheckingExistingResults, items.contains(where: { !$0.isFinished }) else { return }
+        start(ids: Set(items.filter { !$0.isFinished }.map(\.id)))
+    }
+
+    func start(ids: Set<UUID>) {
+        guard !isCheckingExistingResults, !ids.isEmpty else { return }
+        var eligible: Set<UUID> = []
+        for id in ids {
+            guard let index = items.firstIndex(where: { $0.id == id }), items[index].status != .completed else { continue }
+            if [.failed, .cancelled].contains(items[index].status) {
+                resetForRetry(at: index)
+            }
+            guard !items[index].isProcessing else { continue }
+            eligible.insert(id)
+        }
+        guard !eligible.isEmpty else { return }
+        scheduledItemIDs.formUnion(eligible)
+        guard !isRunning else { return }
         isRunning = true
         runTask = Task { [weak self] in await self?.runQueue() }
     }
 
+    func stop(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        scheduledItemIDs.subtract(ids)
+        for id in ids {
+            guard let index = items.firstIndex(where: { $0.id == id }) else { continue }
+            if items[index].isProcessing {
+                items[index].message = String(localized: "중단 요청 중… 저장된 결과는 유지됩니다.")
+                if let jobID = activeJobIDsByItem[id] {
+                    service()?.cancelJob(jobID.uuidString) { _ in }
+                }
+            } else if !items[index].isFinished {
+                items[index].status = .cancelled
+                items[index].message = String(localized: "사용자가 선택 작업을 중단했습니다. 저장된 결과에서 재개할 수 있습니다.")
+            }
+        }
+    }
+
     func cancelAll() {
         runTask?.cancel()
-        let ids = activeJobIDs
+        scheduledItemIDs.removeAll()
+        let ids = activeJobIDsByItem.values
         for id in ids { service()?.cancelJob(id.uuidString) { _ in } }
+    }
+
+    private func resetForRetry(at index: Int) {
+        items[index].status = .queued
+        items[index].progress = 0
+        items[index].sttProgress = 0
+        items[index].translationProgress = 0
+        items[index].currentChunk = 0
+        items[index].totalChunks = 0
+        items[index].liveTranscriptText = nil
+        items[index].liveTranslationText = nil
+        items[index].lastTranscriptText = nil
+        items[index].lastTranslationText = nil
+        items[index].message = String(localized: "저장된 결과부터 다시 시작 대기 중")
     }
 
     private func runQueue() async {
@@ -413,10 +468,13 @@ final class BatchProcessor {
             var activeTasks = 0
             while !Task.isCancelled {
                 while activeTasks < concurrency,
-                      let index = items.firstIndex(where: { !$0.isFinished && !$0.isProcessing }) {
+                      let index = items.firstIndex(where: {
+                          scheduledItemIDs.contains($0.id) && !$0.isFinished && !$0.isProcessing
+                      }) {
+                    let itemID = items[index].id
                     items[index].isProcessing = true
                     activeTasks += 1
-                    group.addTask { [weak self] in await self?.process(index) }
+                    group.addTask { [weak self] in await self?.process(itemID) }
                 }
                 guard activeTasks > 0 else { break }
                 await group.next()
@@ -428,17 +486,27 @@ final class BatchProcessor {
             items[index].isProcessing = false
             if !items[index].isFinished { items[index].status = .cancelled }
         }
-        activeJobIDs.removeAll()
+        activeJobIDsByItem.removeAll()
+        scheduledItemIDs.removeAll()
         isRunning = false
         runTask = nil
     }
 
-    private func process(_ index: Int) async {
-        defer { items[index].isProcessing = false }
-        let url = items[index].url
+    private func process(_ itemID: UUID) async {
+        guard let initialIndex = items.firstIndex(where: { $0.id == itemID }) else { return }
+        defer {
+            scheduledItemIDs.remove(itemID)
+            activeJobIDsByItem.removeValue(forKey: itemID)
+            if let index = items.firstIndex(where: { $0.id == itemID }) {
+                items[index].isProcessing = false
+            }
+        }
+        let url = items[initialIndex].url
         guard let service = service() else {
-            items[index].status = .failed
-            items[index].message = String(localized: "내장 AI 서버에 연결할 수 없습니다.")
+            if let index = items.firstIndex(where: { $0.id == itemID }) {
+                items[index].status = .failed
+                items[index].message = String(localized: "내장 AI 서버에 연결할 수 없습니다.")
+            }
             return
         }
         do {
@@ -449,9 +517,9 @@ final class BatchProcessor {
                 sourceLanguage: options.sourceLanguage ?? "",
                 chunkDuration: options.chunkDuration
             )
-            items[index].jobID = jobID
-            activeJobIDs.insert(jobID)
-            defer { activeJobIDs.remove(jobID) }
+            guard let requestIndex = items.firstIndex(where: { $0.id == itemID }) else { return }
+            items[requestIndex].jobID = jobID
+            activeJobIDsByItem[itemID] = jobID
             let workspace = paths.workspace(for: jobID)
             try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
             let bookmark = try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
@@ -464,14 +532,18 @@ final class BatchProcessor {
                 workspaceURL: workspace
             )
             try JobStore(url: paths.database).createJob(id: jobID, mediaURL: url, options: options)
-            items[index].status = .queued
-            items[index].message = String(localized: "AI 서비스에 작업 전달 중")
+            items[requestIndex].status = .queued
+            items[requestIndex].message = String(localized: "AI 서비스에 작업 전달 중")
 
             _ = try await send(service, payload: WireCodec.encode(request))
 
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500))
                 guard let snapshot = await snapshot(service, jobID: jobID) else { continue }
+                guard let index = items.firstIndex(where: { $0.id == itemID }) else {
+                    service.cancelJob(jobID.uuidString) { _ in }
+                    break
+                }
                 items[index].progress = snapshot.progress
                 items[index].sttProgress = snapshot.sttProgress
                 items[index].translationProgress = snapshot.translationProgress
@@ -500,8 +572,10 @@ final class BatchProcessor {
                 items[index].status = .cancelled
             }
         } catch {
-            items[index].status = .failed
-            items[index].message = error.localizedDescription
+            if let index = items.firstIndex(where: { $0.id == itemID }) {
+                items[index].status = .failed
+                items[index].message = error.localizedDescription
+            }
         }
     }
 
