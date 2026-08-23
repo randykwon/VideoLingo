@@ -972,7 +972,9 @@ struct BatchTranslationDetailView: View {
         case .extracting: "오디오 추출 중"
         case .transcribing: "STT 진행 중"
         case .translating: "LLM 번역 중"
+        case .synthesizing: "번역 음성 생성 중"
         case .refining: "번역 품질 개선 중"
+        case .paused: "일시 정지됨"
         case .completed: "완료"
         case .failed: "실패"
         case .cancelled: "취소됨"
@@ -988,6 +990,8 @@ struct BatchTranslationDetailView: View {
         case .extracting: "waveform.badge.magnifyingglass"
         case .transcribing: "waveform"
         case .translating, .refining: "character.book.closed"
+        case .synthesizing: "waveform.circle"
+        case .paused: "pause.circle.fill"
         default: "arrow.trianglehead.2.clockwise.rotate.90"
         }
     }
