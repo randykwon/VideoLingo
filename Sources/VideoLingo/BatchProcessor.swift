@@ -85,6 +85,7 @@ final class BatchProcessor {
 
     var items: [Item] = []
     var isRunning = false
+    var isPaused = false
     var isScanningFolders = false
     var isCheckingExistingResults = false
     var folderScanMessage = ""
@@ -658,7 +659,24 @@ final class BatchProcessor {
         scheduledItemIDs.formUnion(eligible)
         guard !isRunning else { return }
         isRunning = true
+        isPaused = false
         runTask = Task { [weak self] in await self?.runQueue() }
+    }
+
+    func pause() {
+        guard isRunning, !isPaused else { return }
+        isPaused = true
+        for index in items.indices where !items[index].isProcessing && scheduledItemIDs.contains(items[index].id) {
+            items[index].message = String(localized: "일시 정지됨 · 계속하면 자동으로 시작합니다.")
+        }
+    }
+
+    func resume() {
+        guard isRunning, isPaused else { return }
+        isPaused = false
+        for index in items.indices where !items[index].isProcessing && scheduledItemIDs.contains(items[index].id) {
+            items[index].message = String(localized: "재개 대기 중")
+        }
     }
 
     func stop(ids: Set<UUID>) {
@@ -679,6 +697,7 @@ final class BatchProcessor {
     }
 
     func cancelAll() {
+        isPaused = false
         runTask?.cancel()
         scheduledItemIDs.removeAll()
         let ids = activeJobIDsByItem.values
@@ -704,7 +723,8 @@ final class BatchProcessor {
         await withTaskGroup(of: Void.self) { group in
             var activeTasks = 0
             while !Task.isCancelled {
-                while activeTasks < concurrency,
+                while !isPaused,
+                      activeTasks < concurrency,
                       let index = items.firstIndex(where: {
                           scheduledItemIDs.contains($0.id) && !$0.isFinished && !$0.isProcessing
                       }) {
@@ -712,6 +732,16 @@ final class BatchProcessor {
                     items[index].isProcessing = true
                     activeTasks += 1
                     group.addTask { [weak self] in await self?.process(itemID) }
+                }
+                if isPaused {
+                    let hasWaitingWork = items.contains {
+                        scheduledItemIDs.contains($0.id) && !$0.isFinished && !$0.isProcessing
+                    }
+                    if activeTasks == 0 && !hasWaitingWork { break }
+                    if activeTasks == 0 {
+                        try? await Task.sleep(for: .milliseconds(250))
+                        continue
+                    }
                 }
                 guard activeTasks > 0 else { break }
                 await group.next()
@@ -726,6 +756,7 @@ final class BatchProcessor {
         activeJobIDsByItem.removeAll()
         scheduledItemIDs.removeAll()
         isRunning = false
+        isPaused = false
         runTask = nil
     }
 
@@ -983,9 +1014,11 @@ struct BatchTranslationView: View {
                 if processor.isRunning || processor.completedCount > 0 {
                     HStack(spacing: 12) {
                         ProgressView(value: processor.overallProgress)
-                        Text("실행 \(processor.runningCount) · 대기 \(processor.pendingCount) · 완료 \(processor.completedCount)")
+                        Text(processor.isPaused
+                            ? "일시 정지 · 마무리 중 \(processor.runningCount) · 대기 \(processor.pendingCount) · 완료 \(processor.completedCount)"
+                            : "실행 \(processor.runningCount) · 대기 \(processor.pendingCount) · 완료 \(processor.completedCount)")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(processor.isPaused ? .orange : .secondary)
                             .monospacedDigit()
                     }
                 }
@@ -1054,6 +1087,20 @@ struct BatchTranslationView: View {
                         .disabled(processor.isRunning || processor.completedCount == 0)
                     Spacer()
                     if processor.isRunning {
+                        Button(
+                            processor.isPaused ? "계속" : "일시 정지",
+                            systemImage: processor.isPaused ? "play.fill" : "pause.fill"
+                        ) {
+                            if processor.isPaused {
+                                processor.resume()
+                            } else {
+                                processor.pause()
+                            }
+                        }
+                        .buttonStyle(processor.isPaused ? .borderedProminent : .bordered)
+                        .help(processor.isPaused
+                            ? "남은 대량 번역 대기열을 계속 처리"
+                            : "새 영상 시작을 멈추고 현재 실행 중인 영상만 마무리")
                         Button("전체 취소", systemImage: "stop.fill", role: .destructive) {
                             processor.cancelAll()
                         }
