@@ -58,6 +58,16 @@ struct VideoLingoApp: App {
                 .preferredColorScheme(theme.colorScheme)
         }
         .defaultSize(width: 820, height: 680)
+        WindowGroup("번역 결과 검토", id: "batch-preview", for: UUID.self) { $itemID in
+            BatchCompletedPreviewView(itemID: itemID)
+                .environment(batchProcessor)
+                .environment(localization)
+                .environment(theme)
+                .environment(\.locale, localization.locale)
+                .tint(theme.accentColor)
+                .preferredColorScheme(theme.colorScheme)
+        }
+        .defaultSize(width: 1_100, height: 720)
         Settings {
             SettingsView()
                 .environment(settingsModel)
