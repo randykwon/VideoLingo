@@ -67,8 +67,17 @@ final class AppModel {
     }
 
     // 화면 글자 OCR 번역 자막 (재생 중 실시간). recognized→translated는 Translation 프레임워크가 채웁니다.
-    var screenTextTranslationEnabled = UserDefaults.standard.bool(forKey: "screenTextTranslation") {
+    static let screenTextTranslationTemporarilyDisabled = true
+    var screenTextTranslationEnabled = false {
         didSet {
+            guard !Self.screenTextTranslationTemporarilyDisabled else {
+                screenTextTranslationEnabled = false
+                UserDefaults.standard.set(false, forKey: "screenTextTranslation")
+                screenTextTask?.cancel()
+                recognizedScreenText = nil
+                translatedScreenText = nil
+                return
+            }
             UserDefaults.standard.set(screenTextTranslationEnabled, forKey: "screenTextTranslation")
             startScreenTextLoop()
         }
@@ -1091,7 +1100,8 @@ final class AppModel {
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.pollOnce()
-                try? await Task.sleep(for: .milliseconds(300))
+                // 고빈도 실시간 갱신은 재설계 전까지 중단하고 저빈도 상태 확인만 유지합니다.
+                try? await Task.sleep(for: .seconds(2))
             }
         }
     }

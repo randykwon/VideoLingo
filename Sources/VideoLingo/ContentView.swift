@@ -213,7 +213,10 @@ struct ContentView: View {
                 }
                 Section("화면 글자 번역 자막") {
                     Toggle("재생 중 화면 글자 인식·번역", isOn: $model.screenTextTranslationEnabled)
-                    Text("영상에 박힌 글자(간판·자막 등)를 재생 중 OCR로 읽어 선택한 언어로 번역해 하단 자막으로 보여줍니다. 온디바이스 처리.")
+                        .disabled(AppModel.screenTextTranslationTemporarilyDisabled)
+                    Text(AppModel.screenTextTranslationTemporarilyDisabled
+                        ? "성능 보호를 위해 임시 비활성화되었습니다. 다른 방식으로 다시 제공할 예정입니다."
+                        : "영상에 박힌 글자(간판·자막 등)를 재생 중 OCR로 읽어 선택한 언어로 번역해 하단 자막으로 보여줍니다. 온디바이스 처리.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
