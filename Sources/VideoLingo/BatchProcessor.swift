@@ -956,16 +956,9 @@ struct BatchTranslationView: View {
         } message: {
             Text("완료된 STT·번역 결과는 저장소에 유지되며, 선택한 영상은 대량 번역 목록에서 제거됩니다.")
         }
-        .confirmationDialog(
-            "중복 영상 \(processor.duplicateFilenameRemovalCount)개를 목록에서 제거할까요?",
-            isPresented: $showingDuplicateCleanupConfirmation
-        ) {
-            Button("중복 영상 일괄 제거", role: .destructive) {
-                processor.remove(ids: processor.recommendedDuplicateRemovalIDs)
-            }
-            Button("취소", role: .cancel) {}
-        } message: {
-            Text("동일한 파일명마다 첫 번째 영상 1개를 유지하고 나머지를 대량 번역 목록에서 제거합니다. 실제 영상 파일과 저장된 STT·번역 결과는 삭제하지 않습니다.")
+        .sheet(isPresented: $showingDuplicateCleanupConfirmation) {
+            DuplicateBatchCleanupView()
+                .environment(processor)
         }
         .sheet(isPresented: $showingDuplicateReview) {
             DuplicateFilenameReviewView()
@@ -1656,6 +1649,109 @@ private struct DuplicateFilenameReviewView: View {
                 trashStatusMessage = String(localized: "영상 \(result.movedCount)개를 휴지통으로 이동했습니다.")
                 if processor.duplicateFilenameGroups.isEmpty { dismiss() }
             }
+        }
+    }
+}
+
+private struct DuplicateBatchCleanupView: View {
+    @Environment(BatchProcessor.self) private var processor
+    @Environment(\.dismiss) private var dismiss
+    @State private var alsoMoveActualFilesToTrash = false
+    @State private var isCleaning = false
+    @State private var statusMessage = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("중복 파일 일괄 정리", systemImage: "doc.on.doc")
+                    .font(.title2.weight(.semibold))
+                Text("동일한 파일명마다 첫 번째 영상 1개를 남기고 나머지 \(processor.duplicateFilenameRemovalCount)개를 정리합니다.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    LabeledContent("중복 그룹") {
+                        Text("\(processor.duplicateFilenameGroups.count)개")
+                            .monospacedDigit()
+                    }
+                    LabeledContent("남겨 둘 영상") {
+                        Text("그룹마다 1개")
+                            .foregroundStyle(.green)
+                    }
+                    LabeledContent("제거 대상") {
+                        Text("\(processor.duplicateFilenameRemovalCount)개")
+                            .monospacedDigit()
+                    }
+                }
+                .padding(4)
+            } label: {
+                Label("정리 대상 확인", systemImage: "checklist")
+            }
+
+            Toggle(isOn: $alsoMoveActualFilesToTrash) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("실제 영상 파일도 휴지통으로 이동")
+                        .font(.body.weight(.medium))
+                    Text(alsoMoveActualFilesToTrash
+                        ? "유지본 1개를 제외한 실제 영상 파일을 Finder 휴지통으로 이동합니다."
+                        : "대량 번역 목록에서만 제거하며 실제 영상 파일은 그대로 둡니다.")
+                        .font(.caption)
+                        .foregroundStyle(alsoMoveActualFilesToTrash ? Color.orange : Color.secondary)
+                }
+            }
+            .toggleStyle(.checkbox)
+            .disabled(isCleaning)
+
+            if isCleaning {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(statusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("취소", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                    .disabled(isCleaning)
+                Button(alsoMoveActualFilesToTrash ? "확인 후 휴지통으로 이동" : "목록에서 일괄 제거",
+                       systemImage: alsoMoveActualFilesToTrash ? "trash" : "rectangle.stack.badge.minus",
+                       role: .destructive) {
+                    performCleanup()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(processor.recommendedDuplicateRemovalIDs.isEmpty || isCleaning)
+            }
+        }
+        .padding(24)
+        .frame(width: 520)
+        .interactiveDismissDisabled(isCleaning)
+    }
+
+    private func performCleanup() {
+        let ids = processor.recommendedDuplicateRemovalIDs
+        guard !ids.isEmpty else { return }
+        if alsoMoveActualFilesToTrash {
+            isCleaning = true
+            statusMessage = String(localized: "유지본을 제외한 실제 영상 파일을 휴지통으로 이동 중…")
+            Task {
+                let result = await processor.moveVideosToTrash(ids: ids)
+                isCleaning = false
+                if let failure = result.failureMessage {
+                    statusMessage = String(localized: "\(result.movedCount)개 이동 후 실패: \(failure)")
+                } else {
+                    dismiss()
+                }
+            }
+        } else {
+            processor.remove(ids: ids)
+            dismiss()
         }
     }
 }
