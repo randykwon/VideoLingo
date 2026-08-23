@@ -363,7 +363,13 @@ final class AppModel {
         qualityMode = options.qualityMode
         processingChunkDuration = options.chunkDuration
         playerMode = .viewing
-        loadVideo(url, remember: false)
+        let jobID = Self.stableJobID(
+            forPath: url.path,
+            sttModel: options.sttModel,
+            sourceLanguage: options.sourceLanguage ?? "",
+            chunkDuration: options.chunkDuration
+        )
+        loadVideo(url, remember: false, preferredJobID: jobID)
     }
 
     func seekVideo(by seconds: TimeInterval) {
@@ -1280,7 +1286,7 @@ final class AppModel {
         return "VideoLingo.playbackPosition.\(digest)"
     }
 
-    private func loadVideo(_ url: URL, remember: Bool) {
+    private func loadVideo(_ url: URL, remember: Bool, preferredJobID: UUID? = nil) {
         guard FileManager.default.fileExists(atPath: url.path) else {
             if remember {
                 errorMessage = String(localized: "영상 파일을 찾을 수 없습니다: \(url.lastPathComponent)")
@@ -1323,7 +1329,7 @@ final class AppModel {
             let paths = try AppPaths()
             databaseURL = paths.database
             let store = try store(at: paths.database)
-            let databaseJobID = try store.mostRecentJobID(for: url)
+            let databaseJobID = preferredJobID ?? (try store.mostRecentJobID(for: url))
             let databaseHasResults = try databaseJobID.map { try !store.transcript(jobID: $0).isEmpty } ?? false
             let discoveredSidecar = databaseHasResults ? nil : try MediaSidecarStore.discoverResults(
                 for: url,
