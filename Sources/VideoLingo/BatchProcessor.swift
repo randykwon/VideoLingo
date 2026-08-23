@@ -150,6 +150,7 @@ final class BatchProcessor {
     private var resultCheckTask: Task<Void, Never>?
     private var activeJobIDsByItem: [UUID: UUID] = [:]
     private var scheduledItemIDs: Set<UUID> = []
+    private var pausedItemIDs: Set<UUID> = []
     private var alternateResultDirectoryBookmark: Data?
     var alternateResultDirectoryURL: URL?
 
@@ -652,7 +653,12 @@ final class BatchProcessor {
             if [.failed, .cancelled].contains(items[index].status) {
                 resetForRetry(at: index)
             }
+            if items[index].status == .paused {
+                items[index].status = .queued
+                items[index].message = String(localized: "저장된 결과부터 다시 시작 대기 중")
+            }
             guard !items[index].isProcessing else { continue }
+            pausedItemIDs.remove(id)
             eligible.insert(id)
         }
         guard !eligible.isEmpty else { return }
@@ -681,6 +687,7 @@ final class BatchProcessor {
 
     func stop(ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
+        pausedItemIDs.subtract(ids)
         scheduledItemIDs.subtract(ids)
         for id in ids {
             guard let index = items.firstIndex(where: { $0.id == id }) else { continue }
@@ -692,6 +699,24 @@ final class BatchProcessor {
             } else if !items[index].isFinished {
                 items[index].status = .cancelled
                 items[index].message = String(localized: "사용자가 선택 작업을 중단했습니다. 저장된 결과에서 재개할 수 있습니다.")
+            }
+        }
+    }
+
+    func pause(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        pausedItemIDs.formUnion(ids)
+        scheduledItemIDs.subtract(ids)
+        for id in ids {
+            guard let index = items.firstIndex(where: { $0.id == id }), !items[index].isFinished else { continue }
+            if items[index].isProcessing {
+                items[index].message = String(localized: "일시 정지 요청 중… 저장된 결과는 유지됩니다.")
+                if let jobID = activeJobIDsByItem[id] {
+                    service()?.cancelJob(jobID.uuidString) { _ in }
+                }
+            } else {
+                items[index].status = .paused
+                items[index].message = String(localized: "일시 정지됨 · 저장된 결과부터 재시작할 수 있습니다.")
             }
         }
     }
@@ -827,6 +852,11 @@ final class BatchProcessor {
                 items[index].lastTranslationText = snapshot.lastTranslationText
                 items[index].status = snapshot.status
                 items[index].message = snapshot.message
+                if pausedItemIDs.contains(itemID), snapshot.status == .cancelled {
+                    items[index].status = .paused
+                    items[index].message = String(localized: "일시 정지됨 · 저장된 결과부터 재시작할 수 있습니다.")
+                    break
+                }
                 if snapshot.status == .refining {
                     // 품질 개선 단계는 결과가 이미 나온 상태이므로 배치에서는 완료로 간주하고 다음 파일로 넘어갑니다.
                     items[index].status = .completed
@@ -843,8 +873,13 @@ final class BatchProcessor {
             if Task.isCancelled,
                let index = items.firstIndex(where: { $0.id == itemID }),
                !items[index].isFinished {
-                items[index].status = .cancelled
-                items[index].message = String(localized: "대량 번역을 중단했습니다. 저장된 결과에서 재개할 수 있습니다.")
+                if pausedItemIDs.contains(itemID) {
+                    items[index].status = .paused
+                    items[index].message = String(localized: "일시 정지됨 · 저장된 결과부터 재시작할 수 있습니다.")
+                } else {
+                    items[index].status = .cancelled
+                    items[index].message = String(localized: "대량 번역을 중단했습니다. 저장된 결과에서 재개할 수 있습니다.")
+                }
             }
         } catch {
             if let index = items.firstIndex(where: { $0.id == itemID }) {
