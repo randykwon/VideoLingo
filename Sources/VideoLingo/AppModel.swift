@@ -74,6 +74,16 @@ final class AppModel {
     var rememberPlaybackPosition = UserDefaults.standard.object(forKey: "rememberPlaybackPosition") as? Bool ?? true {
         didSet { UserDefaults.standard.set(rememberPlaybackPosition, forKey: "rememberPlaybackPosition") }
     }
+    var volumeAdjustmentStep: Double = {
+        let stored = UserDefaults.standard.double(forKey: "volumeAdjustmentStep")
+        return [0.01, 0.02, 0.05, 0.10].contains(stored) ? stored : 0.10
+    }() {
+        didSet {
+            let allowed = [0.01, 0.02, 0.05, 0.10]
+            if !allowed.contains(volumeAdjustmentStep) { volumeAdjustmentStep = 0.10 }
+            UserDefaults.standard.set(volumeAdjustmentStep, forKey: "volumeAdjustmentStep")
+        }
+    }
 
     // 얼굴 모자이크 제거(디모자이크) 옵션
     var demosaicModel = DemosaicModel(rawValue: UserDefaults.standard.string(forKey: "demosaicModel") ?? "classical") ?? .classical {
@@ -346,8 +356,8 @@ final class AppModel {
         }
     }
 
-    func adjustVolume(by amount: Float) {
-        player.volume = min(1, max(0, player.volume + amount))
+    func adjustVolume(by amount: Double) {
+        player.volume = min(1, max(0, player.volume + Float(amount)))
     }
 
     func startOrResume() {

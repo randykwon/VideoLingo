@@ -1362,7 +1362,14 @@ private struct GeneralSettingsView: View {
                 Toggle("앱 시작 시 무음", isOn: $model.startMuted)
                 Toggle("마지막 영상 자동 복원", isOn: $model.autoloadLastVideoPreference)
                 Toggle("이전 재생 위치 기억", isOn: $model.rememberPlaybackPosition)
-                Text("동작 설정은 앱을 재시작하면 반영됩니다.")
+                Picker("방향키 음량 조절 폭", selection: $model.volumeAdjustmentStep) {
+                    Text("1% · 매우 미세").tag(0.01)
+                    Text("2% · 미세").tag(0.02)
+                    Text("5% · 보통").tag(0.05)
+                    Text("10% · 크게").tag(0.10)
+                }
+                .help("위·아래 방향키를 한 번 누를 때 바뀌는 음량입니다")
+                Text("음량 조절 폭은 즉시 적용됩니다. 시작·복원 설정은 앱을 재시작하면 반영됩니다.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

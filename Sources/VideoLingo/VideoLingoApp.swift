@@ -127,10 +127,16 @@ private struct VideoLingoCommands: Commands {
                 .keyboardShortcut(shortcuts[.seekForward].keyEquivalent, modifiers: shortcuts[.seekForward].modifiers)
                 .disabled(model?.mediaURL == nil)
             Divider()
-            Button("음량 크게") { model?.adjustVolume(by: 0.1) }
+            Button("음량 크게 (\(volumeStepPercent)%)") {
+                guard let model else { return }
+                model.adjustVolume(by: model.volumeAdjustmentStep)
+            }
                 .keyboardShortcut(shortcuts[.volumeUp].keyEquivalent, modifiers: shortcuts[.volumeUp].modifiers)
                 .disabled(model?.mediaURL == nil)
-            Button("음량 작게") { model?.adjustVolume(by: -0.1) }
+            Button("음량 작게 (\(volumeStepPercent)%)") {
+                guard let model else { return }
+                model.adjustVolume(by: -model.volumeAdjustmentStep)
+            }
                 .keyboardShortcut(shortcuts[.volumeDown].keyEquivalent, modifiers: shortcuts[.volumeDown].modifiers)
                 .disabled(model?.mediaURL == nil)
         }
@@ -183,5 +189,9 @@ private struct VideoLingoCommands: Commands {
                 .keyboardShortcut(shortcuts[.cancelJob].keyEquivalent, modifiers: shortcuts[.cancelJob].modifiers)
                 .disabled(model == nil)
         }
+    }
+
+    private var volumeStepPercent: Int {
+        Int(((model?.volumeAdjustmentStep ?? 0.10) * 100).rounded())
     }
 }
