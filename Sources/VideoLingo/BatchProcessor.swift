@@ -1097,7 +1097,8 @@ struct BatchTranslationView: View {
                                 processor.pause()
                             }
                         }
-                        .buttonStyle(processor.isPaused ? .borderedProminent : .bordered)
+                        .buttonStyle(.bordered)
+                        .tint(processor.isPaused ? Color.accentColor : nil)
                         .help(processor.isPaused
                             ? "남은 대량 번역 대기열을 계속 처리"
                             : "새 영상 시작을 멈추고 현재 실행 중인 영상만 마무리")
