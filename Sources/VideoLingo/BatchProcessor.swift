@@ -5,6 +5,11 @@ import SwiftUI
 import UniformTypeIdentifiers
 import VideoLingoCore
 
+private struct BatchResultCandidate: Sendable {
+    let itemID: UUID
+    let jobID: UUID
+}
+
 /// 여러 영상을 큐에 넣고 설정된 동시 처리 수만큼 STT·LLM 번역을 병렬 실행합니다.
 @MainActor
 @Observable
@@ -246,7 +251,7 @@ final class BatchProcessor {
         resultCheckTask?.cancel()
 
         let currentOptions = options
-        var candidates: [(itemID: UUID, url: URL, jobID: UUID)] = []
+        var candidates: [BatchResultCandidate] = []
         for index in items.indices where !items[index].isProcessing {
             let jobID = AppModel.stableJobID(
                 forPath: items[index].url.path,
@@ -261,7 +266,7 @@ final class BatchProcessor {
             items[index].sttProgress = 0
             items[index].translationProgress = 0
             items[index].message = String(localized: "기존 번역 결과 확인 중…")
-            candidates.append((items[index].id, items[index].url, jobID))
+            candidates.append(BatchResultCandidate(itemID: items[index].id, jobID: jobID))
         }
 
         isCheckingExistingResults = true
@@ -323,7 +328,7 @@ final class BatchProcessor {
     }
 
     nonisolated private static func inspectExistingResults(
-        candidates: [(itemID: UUID, url: URL, jobID: UUID)],
+        candidates: [BatchResultCandidate],
         options: ProcessingOptions
     ) throws -> [(UUID, ExistingResultState)] {
         let paths = try AppPaths()
