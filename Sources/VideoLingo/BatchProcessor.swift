@@ -644,6 +644,7 @@ final class BatchProcessor {
 
     func start(ids: Set<UUID>) {
         guard !isCheckingExistingResults, !ids.isEmpty else { return }
+        guard readOnlyItemCount(in: ids) == 0 || alternateResultDirectoryURL != nil else { return }
         var eligible: Set<UUID> = []
         for id in ids {
             guard let index = items.firstIndex(where: { $0.id == id }), items[index].status != .completed else { continue }
@@ -927,6 +928,30 @@ struct BatchTranslationView: View {
             Divider()
             VStack(spacing: 12) {
                 BatchLanguageSettingsView()
+
+                HStack(spacing: 12) {
+                    Image(systemName: "externaldrive.badge.plus")
+                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("읽기 전용 영상 결과")
+                            .font(.headline)
+                        Text(processor.alternateResultDirectoryDisplayPath
+                            ?? "읽기 전용 디스크의 STT·번역 파일을 저장할 폴더를 지정하세요.")
+                            .font(.caption)
+                            .foregroundStyle(processor.readOnlyItemCount() > 0 && processor.alternateResultDirectoryURL == nil ? .red : .secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer()
+                    if processor.alternateResultDirectoryURL != nil {
+                        Button("해제") { processor.clearAlternateResultDirectory() }
+                            .disabled(processor.isRunning)
+                    }
+                    Button(processor.alternateResultDirectoryURL == nil ? "폴더 지정…" : "변경…") {
+                        processor.chooseAlternateResultDirectory()
+                    }
+                    .disabled(processor.isRunning)
+                }
 
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
@@ -1262,6 +1287,34 @@ private struct BatchStartConfirmationView: View {
                 Label("처리 설정", systemImage: "gearshape.2")
             }
 
+            if readOnlyCount > 0 {
+                GroupBox {
+                    HStack(spacing: 12) {
+                        Image(systemName: processor.alternateResultDirectoryURL == nil
+                            ? "exclamationmark.triangle.fill"
+                            : "checkmark.circle.fill")
+                            .foregroundStyle(processor.alternateResultDirectoryURL == nil ? .orange : .green)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("읽기 전용 위치의 영상 (readOnlyCount)개")
+                                .font(.callout.weight(.semibold))
+                            Text(processor.alternateResultDirectoryDisplayPath
+                                ?? "STT·번역 결과를 저장할 쓰기 가능한 폴더가 필요합니다.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                                .truncationMode(.middle)
+                        }
+                        Spacer()
+                        Button(processor.alternateResultDirectoryURL == nil ? "폴더 지정…" : "변경…") {
+                            processor.chooseAlternateResultDirectory()
+                        }
+                    }
+                    .padding(4)
+                } label: {
+                    Label("결과 저장 위치", systemImage: "externaldrive")
+                }
+            }
+
             if processor.isCheckingExistingResults {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -1287,7 +1340,10 @@ private struct BatchStartConfirmationView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
-                .disabled(processor.isCheckingExistingResults || processor.batchTargetLanguages.isEmpty || startableCount == 0)
+                .disabled(processor.isCheckingExistingResults
+                    || processor.batchTargetLanguages.isEmpty
+                    || startableCount == 0
+                    || (readOnlyCount > 0 && processor.alternateResultDirectoryURL == nil))
                 .help(processor.isCheckingExistingResults ? "기존 결과 확인이 끝나면 시작할 수 있습니다" : "확인한 설정으로 대량 번역 시작")
             }
         }
@@ -1300,6 +1356,10 @@ private struct BatchStartConfirmationView: View {
         processor.items.filter {
             itemIDs.contains($0.id) && $0.status != .completed && !$0.isProcessing
         }.count
+    }
+
+    private var readOnlyCount: Int {
+        processor.readOnlyItemCount(in: itemIDs)
     }
 }
 
