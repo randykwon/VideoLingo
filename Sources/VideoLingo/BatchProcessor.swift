@@ -883,8 +883,13 @@ final class BatchProcessor {
             }
         } catch {
             if let index = items.firstIndex(where: { $0.id == itemID }) {
-                items[index].status = .failed
-                items[index].message = error.localizedDescription
+                if pausedItemIDs.contains(itemID) {
+                    items[index].status = .paused
+                    items[index].message = String(localized: "일시 정지됨 · 저장된 결과부터 재시작할 수 있습니다.")
+                } else {
+                    items[index].status = .failed
+                    items[index].message = error.localizedDescription
+                }
             }
         }
     }

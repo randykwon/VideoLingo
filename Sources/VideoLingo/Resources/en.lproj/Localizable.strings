@@ -153,6 +153,11 @@
 /* Regenerate dialogs */
 "결과를 재생성할까요?" = "Regenerate results?";
 "취소" = "Cancel";
+"재시작" = "Restart";
+"일시 정지" = "Pause";
+"목록에서 삭제" = "Remove from List";
+"일시 정지 요청 중… 저장된 결과는 유지됩니다." = "Pausing… Saved results will be kept.";
+"일시 정지됨 · 저장된 결과부터 재시작할 수 있습니다." = "Paused · You can restart from the saved results.";
 "확인" = "OK";
 "현재 언어 번역을 다시 생성할까요?" = "Regenerate the current language translation?";
 "기존 결과를 삭제하고 다시 생성할까요?" = "Delete existing results and regenerate?";
