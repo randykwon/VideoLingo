@@ -44,6 +44,15 @@ final class AppModel {
         ?? true {
         didSet { UserDefaults.standard.set(autoRetryUntranslated, forKey: "autoRetryUntranslated") }
     }
+    var showOriginalWithTranslation = UserDefaults.standard.object(forKey: "showOriginalWithTranslation") as? Bool ?? false {
+        didSet { UserDefaults.standard.set(showOriginalWithTranslation, forKey: "showOriginalWithTranslation") }
+    }
+    var originalSubtitleTranslucent = UserDefaults.standard.object(forKey: "originalSubtitleTranslucent") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(originalSubtitleTranslucent, forKey: "originalSubtitleTranslucent") }
+    }
+    var originalSubtitleItalic = UserDefaults.standard.object(forKey: "originalSubtitleItalic") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(originalSubtitleItalic, forKey: "originalSubtitleItalic") }
+    }
 
     // 화면 글자 OCR 번역 자막 (재생 중 실시간). recognized→translated는 Translation 프레임워크가 채웁니다.
     var screenTextTranslationEnabled = UserDefaults.standard.bool(forKey: "screenTextTranslation") {
@@ -188,23 +197,34 @@ final class AppModel {
         }
     }
 
-    var activeSubtitle: String {
+    var activeOriginalSubtitle: String {
         guard let segment = activeTranscriptSegment else { return "" }
         let cues = segment.cues ?? []
         guard !cues.isEmpty,
+              let cue = cues.first(where: { currentTime >= $0.startTime && currentTime < $0.endTime }) else {
+            return segment.text
+        }
+        return cue.text
+    }
+
+    var activeTranslationSubtitle: String? {
+        guard let segment = activeTranscriptSegment,
+              let translation = translations[segment.id]?.text,
+              !translation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let cues = segment.cues ?? []
+        guard !cues.isEmpty,
               let cueIndex = cues.firstIndex(where: { currentTime >= $0.startTime && currentTime < $0.endTime }) else {
-            return translations[segment.id]?.text ?? segment.text
+            return translation
         }
-        if let translation = translations[segment.id]?.text {
-            let translatedLines = translation
-                .split(separator: "\n", omittingEmptySubsequences: true)
-                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            if translatedLines.indices.contains(cueIndex) {
-                return translatedLines[cueIndex]
-            }
-        }
-        return cues[cueIndex].text
+        let translatedLines = translation
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return translatedLines.indices.contains(cueIndex) ? translatedLines[cueIndex] : translation
+    }
+
+    var activeSubtitle: String {
+        activeTranslationSubtitle ?? activeOriginalSubtitle
     }
 
     var canStart: Bool {
