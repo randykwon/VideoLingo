@@ -1206,7 +1206,7 @@ struct BatchMultiMonitorView: View {
     @Environment(\.openWindow) private var openWindow
     @AppStorage("batchMonitorColumnCount") private var columnCount = 2
     @State private var filter: BatchMonitorFilter = .active
-    @State private var automaticallyPlaysVideo = true
+    @State private var playbackSelection: Set<UUID> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1233,7 +1233,7 @@ struct BatchMultiMonitorView: View {
                         ForEach(visibleItems) { item in
                             BatchMonitorTile(
                                 item: item,
-                                automaticallyPlaysVideo: automaticallyPlaysVideo,
+                                playsVideo: playbackBinding(for: item.id),
                                 onShowDetails: { openWindow(id: "batch-detail", value: item.id) }
                             )
                         }
@@ -1244,6 +1244,9 @@ struct BatchMultiMonitorView: View {
         }
         .navigationTitle("STT·번역 멀티 화면")
         .frame(minWidth: 880, minHeight: 600)
+        .onChange(of: Set(processor.items.map(\.id))) { _, availableIDs in
+            playbackSelection.formIntersection(availableIDs)
+        }
     }
 
     private var monitorHeader: some View {
@@ -1265,9 +1268,21 @@ struct BatchMultiMonitorView: View {
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
 
-            Toggle("영상 자동 재생", isOn: $automaticallyPlaysVideo)
-                .toggleStyle(.switch)
-                .help("모든 미리보기는 소리 없이 재생됩니다")
+            Text("재생 선택 \(visiblePlaybackSelectionCount)개")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+
+            Button(allVisibleItemsSelected ? "표시 영상 선택 해제" : "표시 영상 전체 선택",
+                   systemImage: allVisibleItemsSelected ? "checkmark.square.fill" : "square.stack") {
+                if allVisibleItemsSelected {
+                    playbackSelection.subtract(visibleItems.map(\.id))
+                } else {
+                    playbackSelection.formUnion(visibleItems.map(\.id))
+                }
+            }
+            .disabled(visibleItems.isEmpty)
+            .help("현재 필터에 표시된 영상의 음소거 재생을 한 번에 선택하거나 해제")
 
             Stepper(value: $columnCount, in: 1...4) {
                 Text("한 줄 \(columnCount)개")
@@ -1292,6 +1307,27 @@ struct BatchMultiMonitorView: View {
         Array(repeating: GridItem(.flexible(), spacing: 16), count: columnCount)
     }
 
+    private var visiblePlaybackSelectionCount: Int {
+        visibleItems.filter { playbackSelection.contains($0.id) }.count
+    }
+
+    private var allVisibleItemsSelected: Bool {
+        !visibleItems.isEmpty && visibleItems.allSatisfy { playbackSelection.contains($0.id) }
+    }
+
+    private func playbackBinding(for itemID: UUID) -> Binding<Bool> {
+        Binding(
+            get: { playbackSelection.contains(itemID) },
+            set: { selected in
+                if selected {
+                    playbackSelection.insert(itemID)
+                } else {
+                    playbackSelection.remove(itemID)
+                }
+            }
+        )
+    }
+
     private func count(for option: BatchMonitorFilter) -> Int {
         switch option {
         case .active: processor.runningCount
@@ -1303,13 +1339,13 @@ struct BatchMultiMonitorView: View {
 
 private struct BatchMonitorTile: View {
     let item: BatchProcessor.Item
-    let automaticallyPlaysVideo: Bool
+    @Binding var playsVideo: Bool
     let onShowDetails: () -> Void
     @State private var player: AVPlayer
 
-    init(item: BatchProcessor.Item, automaticallyPlaysVideo: Bool, onShowDetails: @escaping () -> Void) {
+    init(item: BatchProcessor.Item, playsVideo: Binding<Bool>, onShowDetails: @escaping () -> Void) {
         self.item = item
-        self.automaticallyPlaysVideo = automaticallyPlaysVideo
+        _playsVideo = playsVideo
         self.onShowDetails = onShowDetails
         _player = State(initialValue: AVPlayer(url: item.url))
     }
@@ -1336,6 +1372,9 @@ private struct BatchMonitorTile: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Toggle("미리보기 재생", isOn: $playsVideo)
+                        .toggleStyle(.checkbox)
+                        .help("선택한 영상만 소리 없이 재생합니다")
                     Text(item.url.lastPathComponent)
                         .font(.headline)
                         .lineLimit(1)
@@ -1361,12 +1400,12 @@ private struct BatchMonitorTile: View {
         .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(item.isProcessing ? Color.accentColor.opacity(0.55) : Color.secondary.opacity(0.2))
+                .strokeBorder(playsVideo ? Color.accentColor : item.isProcessing ? Color.accentColor.opacity(0.55) : Color.secondary.opacity(0.2))
         }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .onAppear { updatePlayback() }
         .onDisappear { player.pause() }
-        .onChange(of: automaticallyPlaysVideo) { _, _ in updatePlayback() }
+        .onChange(of: playsVideo) { _, _ in updatePlayback() }
     }
 
     private func monitorProgress(title: String, value: Double, icon: String) -> some View {
@@ -1397,7 +1436,7 @@ private struct BatchMonitorTile: View {
 
     private func updatePlayback() {
         player.isMuted = true
-        if automaticallyPlaysVideo { player.play() } else { player.pause() }
+        if playsVideo { player.play() } else { player.pause() }
     }
 
     private var statusText: String {
