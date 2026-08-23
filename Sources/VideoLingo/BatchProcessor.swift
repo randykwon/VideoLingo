@@ -654,6 +654,7 @@ struct BatchTranslationView: View {
     @State private var isDropTargeted = false
     @State private var selection: Set<UUID> = []
     @State private var showingActiveDeleteConfirmation = false
+    @State private var showingDuplicateReview = false
 
     var body: some View {
         @Bindable var processor = processor
@@ -675,7 +676,10 @@ struct BatchTranslationView: View {
             } else {
                 List(selection: $selection) {
                     ForEach(processor.items) { item in
-                        BatchTranslationRow(item: item) {
+                        BatchTranslationRow(
+                            item: item,
+                            duplicateNameCount: processor.duplicateNameCount(for: item.id)
+                        ) {
                             processor.retry(item.id)
                         } onShowDetails: {
                             openWindow(id: "batch-detail", value: item.id)
@@ -813,6 +817,10 @@ struct BatchTranslationView: View {
         } message: {
             Text("완료된 STT·번역 결과는 저장소에 유지되며, 선택한 영상은 대량 번역 목록에서 제거됩니다.")
         }
+        .sheet(isPresented: $showingDuplicateReview) {
+            DuplicateFilenameReviewView()
+                .environment(processor)
+        }
         .dropDestination(for: URL.self) { urls, _ in
             processor.addDroppedURLs(urls)
         } isTargeted: { targeted in
@@ -848,6 +856,11 @@ struct BatchTranslationView: View {
                 }
                 .disabled(processor.isRunning || processor.isCheckingExistingResults || processor.items.isEmpty)
                 .help("현재 모델과 언어 기준으로 저장된 STT·번역 다시 확인")
+                Button("동일 이름 확인", systemImage: "doc.on.doc") {
+                    showingDuplicateReview = true
+                }
+                .disabled(processor.isRunning || processor.duplicateFilenameGroups.isEmpty)
+                .help(processor.duplicateFilenameGroups.isEmpty ? "동일한 파일명의 영상이 없습니다" : "동일한 파일명의 영상을 경로별로 검토")
                 Button("폴더 추가…", systemImage: "folder.badge.plus") { processor.addFolders() }
                     .disabled(processor.isScanningFolders)
                     .help("폴더와 하위 폴더에서 영상 검색")
@@ -887,6 +900,7 @@ struct BatchTranslationView: View {
 
 private struct BatchTranslationRow: View {
     let item: BatchProcessor.Item
+    let duplicateNameCount: Int
     let onRetry: () -> Void
     let onShowDetails: () -> Void
     @State private var showLiveDetails = false
@@ -907,6 +921,12 @@ private struct BatchTranslationRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     ExistingResultBadge(state: item.existingResult)
+                    if duplicateNameCount > 1 {
+                        Label("동일 이름 \(duplicateNameCount)개", systemImage: "doc.on.doc.fill")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.orange)
+                            .help("다른 폴더에 같은 이름의 영상이 있습니다")
+                    }
                 }
                 Spacer(minLength: 12)
                 if item.totalChunks > 0 {
@@ -984,6 +1004,102 @@ private struct BatchTranslationRow: View {
         case .cancelled: .secondary
         case .queued where !item.isProcessing: .secondary
         default: .blue
+        }
+    }
+}
+
+private struct DuplicateFilenameReviewView: View {
+    @Environment(BatchProcessor.self) private var processor
+    @Environment(\.dismiss) private var dismiss
+    @State private var removalSelection: Set<UUID> = []
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("동일한 이름의 영상 확인")
+                    .font(.title2.weight(.semibold))
+                Text("경로를 비교해 목록에서 제외할 영상을 선택하세요. 원본 영상 파일은 디스크에서 삭제되지 않습니다.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
+
+            Divider()
+
+            if processor.duplicateFilenameGroups.isEmpty {
+                ContentUnavailableView(
+                    "동일한 이름의 영상이 없습니다",
+                    systemImage: "checkmark.circle",
+                    description: Text("현재 대량 번역 목록의 파일명은 모두 고유합니다.")
+                )
+            } else {
+                List {
+                    ForEach(processor.duplicateFilenameGroups) { group in
+                        Section("\(group.displayName) · \(group.items.count)개") {
+                            ForEach(Array(group.items.enumerated()), id: \.element.id) { offset, item in
+                                Button {
+                                    if removalSelection.contains(item.id) {
+                                        removalSelection.remove(item.id)
+                                    } else {
+                                        removalSelection.insert(item.id)
+                                    }
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: removalSelection.contains(item.id) ? "checkmark.square.fill" : "square")
+                                            .foregroundStyle(removalSelection.contains(item.id) ? Color.accentColor : Color.secondary)
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(item.url.lastPathComponent)
+                                                .foregroundStyle(.primary)
+                                            Text(item.url.deletingLastPathComponent().path)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                                .truncationMode(.middle)
+                                        }
+                                        Spacer(minLength: 12)
+                                        if offset == 0 && !removalSelection.contains(item.id) {
+                                            Text("유지 권장")
+                                                .font(.caption.weight(.medium))
+                                                .foregroundStyle(.green)
+                                        } else if removalSelection.contains(item.id) {
+                                            Text("목록에서 제외")
+                                                .font(.caption.weight(.medium))
+                                                .foregroundStyle(.orange)
+                                        }
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Divider()
+            HStack {
+                Text("\(removalSelection.count)개 선택")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                Spacer()
+                Button("취소", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("선택 항목 목록에서 제거", systemImage: "trash", role: .destructive) {
+                    processor.remove(ids: removalSelection)
+                    removalSelection.removeAll()
+                    if processor.duplicateFilenameGroups.isEmpty { dismiss() }
+                }
+                .disabled(removalSelection.isEmpty || processor.isRunning)
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
+            .background(.bar)
+        }
+        .frame(width: 720, height: 560)
+        .onAppear {
+            removalSelection = processor.recommendedDuplicateRemovalIDs
         }
     }
 }
