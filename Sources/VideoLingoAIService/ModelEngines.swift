@@ -397,7 +397,10 @@ actor FoundationTranslationEngine {
             )
         } catch {
             let reason = error.localizedDescription
-            if reason.localizedCaseInsensitiveContains("context window"),
+            let exceededContext = reason.localizedCaseInsensitiveContains("context window")
+            let unsupportedLocale = reason.localizedCaseInsensitiveContains("unsupported language")
+                || reason.localizedCaseInsensitiveContains("unsupported locale")
+            if (exceededContext || unsupportedLocale),
                !previousContext.isEmpty || !nextContext.isEmpty {
                 return try await translate(
                     text,
@@ -411,6 +414,31 @@ actor FoundationTranslationEngine {
                     glossary: glossary,
                     qualityMode: .fast,
                     onPartialText: onPartialText
+                )
+            }
+            if unsupportedLocale, qualityMode != .fast {
+                // Apple Foundation Models가 특정 자막의 2차 검수에서 locale 오류를
+                // 반환하는 경우가 있습니다. 번역 초안 자체는 유효하므로 검수를 생략해
+                // 같은 청크를 새 세션으로 한 번 더 처리합니다.
+                return try await translate(
+                    text,
+                    jobID: jobID,
+                    sourceLanguage: sourceLanguage,
+                    targetLanguage: targetLanguage,
+                    modelID: modelID,
+                    modelsURL: modelsURL,
+                    previousContext: [],
+                    nextContext: [],
+                    glossary: glossary,
+                    qualityMode: .fast,
+                    onPartialText: onPartialText
+                )
+            }
+            if unsupportedLocale {
+                return TranslationOutput(
+                    text: text,
+                    qualityStatus: .warning,
+                    qualityNotes: ["Apple 언어 모델이 이 구간의 언어를 지원하지 않아 원문을 보존했습니다."]
                 )
             }
             if reason.localizedCaseInsensitiveContains("unsafe") {
