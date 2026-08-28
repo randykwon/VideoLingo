@@ -374,3 +374,8 @@
 "AI 서비스 연결 복구 중… (%lld/%lld)" = "Recovering the AI service connection… (%lld/%lld)";
 "AI 서비스 재연결 중… (%lld/%lld)" = "Reconnecting to the AI service… (%lld/%lld)";
 "AI 서비스에 작업을 전달하지 못했습니다." = "Could not submit the job to the AI service.";
+
+/* Caption overlay controls */
+"자막 반투명하게" = "Make Captions Translucent";
+"자막 불투명하게" = "Make Captions Opaque";
+"자막 불투명도 %lld%%" = "Caption opacity %lld%%";
