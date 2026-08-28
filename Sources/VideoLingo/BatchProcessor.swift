@@ -66,6 +66,10 @@ final class BatchProcessor {
         }
     }
 
+    /// 대량 번역을 STT 레인과 번역 레인으로 나눠 처리하기 위한 단계 구분입니다.
+    /// STT는 ANE, 번역은 GPU/LLM을 주로 쓰므로 서로 기다리지 않게 분리하면 처리량이 오릅니다.
+    enum JobPhase { case stt, translation }
+
     struct Item: Identifiable {
         let id = UUID()
         let url: URL
@@ -83,6 +87,8 @@ final class BatchProcessor {
         var existingResult: ExistingResultState = .checking
         var message: String = ""
         var isProcessing = false
+        /// STT 레인을 통과해 번역 레인 차례를 기다리는 중인지.
+        var sttCompleted = false
 
         var isFinished: Bool { [.completed, .failed, .cancelled].contains(status) }
     }
@@ -127,6 +133,22 @@ final class BatchProcessor {
         case .nominal: return hardwareLimit
         @unknown default: return min(2, hardwareLimit)
         }
+    }
+
+    /// STT 레인 동시 실행 수입니다. 번역보다 가볍고 다른 연산 자원을 쓰므로 더 많이 돌립니다.
+    var maximumConcurrentSTTJobs: Int = {
+        let stored = UserDefaults.standard.integer(forKey: "batchMaximumConcurrentSTTJobs")
+        return stored == 0 ? 3 : min(10, max(1, stored))
+    }() {
+        didSet {
+            UserDefaults.standard.set(min(10, max(1, maximumConcurrentSTTJobs)), forKey: "batchMaximumConcurrentSTTJobs")
+        }
+    }
+
+    var effectiveSTTConcurrentJobs: Int {
+        automaticallyAdjustConcurrentJobs
+            ? min(4, max(2, recommendedConcurrentJobs + 1))
+            : maximumConcurrentSTTJobs
     }
 
     var effectiveConcurrentJobs: Int {
@@ -549,6 +571,7 @@ final class BatchProcessor {
         items[index].liveTranslationText = nil
         items[index].lastTranscriptText = nil
         items[index].lastTranslationText = nil
+        items[index].sttCompleted = false
         items[index].existingResult = .notFound
         items[index].message = message
         items[index].jobID = nil
@@ -720,7 +743,8 @@ final class BatchProcessor {
             }
             if items[index].status == .paused {
                 items[index].status = .queued
-                items[index].message = String(localized: "저장된 결과부터 다시 시작 대기 중")
+                items[index].sttCompleted = false
+        items[index].message = String(localized: "저장된 결과부터 다시 시작 대기 중")
             }
             guard !items[index].isProcessing else { continue }
             pausedItemIDs.remove(id)
@@ -805,6 +829,7 @@ final class BatchProcessor {
         items[index].liveTranslationText = nil
         items[index].lastTranscriptText = nil
         items[index].lastTranslationText = nil
+        items[index].sttCompleted = false
         items[index].message = String(localized: "저장된 결과부터 다시 시작 대기 중")
     }
 
