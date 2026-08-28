@@ -148,6 +148,8 @@ final class BatchProcessor {
     }
 
     private var options = ProcessingOptions()
+    /// 다음 실행에서 화자 분석을 다시 수행할 항목입니다. 요청을 보낼 때 소비합니다.
+    private var speakerReanalysisItemIDs: Set<UUID> = []
     private var connection: NSXPCConnection?
     private var runTask: Task<Void, Never>?
     private var folderScanTask: Task<Void, Never>?
@@ -493,6 +495,59 @@ final class BatchProcessor {
         items[index].jobID = nil
     }
 
+    /// 완료된 항목의 화자 이름을 다시 분석합니다.
+    /// 저장된 STT·번역은 그대로 두고 화자 분석 단계만 다시 실행하므로 빠릅니다.
+    func reanalyzeSpeakers(ids: [UUID]) {
+        guard !isRunning else { return }
+        for id in ids {
+            guard let index = items.firstIndex(where: { $0.id == id }), items[index].isFinished else { continue }
+            speakerReanalysisItemIDs.insert(id)
+            resetItemForRerun(at: index, message: String(localized: "화자 다시 분석 대기 중"))
+        }
+    }
+
+    /// 저장된 STT·번역 결과를 지우고 처음부터 다시 처리합니다.
+    /// 결과를 지우지 않으면 파이프라인이 저장된 청크를 건너뛰어 실제로 다시 하지 않습니다.
+    func redoFromScratch(ids: [UUID]) {
+        guard !isRunning else { return }
+        for id in ids {
+            guard let index = items.firstIndex(where: { $0.id == id }) else { continue }
+            let url = items[index].url
+            do {
+                let paths = try AppPaths()
+                let store = try JobStore(url: paths.database)
+                let jobID = AppModel.stableJobID(
+                    forPath: url.path,
+                    sttModel: options.sttModel,
+                    sourceLanguage: options.sourceLanguage ?? "",
+                    chunkDuration: options.chunkDuration
+                )
+                try? store.deleteJob(jobID: jobID)
+                try? MediaSidecarStore.deleteAllGeneratedResults(for: url)
+                speakerReanalysisItemIDs.remove(id)
+                resetItemForRerun(at: index, message: String(localized: "STT·번역 다시 하기 대기 중"))
+            } catch {
+                items[index].message = error.localizedDescription
+            }
+        }
+    }
+
+    private func resetItemForRerun(at index: Int, message: String) {
+        items[index].status = .queued
+        items[index].progress = 0
+        items[index].sttProgress = 0
+        items[index].translationProgress = 0
+        items[index].currentChunk = 0
+        items[index].totalChunks = 0
+        items[index].liveTranscriptText = nil
+        items[index].liveTranslationText = nil
+        items[index].lastTranscriptText = nil
+        items[index].lastTranslationText = nil
+        items[index].existingResult = .notFound
+        items[index].message = message
+        items[index].jobID = nil
+    }
+
     // MARK: 실행
 
     func refreshExistingResults() {
@@ -824,17 +879,22 @@ final class BatchProcessor {
             try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
             let bookmark = try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
             let needsAlternateDirectory = needsAlternateResultDirectory(url)
+            // 화자 다시 분석 요청은 이번 실행에서만 적용하고 바로 소비합니다.
+            var itemOptions = options
+            if speakerReanalysisItemIDs.remove(itemID) != nil {
+                itemOptions.forceSpeakerReanalysis = true
+            }
             let request = StartJobRequest(
                 jobID: jobID,
                 mediaURL: url,
                 securityScopedBookmark: bookmark,
-                options: options,
+                options: itemOptions,
                 databaseURL: paths.database,
                 workspaceURL: workspace,
                 alternateResultDirectoryURL: needsAlternateDirectory ? alternateResultDirectoryURL : nil,
                 alternateResultDirectoryBookmark: needsAlternateDirectory ? alternateResultDirectoryBookmark : nil
             )
-            try JobStore(url: paths.database).createJob(id: jobID, mediaURL: url, options: options)
+            try JobStore(url: paths.database).createJob(id: jobID, mediaURL: url, options: itemOptions)
             items[requestIndex].status = .queued
             items[requestIndex].message = String(localized: "AI 서비스에 작업 전달 중")
 
@@ -1061,6 +1121,14 @@ struct BatchTranslationView: View {
                                     duplicateNameCount: processor.duplicateNameCount(for: item.id),
                                     onRetry: { processor.retry(item.id) },
                                     onRestart: { requestStart(ids: [item.id]) },
+                                    onReanalyzeSpeakers: {
+                                        processor.reanalyzeSpeakers(ids: [item.id])
+                                        requestStart(ids: [item.id])
+                                    },
+                                    onRedoFromScratch: {
+                                        processor.redoFromScratch(ids: [item.id])
+                                        requestStart(ids: [item.id])
+                                    },
                                     onPause: { processor.pause(ids: [item.id]) },
                                     onCancel: { processor.stop(ids: [item.id]) },
                                     onRemove: { requestRemoval(ids: [item.id]) },
@@ -1865,6 +1933,8 @@ private struct BatchTranslationRow: View {
     let duplicateNameCount: Int
     let onRetry: () -> Void
     let onRestart: () -> Void
+    let onReanalyzeSpeakers: () -> Void
+    let onRedoFromScratch: () -> Void
     let onPause: () -> Void
     let onCancel: () -> Void
     let onRemove: () -> Void
@@ -1948,6 +2018,10 @@ private struct BatchTranslationRow: View {
         .contextMenu {
             Button("재시작", systemImage: "arrow.clockwise", action: onRestart)
                 .disabled(!canRestart)
+            Button("화자 다시 분석", systemImage: "person.text.rectangle", action: onReanalyzeSpeakers)
+                .disabled(!canRerun)
+            Button("STT·번역 다시 하기", systemImage: "arrow.trianglehead.2.clockwise.rotate.90", role: .destructive, action: onRedoFromScratch)
+                .disabled(!canRerun)
             Button("일시 정지", systemImage: "pause.fill", action: onPause)
                 .disabled(!canPause)
             Button("취소", systemImage: "stop.fill", role: .destructive, action: onCancel)
