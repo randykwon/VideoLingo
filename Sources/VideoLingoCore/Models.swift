@@ -34,6 +34,8 @@ public struct ProcessingOptions: Codable, Sendable, Equatable {
     public var qualityMode: ProcessingQualityMode?
     public var glossary: [GlossaryEntry]?
     public var continuousImprovement: Bool?
+    /// 화자 이름이 이미 적용된 결과에도 화자 분석을 다시 실행합니다.
+    public var forceSpeakerReanalysis: Bool?
     public var maximumRefinementPasses: Int?
 
     public init(
@@ -46,6 +48,7 @@ public struct ProcessingOptions: Codable, Sendable, Equatable {
         qualityMode: ProcessingQualityMode = .enhanced,
         glossary: [GlossaryEntry] = [],
         continuousImprovement: Bool = true,
+        forceSpeakerReanalysis: Bool = false,
         maximumRefinementPasses: Int = 3
     ) {
         self.sourceLanguage = sourceLanguage
@@ -57,6 +60,7 @@ public struct ProcessingOptions: Codable, Sendable, Equatable {
         self.qualityMode = qualityMode
         self.glossary = glossary
         self.continuousImprovement = continuousImprovement
+        self.forceSpeakerReanalysis = forceSpeakerReanalysis
         self.maximumRefinementPasses = maximumRefinementPasses
     }
 }

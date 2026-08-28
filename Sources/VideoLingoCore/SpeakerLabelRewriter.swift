@@ -12,6 +12,31 @@ public enum SpeakerLabelRewriter {
         return found.sorted(by: speakerLabelOrder)
     }
 
+    /// 이미 실제 이름·역할로 바뀐 라벨까지 포함해 모든 화자 라벨을 찾습니다.
+    /// 화자 분석을 다시 실행할 때는 `[화자 N]` 형태가 남아 있지 않으므로 현재 라벨을 기준으로 재분석합니다.
+    public static func allSpeakerLabels(in transcripts: [TranscriptSegment]) -> [String] {
+        var found = Set<String>()
+        for segment in transcripts {
+            for value in allLabels(in: segment.text) { found.insert(value) }
+            for cue in segment.cues ?? [] {
+                for value in allLabels(in: cue.text) { found.insert(value) }
+            }
+        }
+        return found.sorted(by: speakerLabelOrder)
+    }
+
+    private static func allLabels(in text: String) -> [String] {
+        // 줄 맨 앞의 대괄호 라벨만 화자로 취급합니다. 본문 중간의 대괄호는 제외합니다.
+        let pattern = #"(?m)^\s*\[([^\[\]\n]{1,40})\]"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        return expression.matches(in: text, range: range).compactMap { match in
+            guard let valueRange = Range(match.range(at: 1), in: text) else { return nil }
+            let value = String(text[valueRange]).trimmingCharacters(in: .whitespaces)
+            return value.isEmpty ? nil : value
+        }
+    }
+
     public static func rewrite(_ segment: TranscriptSegment, using mapping: [String: String]) -> TranscriptSegment {
         TranscriptSegment(
             id: segment.id,
