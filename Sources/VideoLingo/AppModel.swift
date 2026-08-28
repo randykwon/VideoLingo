@@ -1037,11 +1037,18 @@ final class AppModel {
     }
 
     func revealOutput() {
-        guard let resultDirectoryURL else { return }
-        if !FileManager.default.fileExists(atPath: resultDirectoryURL.path) {
-            try? FileManager.default.createDirectory(at: resultDirectoryURL, withIntermediateDirectories: true)
+        // 원본 옆에 저장하지 못한 경우 앱 관리 폴더에 결과가 있으므로 실제 위치를 우선 엽니다.
+        let target = mediaURL.flatMap { MediaSidecarStore.existingResultsDirectoryURL(for: $0) }
+            ?? resultDirectoryURL
+        guard let target else { return }
+        if !FileManager.default.fileExists(atPath: target.path) {
+            guard (try? FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)) != nil else {
+                errorMessage = String(localized: "결과 폴더를 열 수 없습니다. 저장 권한을 확인하세요.")
+                return
+            }
         }
-        NSWorkspace.shared.activateFileViewerSelecting([resultDirectoryURL])
+        resultDirectoryURL = target
+        NSWorkspace.shared.activateFileViewerSelecting([target])
     }
 
     private func connectService() {
@@ -1334,7 +1341,8 @@ final class AppModel {
         transcript = []
         translations = [:]
         processingChunkDuration = ProcessingOptions.defaultChunkDuration
-        resultDirectoryURL = MediaSidecarStore.directoryURL(for: url)
+        resultDirectoryURL = MediaSidecarStore.existingResultsDirectoryURL(for: url)
+            ?? MediaSidecarStore.directoryURL(for: url)
         errorMessage = nil
 
         do {
@@ -1461,7 +1469,8 @@ final class AppModel {
         databaseURL = paths.database
         let workspace = paths.workspace(for: jobID)
         workspaceURL = workspace
-        resultDirectoryURL = MediaSidecarStore.directoryURL(for: mediaURL)
+        resultDirectoryURL = MediaSidecarStore.existingResultsDirectoryURL(for: mediaURL)
+            ?? MediaSidecarStore.directoryURL(for: mediaURL)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
         let bookmark = try? mediaURL.bookmarkData(
             options: [.withSecurityScope],
