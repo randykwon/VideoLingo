@@ -368,7 +368,7 @@ final class AppModel {
             selectedLanguage = targetLanguages.first ?? selectedLanguage
         }
         sttModel = options.sttModel
-        translationModel = options.translationModel
+        applyRestoredTranslationModel(options.translationModel)
         if let batchQualityMode = options.qualityMode {
             qualityMode = batchQualityMode
         }
@@ -1421,6 +1421,13 @@ final class AppModel {
         return id
     }
 
+    /// 저장된 작업의 번역 모델을 복원하되, 사용자가 이미 Apple Intelligence에서 옮겨 갔다면 되돌리지 않습니다.
+    /// 시스템이 Apple Intelligence 모델 자산을 회수하면 앱에서 복구할 수 없어, 다시 선택되면 작업이 전부 실패합니다.
+    private func applyRestoredTranslationModel(_ restored: String) {
+        if restored == "apple-foundation-models", translationModel != "apple-foundation-models" { return }
+        translationModel = restored
+    }
+
     /// 기본 번역 모델입니다. Apple Intelligence는 시스템이 모델 자산을 임의로 회수하면
     /// 앱에서 복구할 방법이 없어, 앱이 직접 내려받아 관리하는 Qwen을 기본으로 씁니다.
     static let defaultTranslationModel = "mlx-community/Qwen3-8B-4bit"
@@ -1515,7 +1522,7 @@ final class AppModel {
             selectedLanguage = targetLanguages[0]
         }
         sttModel = options.sttModel
-        translationModel = options.translationModel
+        applyRestoredTranslationModel(options.translationModel)
         synthesizeSpeech = options.synthesizeSpeech
         qualityMode = options.qualityMode ?? .fast
         glossaryText = (options.glossary ?? []).map { "\($0.source)=\($0.target)" }.joined(separator: "\n")
