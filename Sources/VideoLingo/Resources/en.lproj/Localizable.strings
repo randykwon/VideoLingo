@@ -379,3 +379,7 @@
 "자막 반투명하게" = "Make Captions Translucent";
 "자막 불투명하게" = "Make Captions Opaque";
 "자막 불투명도 %lld%%" = "Caption opacity %lld%%";
+"화자 다시 분석" = "Re-analyze Speakers";
+"STT·번역 다시 하기" = "Redo STT · Translation";
+"화자 다시 분석 대기 중" = "Waiting to re-analyze speakers";
+"STT·번역 다시 하기 대기 중" = "Waiting to redo STT · translation";

@@ -1939,6 +1939,8 @@ private struct BatchTranslationRow: View {
     let onCancel: () -> Void
     let onRemove: () -> Void
     let canRestart: Bool
+    /// 이미 결과가 있는 항목을 다시 처리할 수 있는지. 완료 항목도 포함합니다.
+    private var canRerun: Bool { item.isFinished && !item.isProcessing }
     let canPause: Bool
     let canCancel: Bool
     let onShowDetails: () -> Void
