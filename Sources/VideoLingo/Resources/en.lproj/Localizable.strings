@@ -370,3 +370,7 @@
 "%@ 다운로드를 시작했습니다." = "Started downloading %@.";
 "%@ 모델 파일을 삭제했습니다." = "Deleted the %@ model file.";
 "완료 숨기기" = "Hide Completed";
+"AI 서비스 응답이 없어 자동 복구에 실패했습니다. 저장된 결과에서 다시 시작할 수 있습니다." = "The AI service stopped responding and automatic recovery failed. You can resume from the saved results.";
+"AI 서비스 연결 복구 중… (%lld/%lld)" = "Recovering the AI service connection… (%lld/%lld)";
+"AI 서비스 재연결 중… (%lld/%lld)" = "Reconnecting to the AI service… (%lld/%lld)";
+"AI 서비스에 작업을 전달하지 못했습니다." = "Could not submit the job to the AI service.";

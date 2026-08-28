@@ -42,6 +42,10 @@ private enum BatchListFilter: String, CaseIterable, Identifiable {
 final class BatchProcessor {
     static let shared = BatchProcessor()
 
+    private static let snapshotPollingInterval = Duration.seconds(2)
+    private static let missingSnapshotRecoveryThreshold = 3
+    private static let maximumServiceRecoveryAttempts = 3
+
     struct DuplicateFilenameGroup: Identifiable {
         let id: String
         let displayName: String
@@ -744,19 +748,22 @@ final class BatchProcessor {
     }
 
     private func runQueue() async {
-        let concurrency = effectiveConcurrentJobs
         await withTaskGroup(of: Void.self) { group in
             var activeTasks = 0
             while !Task.isCancelled {
                 while !isPaused,
-                      activeTasks < concurrency,
+                      activeTasks < effectiveConcurrentJobs,
                       let index = items.firstIndex(where: {
                           scheduledItemIDs.contains($0.id) && !$0.isFinished && !$0.isProcessing
                       }) {
                     let itemID = items[index].id
                     items[index].isProcessing = true
-                    activeTasks += 1
-                    group.addTask { [weak self] in await self?.process(itemID) }
+                    if group.addTaskUnlessCancelled(operation: { [weak self] in await self?.process(itemID) }) {
+                        activeTasks += 1
+                    } else {
+                        items[index].isProcessing = false
+                        break
+                    }
                 }
                 if isPaused {
                     let hasWaitingWork = items.contains {
@@ -795,7 +802,7 @@ final class BatchProcessor {
             }
         }
         let url = items[initialIndex].url
-        guard let service = service() else {
+        guard service() != nil else {
             if let index = items.firstIndex(where: { $0.id == itemID }) {
                 items[index].status = .failed
                 items[index].message = String(localized: "내장 AI 서버에 연결할 수 없습니다.")
@@ -831,12 +838,36 @@ final class BatchProcessor {
             items[requestIndex].status = .queued
             items[requestIndex].message = String(localized: "AI 서비스에 작업 전달 중")
 
-            _ = try await send(service, payload: WireCodec.encode(request))
+            let payload = try WireCodec.encode(request)
+            var service = try await sendWithRecovery(payload: payload, itemID: itemID)
+            var consecutiveMissingSnapshots = 0
+            var recoveryAttempts = 0
 
             while !Task.isCancelled {
                 // 고빈도 실시간 갱신은 재설계 전까지 중단하고 저빈도 상태 확인만 유지합니다.
-                try? await Task.sleep(for: .seconds(2))
-                guard let snapshot = await snapshot(service, jobID: jobID) else { continue }
+                try await Task.sleep(for: Self.snapshotPollingInterval)
+                guard let snapshot = await snapshot(service, jobID: jobID) else {
+                    consecutiveMissingSnapshots += 1
+                    guard consecutiveMissingSnapshots >= Self.missingSnapshotRecoveryThreshold else { continue }
+
+                    recoveryAttempts += 1
+                    guard recoveryAttempts <= Self.maximumServiceRecoveryAttempts else {
+                        throw NSError(
+                            domain: "VideoLingo.BatchProcessor",
+                            code: 2,
+                            userInfo: [NSLocalizedDescriptionKey: String(localized: "AI 서비스 응답이 없어 자동 복구에 실패했습니다. 저장된 결과에서 다시 시작할 수 있습니다.")]
+                        )
+                    }
+                    if let index = items.firstIndex(where: { $0.id == itemID }) {
+                        items[index].message = String(localized: "AI 서비스 연결 복구 중… ((recoveryAttempts)/(Self.maximumServiceRecoveryAttempts))")
+                    }
+                    resetServiceConnection()
+                    try await Task.sleep(for: recoveryDelay(for: recoveryAttempts))
+                    service = try await sendWithRecovery(payload: payload, itemID: itemID)
+                    consecutiveMissingSnapshots = 0
+                    continue
+                }
+                consecutiveMissingSnapshots = 0
                 guard let index = items.firstIndex(where: { $0.id == itemID }) else {
                     service.cancelJob(jobID.uuidString) { _ in }
                     break
@@ -900,12 +931,64 @@ final class BatchProcessor {
         if connection == nil {
             let connection = NSXPCConnection(serviceName: "com.vvv.VideoLingo.AIService")
             connection.remoteObjectInterface = NSXPCInterface(with: VideoLingoAIServiceProtocol.self)
-            connection.invalidationHandler = { [weak self] in Task { @MainActor in self?.connection = nil } }
-            connection.interruptionHandler = { [weak self] in Task { @MainActor in self?.connection = nil } }
+            connection.invalidationHandler = { [weak self, weak connection] in
+                Task { @MainActor in
+                    guard let self, self.connection === connection else { return }
+                    self.connection = nil
+                }
+            }
+            connection.interruptionHandler = { [weak self, weak connection] in
+                Task { @MainActor in
+                    guard let self, self.connection === connection else { return }
+                    self.connection = nil
+                }
+            }
             connection.resume()
             self.connection = connection
         }
         return connection?.remoteObjectProxyWithErrorHandler { _ in } as? VideoLingoAIServiceProtocol
+    }
+
+    private func resetServiceConnection() {
+        let oldConnection = connection
+        connection = nil
+        oldConnection?.invalidate()
+    }
+
+    private func recoveryDelay(for attempt: Int) -> Duration {
+        .seconds(min(4, 1 << max(0, attempt - 1)))
+    }
+
+    private func sendWithRecovery(payload: Data, itemID: UUID) async throws -> VideoLingoAIServiceProtocol {
+        var lastError: Error?
+        for attempt in 0...Self.maximumServiceRecoveryAttempts {
+            try Task.checkCancellation()
+            guard let service = service() else {
+                lastError = NSError(
+                    domain: "VideoLingo.BatchProcessor",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: String(localized: "내장 AI 서버에 연결할 수 없습니다.")]
+                )
+                continue
+            }
+            do {
+                _ = try await send(service, payload: payload)
+                return service
+            } catch {
+                lastError = error
+                guard attempt < Self.maximumServiceRecoveryAttempts else { break }
+                if let index = items.firstIndex(where: { $0.id == itemID }) {
+                    items[index].message = String(localized: "AI 서비스 재연결 중… ((attempt + 1)/(Self.maximumServiceRecoveryAttempts))")
+                }
+                resetServiceConnection()
+                try await Task.sleep(for: recoveryDelay(for: attempt + 1))
+            }
+        }
+        throw lastError ?? NSError(
+            domain: "VideoLingo.BatchProcessor",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: String(localized: "AI 서비스에 작업을 전달하지 못했습니다.")]
+        )
     }
 
     private func send(_ service: VideoLingoAIServiceProtocol, payload: Data) async throws {
