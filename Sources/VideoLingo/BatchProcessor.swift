@@ -236,7 +236,9 @@ final class BatchProcessor {
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
+        PanelLocationMemory.restore(into: panel, purpose: .batchResultDirectory)
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        PanelLocationMemory.remember(url, purpose: .batchResultDirectory)
         guard let bookmark = try? url.bookmarkData(
             options: [.withSecurityScope],
             includingResourceValuesForKeys: nil,
@@ -301,7 +303,9 @@ final class BatchProcessor {
         panel.title = String(localized: "일괄 처리할 MP4 영상을 선택하세요")
         panel.allowedContentTypes = [.mpeg4Movie, .movie, .audiovisualContent]
         panel.allowsMultipleSelection = true
+        PanelLocationMemory.restore(into: panel, purpose: .batchFiles)
         guard panel.runModal() == .OK else { return }
+        PanelLocationMemory.remember(first: panel.urls, purpose: .batchFiles)
         add(panel.urls)
     }
 
@@ -312,7 +316,9 @@ final class BatchProcessor {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
+        PanelLocationMemory.restore(into: panel, purpose: .batchFolders)
         guard panel.runModal() == .OK else { return }
+        PanelLocationMemory.remember(first: panel.urls, purpose: .batchFolders)
         scanFolders(panel.urls)
     }
 

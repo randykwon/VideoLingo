@@ -356,7 +356,9 @@ final class AppModel {
         panel.title = String(localized: "번역할 MP4 영상을 선택하세요")
         panel.allowedContentTypes = [.mpeg4Movie, .movie, .audiovisualContent]
         panel.allowsMultipleSelection = false
+        PanelLocationMemory.restore(into: panel, purpose: .video)
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        PanelLocationMemory.remember(url, purpose: .video)
         loadVideo(url, remember: true)
     }
 
@@ -948,8 +950,10 @@ final class AppModel {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "\(mediaURL?.deletingPathExtension().lastPathComponent ?? "subtitle")-\(selectedLanguage).srt"
         panel.directoryURL = resultDirectoryURL
+        PanelLocationMemory.restore(into: panel, purpose: .export)
         panel.allowedContentTypes = [.init(filenameExtension: "srt")!]
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        PanelLocationMemory.remember(url, purpose: .export)
         do {
             try SubtitleExporter.srt(transcript: transcript, translations: translations).write(to: url, atomically: true, encoding: .utf8)
         } catch {
@@ -971,8 +975,10 @@ final class AppModel {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "\(mediaURL.deletingPathExtension().lastPathComponent).videolingo"
         panel.directoryURL = resultDirectoryURL
+        PanelLocationMemory.restore(into: panel, purpose: .export)
         panel.allowedContentTypes = [.videoLingoPackage]
         guard panel.runModal() == .OK, let destination = panel.url else { return }
+        PanelLocationMemory.remember(destination, purpose: .export)
 
         let transcriptTrack = VideoLingoCaptionTrack(
             id: "transcript-\(sourceLanguage.isEmpty ? "auto" : sourceLanguage)",
