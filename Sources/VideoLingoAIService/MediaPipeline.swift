@@ -43,6 +43,15 @@ final class MediaPipeline: @unchecked Sendable {
             let modelsURL = request.databaseURL.deletingLastPathComponent().appending(path: "Models", directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: modelsURL, withIntermediateDirectories: true)
 
+            // 디스크가 가득 차면 macOS가 Apple Intelligence 모델 자산을 회수해 번역이 통째로 불가능해집니다.
+            // 그 상태로 수백 건을 실패시키지 않도록 시작 전에 막습니다.
+            if let free = try? request.workspaceURL.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+                .volumeAvailableCapacityForImportantUsage, free < 3_000_000_000 {
+                throw VideoLingoError.modelUnavailable(
+                    "디스크 여유 공간이 부족합니다(약 \(free / 1_000_000_000)GB). 공간을 확보한 뒤 다시 시작하세요."
+                )
+            }
+
             let store = try JobStore(url: request.databaseURL)
             try store.createJob(id: request.jobID, mediaURL: mediaURL, options: request.options)
             snapshot = try store.snapshot(jobID: request.jobID) ?? snapshot
