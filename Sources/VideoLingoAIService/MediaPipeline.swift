@@ -4,7 +4,7 @@ import VideoLingoCore
 
 final class MediaPipeline: @unchecked Sendable {
     private let stt = WhisperSTTEngine()
-    private let translator = FoundationTranslationEngine()
+    private let translator = FoundationTranslationEngine.shared
     private let tts = LocalTTSEngine()
     private let onSnapshot: @Sendable (JobSnapshot) -> Void
     private let onLiveTranscript: @Sendable (UUID, Int, Int, String) -> Void

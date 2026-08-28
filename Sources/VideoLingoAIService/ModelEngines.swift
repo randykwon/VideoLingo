@@ -246,6 +246,11 @@ final class WhisperSTTEngine: @unchecked Sendable {
 }
 
 actor FoundationTranslationEngine {
+    /// 여러 작업이 동시에 실행돼도 Apple Foundation Models 호출은 하나씩 처리합니다.
+    /// 작업마다 별도 인스턴스를 만들면 동시 세션이 늘어 모델이 리소스 오류를 반환합니다.
+    /// 온디바이스 모델은 이미 연산 자원을 포화시키므로 동시 호출로 처리량이 늘지도 않습니다.
+    static let shared = FoundationTranslationEngine()
+
     struct TranslationOutput: Sendable {
         let text: String
         let qualityStatus: SegmentQualityStatus
@@ -469,7 +474,7 @@ actor FoundationTranslationEngine {
             if attempt < 2 {
                 return try await retry(dropContext: attempt >= 1, delay: .milliseconds(400), downgrade: attempt >= 1)
             }
-            return try skipSegment(note: "번역 실패 · \(error.localizedDescription)")
+            return try skipSegment(note: "번역 실패 · \(diagnosticDescription(error))")
         }
 
         switch generation {
@@ -492,8 +497,30 @@ actor FoundationTranslationEngine {
             return try skipSegment(note: "모델 응답을 해석하지 못해 이 구간을 건너뛰었습니다.")
         @unknown default:
             if attempt < 2 { return try await retry(dropContext: true, delay: .milliseconds(400), downgrade: true) }
-            return try skipSegment(note: "번역 실패 · \(generation.localizedDescription)")
+            return try skipSegment(note: "번역 실패 · \(diagnosticDescription(error))")
         }
+    }
+
+    /// 실패 원인을 특정할 수 있도록 오류의 실제 타입과 케이스를 남깁니다.
+    /// localizedDescription만으로는 어떤 GenerationError인지 알 수 없어 진단이 불가능했습니다.
+    private func diagnosticDescription(_ error: Error) -> String {
+        guard let generation = error as? LanguageModelSession.GenerationError else {
+            return "\(type(of: error)) · \(error.localizedDescription)"
+        }
+        let name: String
+        switch generation {
+        case .exceededContextWindowSize: name = "exceededContextWindowSize"
+        case .assetsUnavailable: name = "assetsUnavailable"
+        case .guardrailViolation: name = "guardrailViolation"
+        case .unsupportedGuide: name = "unsupportedGuide"
+        case .unsupportedLanguageOrLocale: name = "unsupportedLanguageOrLocale"
+        case .decodingFailure: name = "decodingFailure"
+        case .rateLimited: name = "rateLimited"
+        case .concurrentRequests: name = "concurrentRequests"
+        case .refusal: name = "refusal"
+        @unknown default: name = "unknown"
+        }
+        return "GenerationError.\(name) · \(generation.localizedDescription)"
     }
 
     /// 회복하지 못한 구간은 비워 두어 '번역 대기 중'으로 남깁니다. 기존 미번역 재시도 기능이
