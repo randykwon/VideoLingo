@@ -43,7 +43,7 @@ public struct ProcessingOptions: Codable, Sendable, Equatable {
         targetLanguages: [String] = ["ko"],
         chunkDuration: TimeInterval = ProcessingOptions.defaultChunkDuration,
         sttModel: String = "large-v3-v20240930_626MB",
-        translationModel: String = "apple-foundation-models",
+        translationModel: String = "mlx-community/Qwen3-4B-4bit",
         synthesizeSpeech: Bool = false,
         qualityMode: ProcessingQualityMode = .enhanced,
         glossary: [GlossaryEntry] = [],

@@ -35,7 +35,7 @@ final class AppModel {
     var sttModel = UserDefaults.standard.string(forKey: "sttModel") ?? "large-v3-v20240930_626MB" {
         didSet { UserDefaults.standard.set(sttModel, forKey: "sttModel") }
     }
-    var translationModel = UserDefaults.standard.string(forKey: "translationModel") ?? "apple-foundation-models" {
+    var translationModel = AppModel.initialTranslationModel() {
         didSet { UserDefaults.standard.set(translationModel, forKey: "translationModel") }
     }
     var synthesizeSpeech = false
@@ -1419,6 +1419,25 @@ final class AppModel {
         let id = UUID()
         UserDefaults.standard.set(id.uuidString, forKey: key)
         return id
+    }
+
+    /// 기본 번역 모델입니다. Apple Intelligence는 시스템이 모델 자산을 임의로 회수하면
+    /// 앱에서 복구할 방법이 없어, 앱이 직접 내려받아 관리하는 Qwen을 기본으로 씁니다.
+    static let defaultTranslationModel = "mlx-community/Qwen3-4B-4bit"
+
+    /// 저장된 값을 쓰되, 예전 기본값(Apple Intelligence)에 머물러 있던 사용자는 한 번만 Qwen으로 옮깁니다.
+    static func initialTranslationModel() -> String {
+        let defaults = UserDefaults.standard
+        let stored = defaults.string(forKey: "translationModel")
+        let migrated = defaults.bool(forKey: "translationModelMigratedToQwen")
+        if !migrated {
+            defaults.set(true, forKey: "translationModelMigratedToQwen")
+            if stored == nil || stored == "apple-foundation-models" {
+                defaults.set(defaultTranslationModel, forKey: "translationModel")
+                return defaultTranslationModel
+            }
+        }
+        return stored ?? defaultTranslationModel
     }
 
     /// 배치 처리 등에서 파일 경로 기반으로 단일 창과 동일한 안정적 jobID를 얻습니다.
