@@ -519,13 +519,6 @@ private struct ViewingSidebarView: View {
         model.player.timeControlStatus == .playing ? "pause.fill" : "play.fill"
     }
 
-    private var volumeBinding: Binding<Double> {
-        Binding(
-            get: { Double(model.player.volume) },
-            set: { model.player.volume = Float($0) }
-        )
-    }
-
     private var duration: TimeInterval {
         let seconds = model.player.currentItem?.duration.seconds ?? 0
         return seconds.isFinite ? seconds : 0
