@@ -22,15 +22,15 @@ struct BatchTrashResult: Sendable {
 }
 
 private enum BatchListFilter: String, CaseIterable, Identifiable {
-    case all
     case active
+    case all
     case completed
 
     var id: Self { self }
     var title: String {
         switch self {
+        case .active: "완료 숨기기"
         case .all: "전체"
-        case .active: "진행·대기"
         case .completed: "번역 완료"
         }
     }
@@ -937,7 +937,7 @@ struct BatchTranslationView: View {
     @State private var showingDuplicateCleanupConfirmation = false
     @State private var showingStartConfirmation = false
     @State private var pendingStartIDs: Set<UUID> = []
-    @State private var listFilter: BatchListFilter = .all
+    @AppStorage("batchListFilter") private var listFilter: BatchListFilter = .active
 
     var body: some View {
         @Bindable var processor = processor
