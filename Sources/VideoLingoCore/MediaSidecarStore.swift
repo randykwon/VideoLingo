@@ -29,19 +29,81 @@ public final class MediaSidecarStore: @unchecked Sendable {
     }
 
     public let directoryURL: URL
+    /// 원본 옆에 저장하지 못해 앱 관리 폴더로 대체했는지 여부입니다.
+    public private(set) var usesManagedFallback = false
     private let jobID: UUID
     private let sttModel: String
     private let sourceLanguage: String?
     private let lock = NSLock()
 
+    /// 결과를 저장할 폴더를 정합니다. 원본 영상 옆(또는 지정한 대체 폴더)에 쓸 수 없으면
+    /// 앱이 관리하는 폴더로 자동 대체합니다. 예전에는 여기서 실패하면 작업 전체가 중단됐습니다.
     public init(mediaURL: URL, jobID: UUID, sttModel: String, sourceLanguage: String?, alternateRootURL: URL? = nil) throws {
-        directoryURL = alternateRootURL.map {
-            Self.alternateDirectoryURL(for: mediaURL, jobID: jobID, rootURL: $0)
-        } ?? Self.directoryURL(for: mediaURL)
         self.jobID = jobID
         self.sttModel = sttModel
         self.sourceLanguage = sourceLanguage
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let preferred = alternateRootURL.map {
+            Self.alternateDirectoryURL(for: mediaURL, jobID: jobID, rootURL: $0)
+        } ?? Self.directoryURL(for: mediaURL)
+        if let usable = Self.prepareWritableDirectory(preferred) {
+            directoryURL = usable
+            return
+        }
+        let fallback = Self.managedDirectoryURL(for: mediaURL, jobID: jobID)
+        guard let usable = Self.prepareWritableDirectory(fallback) else {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        directoryURL = usable
+        self.usesManagedFallback = true
+    }
+
+    /// 폴더를 만들고 실제로 쓸 수 있는지까지 확인합니다. 폴더가 이미 있어도 읽기 전용일 수 있습니다.
+    private static func prepareWritableDirectory(_ url: URL) -> URL? {
+        let fileManager = FileManager.default
+        do {
+            try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        } catch {
+            return nil
+        }
+        return fileManager.isWritableFile(atPath: url.path) ? url : nil
+    }
+
+    /// 원본 옆에 저장할 수 없을 때 사용하는 앱 관리 결과 폴더입니다.
+    public static func managedResultsRootURL() -> URL {
+        let support = (try? FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
+        )) ?? URL.temporaryDirectory
+        return support
+            .appending(path: "VideoLingo", directoryHint: .isDirectory)
+            .appending(path: "Results", directoryHint: .isDirectory)
+    }
+
+    public static func managedDirectoryURL(for mediaURL: URL, jobID: UUID) -> URL {
+        alternateDirectoryURL(for: mediaURL, jobID: jobID, rootURL: managedResultsRootURL())
+    }
+
+    /// 이 영상의 결과가 있을 수 있는 모든 폴더입니다. 원본 옆을 먼저 보고, 없으면 앱 관리 폴더를 찾습니다.
+    public static func resultDirectoryCandidates(for mediaURL: URL) -> [URL] {
+        let fileManager = FileManager.default
+        var candidates: [URL] = []
+        let beside = directoryURL(for: mediaURL)
+        if fileManager.fileExists(atPath: beside.path) { candidates.append(beside) }
+        let root = managedResultsRootURL()
+        let prefix = mediaURL.deletingPathExtension().lastPathComponent + "-"
+        if let entries = try? fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) {
+            candidates.append(contentsOf: entries.filter {
+                $0.pathExtension == "videolingo" && $0.lastPathComponent.hasPrefix(prefix)
+            })
+        }
+        return candidates
+    }
+
+    /// 실제로 결과가 저장된 폴더입니다. 결과 폴더 열기 같은 UI에서 사용합니다.
+    public static func existingResultsDirectoryURL(for mediaURL: URL) -> URL? {
+        resultDirectoryCandidates(for: mediaURL).first {
+            guard let files = try? FileManager.default.contentsOfDirectory(atPath: $0.path) else { return false }
+            return files.contains { $0.hasPrefix("stt-") || $0.hasPrefix("translation-") }
+        }
     }
 
     public static func directoryURL(for mediaURL: URL) -> URL {
@@ -62,9 +124,11 @@ public final class MediaSidecarStore: @unchecked Sendable {
         preferredLanguage: String,
         preferredTranslationModel: String
     ) throws -> DiscoveredMediaSidecar? {
-        let directoryURL = directoryURL(for: mediaURL)
-        guard FileManager.default.fileExists(atPath: directoryURL.path) else { return nil }
-        let files = try FileManager.default.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: nil)
+        // 원본 옆과 앱 관리 폴더를 모두 살펴, 가장 최근에 저장된 결과를 사용합니다.
+        let files = resultDirectoryCandidates(for: mediaURL).flatMap {
+            (try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? []
+        }
+        guard !files.isEmpty else { return nil }
         let transcriptDocuments = files
             .filter { $0.pathExtension == "json" && $0.lastPathComponent.hasPrefix("stt-") }
             .compactMap { try? WireCodec.decode(TranscriptDocument.self, from: Data(contentsOf: $0)) }
@@ -200,11 +264,11 @@ public final class MediaSidecarStore: @unchecked Sendable {
     }
 
     public static func deleteAllGeneratedResults(for mediaURL: URL) throws {
-        let directoryURL = directoryURL(for: mediaURL)
-        guard FileManager.default.fileExists(atPath: directoryURL.path) else { return }
-        let files = try FileManager.default.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: nil)
-        for url in files where url.lastPathComponent.hasPrefix("stt-") || url.lastPathComponent.hasPrefix("translation-") {
-            try FileManager.default.removeItem(at: url)
+        for directoryURL in resultDirectoryCandidates(for: mediaURL) {
+            let files = (try? FileManager.default.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: nil)) ?? []
+            for url in files where url.lastPathComponent.hasPrefix("stt-") || url.lastPathComponent.hasPrefix("translation-") {
+                try? FileManager.default.removeItem(at: url)
+            }
         }
     }
 
