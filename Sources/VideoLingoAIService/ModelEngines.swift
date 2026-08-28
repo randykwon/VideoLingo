@@ -262,6 +262,7 @@ actor FoundationTranslationEngine {
     }
 
     private var mlxContainers: [String: ModelContainer] = [:]
+    private var translationFailureStreak = 0
 
     func resolveSpeakerNames(
         in transcripts: [TranscriptSegment],
@@ -343,6 +344,7 @@ actor FoundationTranslationEngine {
         nextContext: [String],
         glossary: [GlossaryEntry],
         qualityMode: ProcessingQualityMode,
+        attempt: Int = 0,
         onPartialText: @escaping @Sendable (String) -> Void
     ) async throws -> TranslationOutput {
         guard !text.isEmpty else { return TranslationOutput(text: "", qualityStatus: .good, qualityNotes: []) }
@@ -390,66 +392,118 @@ actor FoundationTranslationEngine {
                 translated = partial.content.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !translated.isEmpty { onPartialText(translated) }
             }
+            translationFailureStreak = 0
             return try await finalizeTranslation(
                 source: text, draft: translated, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage,
                 modelID: modelID, modelsURL: modelsURL, glossary: glossary, qualityMode: qualityMode,
                 onPartialText: onPartialText
             )
         } catch {
-            let reason = error.localizedDescription
-            let exceededContext = reason.localizedCaseInsensitiveContains("context window")
-            let unsupportedLocale = reason.localizedCaseInsensitiveContains("unsupported language")
-                || reason.localizedCaseInsensitiveContains("unsupported locale")
-            if (exceededContext || unsupportedLocale),
-               !previousContext.isEmpty || !nextContext.isEmpty {
-                return try await translate(
-                    text,
-                    jobID: jobID,
-                    sourceLanguage: sourceLanguage,
-                    targetLanguage: targetLanguage,
-                    modelID: modelID,
-                    modelsURL: modelsURL,
-                    previousContext: [],
-                    nextContext: [],
-                    glossary: glossary,
-                    qualityMode: .fast,
-                    onPartialText: onPartialText
-                )
-            }
-            if unsupportedLocale, qualityMode != .fast {
-                // Apple Foundation Models가 특정 자막의 2차 검수에서 locale 오류를
-                // 반환하는 경우가 있습니다. 번역 초안 자체는 유효하므로 검수를 생략해
-                // 같은 청크를 새 세션으로 한 번 더 처리합니다.
-                return try await translate(
-                    text,
-                    jobID: jobID,
-                    sourceLanguage: sourceLanguage,
-                    targetLanguage: targetLanguage,
-                    modelID: modelID,
-                    modelsURL: modelsURL,
-                    previousContext: [],
-                    nextContext: [],
-                    glossary: glossary,
-                    qualityMode: .fast,
-                    onPartialText: onPartialText
-                )
-            }
-            if unsupportedLocale {
-                return TranslationOutput(
-                    text: text,
-                    qualityStatus: .warning,
-                    qualityNotes: ["Apple 언어 모델이 이 구간의 언어를 지원하지 않아 원문을 보존했습니다."]
-                )
-            }
-            if reason.localizedCaseInsensitiveContains("unsafe") {
-                return TranslationOutput(
-                    text: text,
-                    qualityStatus: .warning,
-                    qualityNotes: ["Apple 안전 필터로 자동 번역하지 못해 원문을 보존했습니다."]
-                )
-            }
-            throw error
+            return try await recoverFromTranslationFailure(
+                error,
+                text: text,
+                jobID: jobID,
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage,
+                modelID: modelID,
+                modelsURL: modelsURL,
+                previousContext: previousContext,
+                nextContext: nextContext,
+                glossary: glossary,
+                qualityMode: qualityMode,
+                attempt: attempt,
+                onPartialText: onPartialText
+            )
         }
+    }
+
+    /// Apple Foundation Models 실패를 **오류 타입으로** 분류해 복구합니다.
+    /// 이전에는 localizedDescription을 영어 문자열로 매칭했는데, 시스템 언어가 한국어면
+    /// 오류 설명도 한국어라 어떤 분기에도 걸리지 않고 그대로 throw되어 청크 하나의 실패가
+    /// 작업 전체를 중단시켰습니다. 문자열은 로케일에 따라 달라지므로 타입으로만 판별합니다.
+    private func recoverFromTranslationFailure(
+        _ error: Error,
+        text: String,
+        jobID: UUID,
+        sourceLanguage: String?,
+        targetLanguage: String,
+        modelID: String,
+        modelsURL: URL,
+        previousContext: [String],
+        nextContext: [String],
+        glossary: [GlossaryEntry],
+        qualityMode: ProcessingQualityMode,
+        attempt: Int,
+        onPartialText: @escaping @Sendable (String) -> Void
+    ) async throws -> TranslationOutput {
+        if error is CancellationError { throw error }
+        let hasContext = !previousContext.isEmpty || !nextContext.isEmpty
+
+        func retry(dropContext: Bool, delay: Duration?, downgrade: Bool) async throws -> TranslationOutput {
+            if let delay { try await Task.sleep(for: delay) }
+            return try await translate(
+                text,
+                jobID: jobID,
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage,
+                modelID: modelID,
+                modelsURL: modelsURL,
+                previousContext: dropContext ? [] : previousContext,
+                nextContext: dropContext ? [] : nextContext,
+                glossary: glossary,
+                qualityMode: downgrade ? .fast : qualityMode,
+                attempt: attempt + 1,
+                onPartialText: onPartialText
+            )
+        }
+
+        // 재시도해도 소용없는 의미적 실패는 원문을 남겨 두는 편이 사용자에게 유용합니다.
+        func keepSource(_ note: String) -> TranslationOutput {
+            translationFailureStreak = 0
+            return TranslationOutput(text: text, qualityStatus: .warning, qualityNotes: [note])
+        }
+
+        guard let generation = error as? LanguageModelSession.GenerationError else {
+            if attempt < 2 {
+                return try await retry(dropContext: attempt >= 1, delay: .milliseconds(400), downgrade: attempt >= 1)
+            }
+            return try skipSegment(note: "번역 실패 · \(error.localizedDescription)")
+        }
+
+        switch generation {
+        case .exceededContextWindowSize:
+            if hasContext || attempt < 2 { return try await retry(dropContext: true, delay: nil, downgrade: true) }
+            return try skipSegment(note: "문맥 한도를 넘어 이 구간을 번역하지 못했습니다.")
+        case .unsupportedLanguageOrLocale:
+            if hasContext { return try await retry(dropContext: true, delay: nil, downgrade: true) }
+            return keepSource("Apple 언어 모델이 이 구간의 언어를 지원하지 않아 원문을 보존했습니다.")
+        case .guardrailViolation, .refusal:
+            return keepSource("Apple 안전 필터로 자동 번역하지 못해 원문을 보존했습니다.")
+        case .rateLimited, .concurrentRequests, .assetsUnavailable:
+            // 일시적 실패이므로 지수 백오프로 기다렸다가 같은 청크를 다시 시도합니다.
+            if attempt < 4 {
+                return try await retry(dropContext: false, delay: .milliseconds(500 * (1 << attempt)), downgrade: false)
+            }
+            return try skipSegment(note: "모델이 계속 응답하지 못해 이 구간을 건너뛰었습니다.")
+        case .decodingFailure, .unsupportedGuide:
+            if attempt < 2 { return try await retry(dropContext: true, delay: .milliseconds(200), downgrade: true) }
+            return try skipSegment(note: "모델 응답을 해석하지 못해 이 구간을 건너뛰었습니다.")
+        @unknown default:
+            if attempt < 2 { return try await retry(dropContext: true, delay: .milliseconds(400), downgrade: true) }
+            return try skipSegment(note: "번역 실패 · \(generation.localizedDescription)")
+        }
+    }
+
+    /// 회복하지 못한 구간은 비워 두어 '번역 대기 중'으로 남깁니다. 기존 미번역 재시도 기능이
+    /// 나중에 이어서 처리할 수 있고, 작업 전체가 죽지 않습니다.
+    /// 다만 연속 실패가 임계치를 넘으면 시스템 문제이므로 조용히 빈 결과를 쌓지 않고 실패시킵니다.
+    private func skipSegment(note: String) throws -> TranslationOutput {
+        translationFailureStreak += 1
+        if translationFailureStreak >= 8 {
+            translationFailureStreak = 0
+            throw VideoLingoError.modelUnavailable("번역이 연속 8회 실패했습니다. \(note)")
+        }
+        return TranslationOutput(text: "", qualityStatus: .warning, qualityNotes: [note])
     }
 
     private func translateWithMLX(
