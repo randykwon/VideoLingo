@@ -554,3 +554,35 @@ import Testing
     #expect(try verifiedStore.snapshot(jobID: jobID)?.translationProgress == 0.5)
     #expect(try verifiedStore.snapshot(jobID: jobID)?.lastTranslationText == "번역 전에 저장")
 }
+
+@Test func sidecarFallsBackToManagedFolderWhenMediaFolderIsReadOnly() throws {
+    // 원본 영상 폴더에 쓸 수 없을 때도 결과가 저장되고, 나중에 다시 찾아낼 수 있어야 합니다.
+    let fileManager = FileManager.default
+    let readOnlyDirectory = fileManager.temporaryDirectory.appending(path: "vl-readonly-\(UUID().uuidString)")
+    try fileManager.createDirectory(at: readOnlyDirectory, withIntermediateDirectories: true)
+    let mediaURL = readOnlyDirectory.appending(path: "sample-\(UUID().uuidString.prefix(8)).mp4")
+    try Data().write(to: mediaURL)
+    try fileManager.setAttributes([.posixPermissions: 0o500], ofItemAtPath: readOnlyDirectory.path)
+    defer {
+        try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readOnlyDirectory.path)
+        try? fileManager.removeItem(at: readOnlyDirectory)
+        try? MediaSidecarStore.deleteAllGeneratedResults(for: mediaURL)
+    }
+
+    let jobID = UUID()
+    let sidecar = try MediaSidecarStore(mediaURL: mediaURL, jobID: jobID, sttModel: "tiny", sourceLanguage: "en")
+    #expect(sidecar.usesManagedFallback)
+    #expect(!sidecar.directoryURL.path.hasPrefix(readOnlyDirectory.path))
+
+    let segment = TranscriptSegment(jobID: jobID, chunkIndex: 0, startTime: 0, endTime: 1, text: "Hello")
+    try sidecar.saveTranscripts([segment])
+
+    // 저장한 결과를 원본 경로만 알고도 다시 찾을 수 있어야 합니다.
+    let discovered = try MediaSidecarStore.discoverResults(
+        for: mediaURL,
+        preferredLanguage: "ko",
+        preferredTranslationModel: "apple-foundation-models"
+    )
+    #expect(discovered?.transcripts.first?.text == "Hello")
+    #expect(MediaSidecarStore.existingResultsDirectoryURL(for: mediaURL) != nil)
+}
