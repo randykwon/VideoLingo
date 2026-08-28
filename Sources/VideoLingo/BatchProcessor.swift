@@ -833,24 +833,52 @@ final class BatchProcessor {
         items[index].message = String(localized: "저장된 결과부터 다시 시작 대기 중")
     }
 
+    private func waitsForSTT(_ item: Item) -> Bool {
+        scheduledItemIDs.contains(item.id) && !item.isFinished && !item.isProcessing && !item.sttCompleted
+    }
+
+    private func waitsForTranslation(_ item: Item) -> Bool {
+        scheduledItemIDs.contains(item.id) && !item.isFinished && !item.isProcessing && item.sttCompleted
+    }
+
     private func runQueue() async {
-        await withTaskGroup(of: Void.self) { group in
-            var activeTasks = 0
+        await withTaskGroup(of: JobPhase.self) { group in
+            var sttActive = 0
+            var translationActive = 0
             while !Task.isCancelled {
+                // STT 레인: 번역이 밀려 있어도 다음 영상들의 STT를 계속 진행합니다.
                 while !isPaused,
-                      activeTasks < effectiveConcurrentJobs,
-                      let index = items.firstIndex(where: {
-                          scheduledItemIDs.contains($0.id) && !$0.isFinished && !$0.isProcessing
-                      }) {
+                      sttActive < effectiveSTTConcurrentJobs,
+                      let index = items.firstIndex(where: { self.waitsForSTT($0) }) {
                     let itemID = items[index].id
                     items[index].isProcessing = true
-                    if group.addTaskUnlessCancelled(operation: { [weak self] in await self?.process(itemID) }) {
-                        activeTasks += 1
+                    if group.addTaskUnlessCancelled(operation: { [weak self] in
+                        await self?.process(itemID, phase: .stt)
+                        return .stt
+                    }) {
+                        sttActive += 1
                     } else {
                         items[index].isProcessing = false
                         break
                     }
                 }
+                // 번역 레인: STT가 끝난 영상만 순서대로 처리합니다.
+                while !isPaused,
+                      translationActive < effectiveConcurrentJobs,
+                      let index = items.firstIndex(where: { self.waitsForTranslation($0) }) {
+                    let itemID = items[index].id
+                    items[index].isProcessing = true
+                    if group.addTaskUnlessCancelled(operation: { [weak self] in
+                        await self?.process(itemID, phase: .translation)
+                        return .translation
+                    }) {
+                        translationActive += 1
+                    } else {
+                        items[index].isProcessing = false
+                        break
+                    }
+                }
+                let activeTasks = sttActive + translationActive
                 if isPaused {
                     let hasWaitingWork = items.contains {
                         scheduledItemIDs.contains($0.id) && !$0.isFinished && !$0.isProcessing
@@ -862,8 +890,11 @@ final class BatchProcessor {
                     }
                 }
                 guard activeTasks > 0 else { break }
-                await group.next()
-                activeTasks -= 1
+                switch await group.next() {
+                case .stt: sttActive -= 1
+                case .translation: translationActive -= 1
+                case nil: sttActive = 0; translationActive = 0
+                }
             }
             group.cancelAll()
         }
@@ -878,13 +909,17 @@ final class BatchProcessor {
         runTask = nil
     }
 
-    private func process(_ itemID: UUID) async {
+    private func process(_ itemID: UUID, phase: JobPhase) async {
         guard let initialIndex = items.firstIndex(where: { $0.id == itemID }) else { return }
         defer {
-            scheduledItemIDs.remove(itemID)
             activeJobIDsByItem.removeValue(forKey: itemID)
             if let index = items.firstIndex(where: { $0.id == itemID }) {
                 items[index].isProcessing = false
+                // STT만 끝난 항목은 번역 레인이 이어받아야 하므로 예약을 유지합니다.
+                let waitsForTranslationLane = phase == .stt && items[index].sttCompleted && !items[index].isFinished
+                if !waitsForTranslationLane { scheduledItemIDs.remove(itemID) }
+            } else {
+                scheduledItemIDs.remove(itemID)
             }
         }
         let url = items[initialIndex].url
@@ -914,6 +949,12 @@ final class BatchProcessor {
             var itemOptions = options
             if speakerReanalysisItemIDs.remove(itemID) != nil {
                 itemOptions.forceSpeakerReanalysis = true
+            }
+            if phase == .stt {
+                // 번역 대상 언어를 비우면 파이프라인이 번역 단계를 건너뛰고 STT만 수행합니다.
+                // 품질 개선도 번역까지 끝난 뒤에 하는 편이 낭비가 없습니다.
+                itemOptions.targetLanguages = []
+                itemOptions.continuousImprovement = false
             }
             let request = StartJobRequest(
                 jobID: jobID,
