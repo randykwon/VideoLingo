@@ -266,12 +266,14 @@ actor FoundationTranslationEngine {
 
     func resolveSpeakerNames(
         in transcripts: [TranscriptSegment],
+        labels overrideLabels: [String]? = nil,
         sourceLanguage: String?,
         modelID: String,
         modelsURL: URL,
         onPartialText: @escaping @Sendable (String) -> Void
     ) async throws -> [String: String] {
-        let labels = SpeakerLabelRewriter.labels(in: transcripts)
+        // 재분석에서는 이미 이름이 적용된 라벨을 그대로 다시 판별하도록 외부에서 목록을 넘깁니다.
+        let labels = overrideLabels ?? SpeakerLabelRewriter.labels(in: transcripts)
         guard !labels.isEmpty else { return [:] }
         let document = speakerEvidence(from: transcripts, labels: labels)
         let prompt = """

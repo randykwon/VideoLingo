@@ -202,7 +202,11 @@ final class MediaPipeline: @unchecked Sendable {
             completedTranslations = await coordinator.currentCompletedTranslations()
             detectedLanguage = await coordinator.currentDetectedLanguage()
 
-            let genericSpeakerLabels = SpeakerLabelRewriter.labels(in: Array(existingByChunk.values))
+            // 화자 다시 분석을 요청하면 이미 이름이 적용된 라벨까지 대상으로 삼습니다.
+            let forceSpeakerReanalysis = request.options.forceSpeakerReanalysis ?? false
+            let genericSpeakerLabels = forceSpeakerReanalysis
+                ? SpeakerLabelRewriter.allSpeakerLabels(in: Array(existingByChunk.values))
+                : SpeakerLabelRewriter.labels(in: Array(existingByChunk.values))
             if !genericSpeakerLabels.isEmpty {
                 snapshot.status = .transcribing
                 snapshot.message = "전체 문서에서 화자 이름과 역할 분석 중"
@@ -213,6 +217,7 @@ final class MediaPipeline: @unchecked Sendable {
                 do {
                     let mapping = try await translator.resolveSpeakerNames(
                         in: Array(existingByChunk.values),
+                        labels: genericSpeakerLabels,
                         sourceLanguage: request.options.sourceLanguage,
                         modelID: request.options.translationModel,
                         modelsURL: modelsURL,
