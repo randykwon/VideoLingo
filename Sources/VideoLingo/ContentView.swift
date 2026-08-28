@@ -664,7 +664,10 @@ private struct PlayerPane: View {
                 .overlay(alignment: .top) {
                     // 재생 조작 레이어보다 뒤에 놓아야 슬라이더 드래그가 가려지지 않습니다.
                     if model.mediaURL != nil {
-                        PlayerVolumeBar(volume: volumeBinding)
+                        PlayerVolumeBar(volume: Binding(
+                            get: { Double(model.player.volume) },
+                            set: { model.player.volume = Float($0) }
+                        ))
                             .padding(.top, 12)
                     }
                 }
