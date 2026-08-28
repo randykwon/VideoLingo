@@ -581,7 +581,11 @@ private struct PlayerPane: View {
                     GeometryReader { geometry in
                         if model.subtitlesEnabled, !model.activeSubtitle.isEmpty {
                             VStack(spacing: 6) {
-                                PlayerCaption(text: model.activeSubtitle, color: theme.subtitleColor)
+                                PlayerCaption(
+                                    text: model.activeSubtitle,
+                                    color: theme.subtitleColor,
+                                    opacity: theme.subtitleOpacity
+                                )
                                 if model.showOriginalWithTranslation,
                                    model.activeTranslationSubtitle != nil,
                                    !model.activeOriginalSubtitle.isEmpty {
@@ -590,7 +594,7 @@ private struct PlayerPane: View {
                                         color: .white,
                                         isSecondary: true,
                                         isItalic: model.originalSubtitleItalic,
-                                        opacity: model.originalSubtitleTranslucent ? 0.68 : 1
+                                        opacity: theme.subtitleOpacity * (model.originalSubtitleTranslucent ? 0.68 : 1)
                                     )
                                 }
                             }
@@ -615,24 +619,31 @@ private struct PlayerPane: View {
                 }
                 .overlay(alignment: .topTrailing) {
                     if model.mediaURL != nil {
-                        Button {
-                            subtitleDragStart = nil
-                            withAnimation(.snappy) {
-                                subtitlePositionLocked.toggle()
+                        HStack(spacing: 8) {
+                            // 번역 자막을 화면에서 없앴다 되돌리는 토글입니다.
+                            CaptionOverlayButton(
+                                title: model.subtitlesEnabled ? "자막 끄기" : "자막 켜기",
+                                systemImage: model.subtitlesEnabled ? "captions.bubble.fill" : "captions.bubble"
+                            ) {
+                                withAnimation(.snappy) { model.subtitlesEnabled.toggle() }
                             }
-                        } label: {
-                            Label(
-                                subtitlePositionLocked ? "자막 위치 고정 해제" : "자막 위치 고정",
-                                systemImage: subtitlePositionLocked ? "lock.fill" : "lock.open"
-                            )
-                            .labelStyle(.iconOnly)
-                            .frame(width: 30, height: 30)
-                            .contentShape(Circle())
+                            // 자막을 반투명하게 만들어 화면을 덜 가리게 합니다.
+                            CaptionOverlayButton(
+                                title: theme.subtitleTranslucent ? "자막 불투명하게" : "자막 반투명하게",
+                                systemImage: theme.subtitleTranslucent ? "circle.lefthalf.filled" : "circle.fill"
+                            ) {
+                                withAnimation(.snappy) { theme.toggleSubtitleTranslucency() }
+                            }
+                            .disabled(!model.subtitlesEnabled)
+                            CaptionOverlayButton(
+                                title: subtitlePositionLocked ? "자막 위치 고정 해제" : "자막 위치 고정",
+                                systemImage: subtitlePositionLocked ? "lock.fill" : "lock.open",
+                                accessibilityValue: subtitlePositionLocked ? "고정됨" : "이동 가능"
+                            ) {
+                                subtitleDragStart = nil
+                                withAnimation(.snappy) { subtitlePositionLocked.toggle() }
+                            }
                         }
-                        .buttonStyle(.borderless)
-                        .background(.regularMaterial, in: Circle())
-                        .help(subtitlePositionLocked ? "자막 위치 고정 해제" : "자막 위치 고정")
-                        .accessibilityValue(subtitlePositionLocked ? "고정됨" : "이동 가능")
                         .padding(12)
                     }
                 }
@@ -1034,6 +1045,39 @@ private struct PanelResizeHandle: View {
 
 /// 영상 위에 얹는 통일된 자막 캡션. color가 nil이면 화자 색상(기본 흰색),
 /// 지정하면 단색으로 렌더링합니다. 비어 있으면 아무것도 그리지 않습니다.
+/// 영상 위에 겹쳐 놓는 원형 아이콘 버튼입니다. 자막 관련 조작을 같은 모양으로 통일합니다.
+private struct CaptionOverlayButton: View {
+    let title: LocalizedStringKey
+    let systemImage: String
+    var accessibilityValue: LocalizedStringKey?
+    let action: () -> Void
+
+    init(
+        title: LocalizedStringKey,
+        systemImage: String,
+        accessibilityValue: LocalizedStringKey? = nil,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self.accessibilityValue = accessibilityValue
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.iconOnly)
+                .frame(width: 30, height: 30)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.borderless)
+        .background(.regularMaterial, in: Circle())
+        .help(title)
+        .accessibilityValue(accessibilityValue.map { Text($0) } ?? Text(""))
+    }
+}
+
 private struct PlayerCaption: View {
     let text: String
     var color: Color?
@@ -1635,6 +1679,12 @@ private struct GeneralSettingsView: View {
             }
             Section("화면 자막") {
                 ColorPicker("자막 색상", selection: $theme.subtitleColor, supportsOpacity: false)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("자막 불투명도 \(Int((theme.subtitleOpacity * 100).rounded()))%")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Slider(value: $theme.subtitleOpacity, in: 0.35...1)
+                }
                 Toggle("원문과 번역 자막 함께 보기", isOn: $model.showOriginalWithTranslation)
                 Toggle("원문 자막 반투명", isOn: $model.originalSubtitleTranslucent)
                     .disabled(!model.showOriginalWithTranslation)

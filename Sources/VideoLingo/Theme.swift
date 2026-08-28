@@ -105,12 +105,26 @@ final class ThemeManager {
         didSet { Self.saveSubtitleColor(subtitleColor) }
     }
 
+    /// 영상 위 자막의 불투명도입니다. 반투명하게 두면 자막이 화면을 덜 가립니다.
+    var subtitleOpacity: Double {
+        didSet { UserDefaults.standard.set(subtitleOpacity, forKey: "subtitleOpacity") }
+    }
+
+    /// 반투명 상태인지 여부와 한 번에 전환하는 헬퍼입니다.
+    var subtitleTranslucent: Bool { subtitleOpacity < 0.99 }
+
+    func toggleSubtitleTranslucency() {
+        subtitleOpacity = subtitleTranslucent ? 1 : 0.6
+    }
+
     private init() {
         appearance = AppearanceMode(rawValue: UserDefaults.standard.string(forKey: "themeAppearance") ?? "") ?? .system
         accent = AccentTheme(rawValue: UserDefaults.standard.string(forKey: "themeAccent") ?? "") ?? .system
         density = InterfaceDensity(rawValue: UserDefaults.standard.string(forKey: "themeDensity") ?? "") ?? .comfortable
         translucent = UserDefaults.standard.bool(forKey: "themeTranslucent")
         subtitleColor = Self.loadSubtitleColor()
+        subtitleOpacity = (UserDefaults.standard.object(forKey: "subtitleOpacity") as? Double)
+            .map { min(1, max(0.35, $0)) } ?? 1
     }
 
     var colorScheme: ColorScheme? { appearance.colorScheme }
