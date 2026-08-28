@@ -114,7 +114,7 @@ struct ContentView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Picker("Whisper STT", selection: $model.sttModel) {
-                            ForEach(model.models, id: \.self) { Text($0).tag($0) }
+                            ForEach(model.models, id: \.self) { Text(sttModelName($0)).tag($0) }
                         }
                         Picker("번역 LLM", selection: $model.translationModel) {
                             ForEach(model.translationModels, id: \.self) { modelID in

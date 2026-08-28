@@ -387,3 +387,7 @@
 "음소거" = "Mute";
 "음량 켜기" = "Unmute";
 "결과 폴더를 열 수 없습니다. 저장 권한을 확인하세요." = "Cannot open the results folder. Check write permission.";
+"Large v3 · 626MB (기본)" = "Large v3 · 626MB (default)";
+"Large v3 Turbo · 632MB (빠름)" = "Large v3 Turbo · 632MB (fast)";
+"Large v3 · 547MB (가벼움)" = "Large v3 · 547MB (light)";
+"Small · 216MB (가장 가벼움)" = "Small · 216MB (lightest)";
