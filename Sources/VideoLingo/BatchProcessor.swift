@@ -1281,8 +1281,15 @@ struct BatchTranslationView: View {
                             .disabled(processor.isRunning)
                         Stepper(value: $processor.maximumConcurrentJobs, in: 1...10) {
                             Text(processor.automaticallyAdjustConcurrentJobs
-                                ? "자동 동시 처리 \(processor.effectiveConcurrentJobs)개"
-                                : "수동 동시 처리 \(processor.maximumConcurrentJobs)개")
+                                ? "자동 번역 \(processor.effectiveConcurrentJobs)개"
+                                : "수동 번역 \(processor.maximumConcurrentJobs)개")
+                                .monospacedDigit()
+                        }
+                        .disabled(processor.isRunning || processor.automaticallyAdjustConcurrentJobs)
+                        Stepper(value: $processor.maximumConcurrentSTTJobs, in: 1...10) {
+                            Text(processor.automaticallyAdjustConcurrentJobs
+                                ? "자동 STT \(processor.effectiveSTTConcurrentJobs)개"
+                                : "수동 STT \(processor.maximumConcurrentSTTJobs)개")
                                 .monospacedDigit()
                         }
                         .disabled(processor.isRunning || processor.automaticallyAdjustConcurrentJobs)
@@ -1616,10 +1623,17 @@ private struct BatchStartConfirmationView: View {
                     LabeledContent("동시 처리") {
                         VStack(alignment: .trailing, spacing: 6) {
                             Toggle("Mac 성능에 맞게 자동 조정", isOn: $processor.automaticallyAdjustConcurrentJobs)
+                            Stepper(value: $processor.maximumConcurrentSTTJobs, in: 1...10) {
+                                Text(processor.automaticallyAdjustConcurrentJobs
+                                    ? "자동 STT \(processor.effectiveSTTConcurrentJobs)개"
+                                    : "수동 STT \(processor.maximumConcurrentSTTJobs)개")
+                                    .monospacedDigit()
+                            }
+                            .disabled(processor.isRunning || processor.automaticallyAdjustConcurrentJobs)
                             Stepper(value: $processor.maximumConcurrentJobs, in: 1...10) {
                                 Text(processor.automaticallyAdjustConcurrentJobs
-                                    ? "자동 \(processor.effectiveConcurrentJobs)개"
-                                    : "수동 \(processor.maximumConcurrentJobs)개")
+                                    ? "자동 번역 \(processor.effectiveConcurrentJobs)개"
+                                    : "수동 번역 \(processor.maximumConcurrentJobs)개")
                                     .monospacedDigit()
                             }
                             .disabled(processor.automaticallyAdjustConcurrentJobs)

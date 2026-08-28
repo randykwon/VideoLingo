@@ -393,3 +393,7 @@
 "Small · 216MB (가장 가벼움)" = "Small · 216MB (lightest)";
 "STT 완료 · 번역 대기 중" = "STT done · waiting for translation";
 "STT 완료" = "STT complete";
+"자동 번역 %lld개" = "Auto translation ×%lld";
+"수동 번역 %lld개" = "Manual translation ×%lld";
+"자동 STT %lld개" = "Auto STT ×%lld";
+"수동 STT %lld개" = "Manual STT ×%lld";
