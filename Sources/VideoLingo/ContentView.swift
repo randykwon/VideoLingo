@@ -2018,7 +2018,7 @@ private struct ModelFilesSettingsView: View {
         let record = model.managedModel(kind: kind, modelID: modelID)
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(kind == .translation ? translationModelName(modelID) : modelID)
+                Text(kind == .translation ? translationModelName(modelID) : sttModelName(modelID))
                     .font(.callout.weight(.medium))
                 switch record?.state ?? .notDownloaded {
                 case .notDownloaded:
@@ -2066,6 +2066,16 @@ private struct SettingsMessageView: View {
 
 private func formattedBytes(_ bytes: Int64) -> String {
     ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+}
+
+private func sttModelName(_ modelID: String) -> String {
+    switch modelID {
+    case "large-v3-v20240930_626MB": String(localized: "Large v3 · 626MB (기본)")
+    case "openai_whisper-large-v3-v20240930_turbo_632MB": String(localized: "Large v3 Turbo · 632MB (빠름)")
+    case "openai_whisper-large-v3-v20240930_547MB": String(localized: "Large v3 · 547MB (가벼움)")
+    case "openai_whisper-small_216MB": String(localized: "Small · 216MB (가장 가벼움)")
+    default: modelID
+    }
 }
 
 private func translationModelName(_ modelID: String) -> String {

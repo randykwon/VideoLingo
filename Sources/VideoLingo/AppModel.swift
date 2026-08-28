@@ -180,7 +180,15 @@ final class AppModel {
         "", "ko", "ja", "en", "zh", "es", "fr", "de", "pt", "it",
         "ru", "ar", "hi", "vi", "th", "id", "tr", "nl", "pl", "sv"
     ]
-    let models = ["large-v3-v20240930_626MB", "small", "base", "tiny"]
+    /// WhisperKit은 저장소에서 `*이름/*` 패턴으로 모델을 찾습니다. `small`·`base`·`tiny`처럼 짧은 이름은
+    /// `.en` 변형 등 여러 폴더에 동시에 매칭돼 "Multiple models found" 오류로 항상 다운로드가 실패했습니다.
+    /// 저장소에서 유일하게 매칭되는 이름만 제공합니다. (첫 항목은 기존 다운로드를 보존하기 위해 유지)
+    let models = [
+        "large-v3-v20240930_626MB",
+        "openai_whisper-large-v3-v20240930_turbo_632MB",
+        "openai_whisper-large-v3-v20240930_547MB",
+        "openai_whisper-small_216MB"
+    ]
     let translationModels = [
         "apple-foundation-models",
         "mlx-community/Qwen3-0.6B-4bit",
