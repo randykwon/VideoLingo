@@ -444,6 +444,14 @@ actor FoundationTranslationEngine {
         onPartialText: @escaping @Sendable (String) -> Void
     ) async throws -> TranslationOutput {
         if error is CancellationError { throw error }
+        // 모델 자산을 못 쓰는 상태면 몇 번을 다시 시도해도 같은 실패가 반복됩니다.
+        // 청크마다 8번씩 재시도하며 시간을 버리지 않고 바로 원인을 알립니다.
+        if isModelAssetFailure(error) {
+            translationFailureStreaks[jobID] = 0
+            throw VideoLingoError.modelUnavailable(
+                "Apple Intelligence 모델을 사용할 수 없습니다. 디스크 여유 공간을 확보한 뒤 시스템 설정에서 Apple Intelligence를 확인하거나, 설정에서 번역 모델을 Qwen으로 바꾸세요."
+            )
+        }
         let hasContext = !previousContext.isEmpty || !nextContext.isEmpty
 
         func retry(dropContext: Bool, delay: Duration?, downgrade: Bool) async throws -> TranslationOutput {
@@ -499,6 +507,26 @@ actor FoundationTranslationEngine {
             if attempt < 2 { return try await retry(dropContext: true, delay: .milliseconds(400), downgrade: true) }
             return try skipSegment(jobID: jobID, note: "번역 실패 · \(diagnosticDescription(error))")
         }
+    }
+
+    /// Apple Intelligence 모델 자산 자체를 쓸 수 없는 상태인지 판별합니다.
+    /// GenerationError가 NSError로 브리징돼 오는 경우가 있어(실측 확인) 타입 캐스팅만으로는 분류할 수 없고,
+    /// 하위 오류(ModelManagerError)까지 훑어야 원인을 알 수 있습니다. 이 경우 재시도는 의미가 없습니다.
+    private func isModelAssetFailure(_ error: Error) -> Bool {
+        var queue: [NSError] = [error as NSError]
+        var inspected = 0
+        while !queue.isEmpty, inspected < 12 {
+            let current = queue.removeFirst()
+            inspected += 1
+            if current.domain.localizedCaseInsensitiveContains("ModelManager") { return true }
+            if let underlying = current.userInfo[NSUnderlyingErrorKey] as? NSError {
+                queue.append(underlying)
+            }
+            if let multiple = current.userInfo[NSMultipleUnderlyingErrorsKey] as? [NSError] {
+                queue.append(contentsOf: multiple)
+            }
+        }
+        return false
     }
 
     /// 실패 원인을 특정할 수 있도록 오류의 실제 타입과 케이스를 남깁니다.
