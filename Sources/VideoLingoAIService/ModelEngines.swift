@@ -267,7 +267,7 @@ actor FoundationTranslationEngine {
     }
 
     private var mlxContainers: [String: ModelContainer] = [:]
-    private var translationFailureStreak = 0
+    private var translationFailureStreaks: [UUID: Int] = [:]
 
     func resolveSpeakerNames(
         in transcripts: [TranscriptSegment],
@@ -399,7 +399,7 @@ actor FoundationTranslationEngine {
                 translated = partial.content.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !translated.isEmpty { onPartialText(translated) }
             }
-            translationFailureStreak = 0
+            translationFailureStreaks[jobID] = 0
             return try await finalizeTranslation(
                 source: text, draft: translated, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage,
                 modelID: modelID, modelsURL: modelsURL, glossary: glossary, qualityMode: qualityMode,
@@ -466,7 +466,7 @@ actor FoundationTranslationEngine {
 
         // 재시도해도 소용없는 의미적 실패는 원문을 남겨 두는 편이 사용자에게 유용합니다.
         func keepSource(_ note: String) -> TranslationOutput {
-            translationFailureStreak = 0
+            translationFailureStreaks[jobID] = 0
             return TranslationOutput(text: text, qualityStatus: .warning, qualityNotes: [note])
         }
 
@@ -474,13 +474,13 @@ actor FoundationTranslationEngine {
             if attempt < 2 {
                 return try await retry(dropContext: attempt >= 1, delay: .milliseconds(400), downgrade: attempt >= 1)
             }
-            return try skipSegment(note: "번역 실패 · \(diagnosticDescription(error))")
+            return try skipSegment(jobID: jobID, note: "번역 실패 · \(diagnosticDescription(error))")
         }
 
         switch generation {
         case .exceededContextWindowSize:
             if hasContext || attempt < 2 { return try await retry(dropContext: true, delay: nil, downgrade: true) }
-            return try skipSegment(note: "문맥 한도를 넘어 이 구간을 번역하지 못했습니다.")
+            return try skipSegment(jobID: jobID, note: "문맥 한도를 넘어 이 구간을 번역하지 못했습니다.")
         case .unsupportedLanguageOrLocale:
             if hasContext { return try await retry(dropContext: true, delay: nil, downgrade: true) }
             return keepSource("Apple 언어 모델이 이 구간의 언어를 지원하지 않아 원문을 보존했습니다.")
@@ -491,13 +491,13 @@ actor FoundationTranslationEngine {
             if attempt < 4 {
                 return try await retry(dropContext: false, delay: .milliseconds(500 * (1 << attempt)), downgrade: false)
             }
-            return try skipSegment(note: "모델이 계속 응답하지 못해 이 구간을 건너뛰었습니다.")
+            return try skipSegment(jobID: jobID, note: "모델이 계속 응답하지 못해 이 구간을 건너뛰었습니다.")
         case .decodingFailure, .unsupportedGuide:
             if attempt < 2 { return try await retry(dropContext: true, delay: .milliseconds(200), downgrade: true) }
-            return try skipSegment(note: "모델 응답을 해석하지 못해 이 구간을 건너뛰었습니다.")
+            return try skipSegment(jobID: jobID, note: "모델 응답을 해석하지 못해 이 구간을 건너뛰었습니다.")
         @unknown default:
             if attempt < 2 { return try await retry(dropContext: true, delay: .milliseconds(400), downgrade: true) }
-            return try skipSegment(note: "번역 실패 · \(diagnosticDescription(error))")
+            return try skipSegment(jobID: jobID, note: "번역 실패 · \(diagnosticDescription(error))")
         }
     }
 
@@ -526,10 +526,11 @@ actor FoundationTranslationEngine {
     /// 회복하지 못한 구간은 비워 두어 '번역 대기 중'으로 남깁니다. 기존 미번역 재시도 기능이
     /// 나중에 이어서 처리할 수 있고, 작업 전체가 죽지 않습니다.
     /// 다만 연속 실패가 임계치를 넘으면 시스템 문제이므로 조용히 빈 결과를 쌓지 않고 실패시킵니다.
-    private func skipSegment(note: String) throws -> TranslationOutput {
-        translationFailureStreak += 1
-        if translationFailureStreak >= 8 {
-            translationFailureStreak = 0
+    private func skipSegment(jobID: UUID, note: String) throws -> TranslationOutput {
+        let streak = (translationFailureStreaks[jobID] ?? 0) + 1
+        translationFailureStreaks[jobID] = streak
+        if streak >= 8 {
+            translationFailureStreaks[jobID] = 0
             throw VideoLingoError.modelUnavailable("번역이 연속 8회 실패했습니다. \(note)")
         }
         return TranslationOutput(text: "", qualityStatus: .warning, qualityNotes: [note])
