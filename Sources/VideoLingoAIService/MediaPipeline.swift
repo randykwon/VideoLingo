@@ -508,21 +508,34 @@ final class MediaPipeline: @unchecked Sendable {
                     try await coordinator.markTranslating(index: index, language: language, message: "\(language) 번역 \(index + 1)/\(total)")
                     let previousContext = await coordinator.translationContextBefore(index: index)
                     let nextContext = await coordinator.translationContextAfter(index: index)
-                    let translated = try await translator.translate(
-                        transcript.text,
-                        jobID: request.jobID,
-                        sourceLanguage: transcript.language ?? request.options.sourceLanguage,
-                        targetLanguage: language,
-                        modelID: request.options.translationModel,
-                        modelsURL: modelsURL,
-                        previousContext: previousContext,
-                        nextContext: nextContext,
-                        glossary: glossary,
-                        qualityMode: qualityMode,
-                        onPartialText: { [onLiveTranslation] text in
-                            onLiveTranslation(request.jobID, index, total, language, text)
-                        }
-                    )
+                    // 한 청크의 번역 실패가 작업 전체를 중단시키지 않도록 격리합니다.
+                    // 취소와 모델 자체를 쓸 수 없는 systemic 실패만 위로 전파합니다.
+                    let translated: FoundationTranslationEngine.TranslationOutput
+                    do {
+                        translated = try await translator.translate(
+                            transcript.text,
+                            jobID: request.jobID,
+                            sourceLanguage: transcript.language ?? request.options.sourceLanguage,
+                            targetLanguage: language,
+                            modelID: request.options.translationModel,
+                            modelsURL: modelsURL,
+                            previousContext: previousContext,
+                            nextContext: nextContext,
+                            glossary: glossary,
+                            qualityMode: qualityMode,
+                            onPartialText: { [onLiveTranslation] text in
+                                onLiveTranslation(request.jobID, index, total, language, text)
+                            }
+                        )
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch let error as VideoLingoError {
+                        throw error
+                    } catch {
+                        // 이 구간은 미번역으로 남겨 두고 계속 진행합니다. 나중에 미번역 재시도로 처리됩니다.
+                        onLiveTranslation(request.jobID, index, total, language, "번역 실패 · 이 구간은 건너뜁니다")
+                        continue
+                    }
                     let candidate = TranslationSegment(
                         id: existing?.id ?? UUID(),
                         transcriptID: transcript.id,
