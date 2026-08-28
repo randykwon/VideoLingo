@@ -470,17 +470,6 @@ private struct ViewingSidebarView: View {
                 .controlSize(.large)
                 .disabled(model.mediaURL == nil)
 
-                HStack(spacing: 8) {
-                    Image(systemName: "speaker.fill")
-                        .foregroundStyle(.secondary)
-                    Slider(value: volumeBinding, in: 0...1)
-                    Text(model.player.volume, format: .percent.precision(.fractionLength(0)))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .frame(width: 36, alignment: .trailing)
-                }
-                .disabled(model.mediaURL == nil)
-
                 Text("\(timeText(model.currentTime)) / \(timeText(duration))")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
@@ -573,7 +562,7 @@ private struct PlayerPane: View {
                        let screenText = model.translatedScreenText,
                        !screenText.isEmpty {
                         PlayerCaption(text: screenText, color: .yellow)
-                            .padding(.top, 14)
+                            .padding(.top, model.mediaURL == nil ? 14 : 58)
                             .allowsHitTesting(false)
                     }
                 }
@@ -670,6 +659,13 @@ private struct PlayerPane: View {
                         .background(.regularMaterial, in: Capsule())
                         .allowsHitTesting(false)
                         .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                    }
+                }
+                .overlay(alignment: .top) {
+                    // 재생 조작 레이어보다 뒤에 놓아야 슬라이더 드래그가 가려지지 않습니다.
+                    if model.mediaURL != nil {
+                        PlayerVolumeBar(volume: volumeBinding)
+                            .padding(.top, 12)
                     }
                 }
                 .contextMenu {
@@ -1045,6 +1041,58 @@ private struct PanelResizeHandle: View {
 
 /// 영상 위에 얹는 통일된 자막 캡션. color가 nil이면 화자 색상(기본 흰색),
 /// 지정하면 단색으로 렌더링합니다. 비어 있으면 아무것도 그리지 않습니다.
+/// 영상 상단 가운데에 겹쳐 놓는 음량 조절 바입니다.
+private struct PlayerVolumeBar: View {
+    @Binding var volume: Double
+    @State private var volumeBeforeMute: Double?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button {
+                toggleMute()
+            } label: {
+                Label(volume <= 0 ? "음량 켜기" : "음소거", systemImage: symbol)
+                    .labelStyle(.iconOnly)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .help(volume <= 0 ? "음량 켜기" : "음소거")
+
+            Slider(value: $volume, in: 0...1)
+                .frame(width: 150)
+                .controlSize(.small)
+
+            Text(volume, format: .percent.precision(.fractionLength(0)))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 36, alignment: .trailing)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.regularMaterial, in: Capsule())
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("음량")
+    }
+
+    private var symbol: String {
+        switch volume {
+        case ..<0.01: "speaker.slash.fill"
+        case ..<0.34: "speaker.wave.1.fill"
+        case ..<0.67: "speaker.wave.2.fill"
+        default: "speaker.wave.3.fill"
+        }
+    }
+
+    private func toggleMute() {
+        if volume > 0 {
+            volumeBeforeMute = volume
+            volume = 0
+        } else {
+            volume = volumeBeforeMute ?? 0.5
+        }
+    }
+}
+
 /// 영상 위에 겹쳐 놓는 원형 아이콘 버튼입니다. 자막 관련 조작을 같은 모양으로 통일합니다.
 private struct CaptionOverlayButton: View {
     let title: LocalizedStringKey
