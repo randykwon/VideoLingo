@@ -861,7 +861,6 @@ final class BatchProcessor {
                     if let index = items.firstIndex(where: { $0.id == itemID }) {
                         items[index].message = String(localized: "AI 서비스 연결 복구 중… ((recoveryAttempts)/(Self.maximumServiceRecoveryAttempts))")
                     }
-                    resetServiceConnection()
                     try await Task.sleep(for: recoveryDelay(for: recoveryAttempts))
                     service = try await sendWithRecovery(payload: payload, itemID: itemID)
                     consecutiveMissingSnapshots = 0
@@ -949,12 +948,6 @@ final class BatchProcessor {
         return connection?.remoteObjectProxyWithErrorHandler { _ in } as? VideoLingoAIServiceProtocol
     }
 
-    private func resetServiceConnection() {
-        let oldConnection = connection
-        connection = nil
-        oldConnection?.invalidate()
-    }
-
     private func recoveryDelay(for attempt: Int) -> Duration {
         .seconds(min(4, 1 << max(0, attempt - 1)))
     }
@@ -980,7 +973,6 @@ final class BatchProcessor {
                 if let index = items.firstIndex(where: { $0.id == itemID }) {
                     items[index].message = String(localized: "AI 서비스 재연결 중… ((attempt + 1)/(Self.maximumServiceRecoveryAttempts))")
                 }
-                resetServiceConnection()
                 try await Task.sleep(for: recoveryDelay(for: attempt + 1))
             }
         }
