@@ -1423,7 +1423,7 @@ final class AppModel {
 
     /// 기본 번역 모델입니다. Apple Intelligence는 시스템이 모델 자산을 임의로 회수하면
     /// 앱에서 복구할 방법이 없어, 앱이 직접 내려받아 관리하는 Qwen을 기본으로 씁니다.
-    static let defaultTranslationModel = "mlx-community/Qwen3-4B-4bit"
+    static let defaultTranslationModel = "mlx-community/Qwen3-8B-4bit"
 
     /// 저장된 값을 쓰되, 예전 기본값(Apple Intelligence)에 머물러 있던 사용자는 한 번만 Qwen으로 옮깁니다.
     static func initialTranslationModel() -> String {
