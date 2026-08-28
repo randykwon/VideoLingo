@@ -1003,20 +1003,39 @@ final class BatchProcessor {
                     service.cancelJob(jobID.uuidString) { _ in }
                     break
                 }
-                items[index].progress = snapshot.progress
                 items[index].sttProgress = snapshot.sttProgress
-                items[index].translationProgress = snapshot.translationProgress
                 items[index].currentChunk = snapshot.currentChunk
                 items[index].totalChunks = snapshot.totalChunks
                 items[index].liveTranscriptText = snapshot.liveTranscriptText
-                items[index].liveTranslationText = snapshot.liveTranslationText
                 items[index].lastTranscriptText = snapshot.lastTranscriptText
-                items[index].lastTranslationText = snapshot.lastTranslationText
+                if phase == .translation {
+                    // STT 단계는 번역 대상을 비워 보내므로 번역 진행률이 1로 보고됩니다. 그대로 쓰면 안 됩니다.
+                    items[index].translationProgress = snapshot.translationProgress
+                    items[index].liveTranslationText = snapshot.liveTranslationText
+                    items[index].lastTranslationText = snapshot.lastTranslationText
+                }
+                items[index].progress = (items[index].sttProgress + items[index].translationProgress) / 2
                 items[index].status = snapshot.status
                 items[index].message = snapshot.message
                 if pausedItemIDs.contains(itemID), snapshot.status == .cancelled {
                     items[index].status = .paused
                     items[index].message = String(localized: "일시 정지됨 · 저장된 결과부터 재시작할 수 있습니다.")
+                    break
+                }
+                if phase == .stt {
+                    if [.failed, .cancelled].contains(snapshot.status) { break }
+                    guard snapshot.sttProgress >= 0.999 || [.completed, .refining].contains(snapshot.status) else { continue }
+                    items[index].sttCompleted = true
+                    if options.targetLanguages.isEmpty {
+                        items[index].status = .completed
+                        items[index].progress = 1
+                        items[index].message = String(localized: "STT 완료")
+                        items[index].existingResult = .complete(languages: [])
+                    } else {
+                        // 번역 레인이 이어받도록 대기 상태로 돌려놓습니다.
+                        items[index].status = .queued
+                        items[index].message = String(localized: "STT 완료 · 번역 대기 중")
+                    }
                     break
                 }
                 if snapshot.status == .refining {

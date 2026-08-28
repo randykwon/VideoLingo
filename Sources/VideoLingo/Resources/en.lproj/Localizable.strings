@@ -391,3 +391,5 @@
 "Large v3 Turbo · 632MB (빠름)" = "Large v3 Turbo · 632MB (fast)";
 "Large v3 · 547MB (가벼움)" = "Large v3 · 547MB (light)";
 "Small · 216MB (가장 가벼움)" = "Small · 216MB (lightest)";
+"STT 완료 · 번역 대기 중" = "STT done · waiting for translation";
+"STT 완료" = "STT complete";
