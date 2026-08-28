@@ -320,6 +320,10 @@ final class MediaPipeline: @unchecked Sendable {
                 }
             }
 
+            // 중간 산출물인 오디오 청크는 완료 후 필요 없습니다. 남겨 두면 디스크를 계속 채워
+            // macOS가 Apple Intelligence 모델 자산을 퍼지해 번역 자체가 불가능해집니다.
+            discardAudioChunks(at: chunksFolder)
+
             snapshot.status = .completed
             snapshot.progress = 1
             snapshot.sttProgress = 1
@@ -925,6 +929,15 @@ final class MediaPipeline: @unchecked Sendable {
 
     private func combinedProgress(_ snapshot: JobSnapshot) -> Double {
         min(1, max(0, (snapshot.sttProgress + snapshot.translationProgress) / 2))
+    }
+
+    /// STT가 끝난 오디오 청크를 정리합니다. 필요하면 원본 영상에서 다시 추출하므로 결과에는 영향이 없습니다.
+    private func discardAudioChunks(at folder: URL) {
+        let fileManager = FileManager.default
+        guard let files = try? fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) else { return }
+        for url in files where url.pathExtension == "m4a" {
+            try? fileManager.removeItem(at: url)
+        }
     }
 
     private func publish(_ snapshot: JobSnapshot) {
