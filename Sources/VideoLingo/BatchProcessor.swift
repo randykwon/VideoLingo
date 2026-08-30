@@ -1775,11 +1775,9 @@ struct BatchMultiMonitorView: View {
                 )
             } else if visibleItems.isEmpty {
                 ContentUnavailableView(
-                    filter == .active ? "현재 실행 중인 영상이 없습니다" : "완료된 영상이 없습니다",
-                    systemImage: filter == .active ? "pause.circle" : "checkmark.circle",
-                    description: Text(filter == .active
-                        ? "대량 번역을 시작하거나 ‘전체’ 화면을 선택하세요."
-                        : "번역이 끝난 영상은 이곳에 자동으로 나타납니다.")
+                    emptyStateTitle,
+                    systemImage: emptyStateSymbol,
+                    description: Text(emptyStateDescription)
                 )
             } else {
                 ScrollView {
@@ -1889,6 +1887,33 @@ struct BatchMultiMonitorView: View {
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: 16), count: columnCount)
+    }
+
+    private var emptyStateTitle: String {
+        switch filter {
+        case .active: "진행 또는 대기 중인 영상이 없습니다"
+        case .attention: "주의가 필요한 영상이 없습니다"
+        case .all: "모니터링할 영상이 없습니다"
+        case .completed: "완료된 영상이 없습니다"
+        }
+    }
+
+    private var emptyStateSymbol: String {
+        switch filter {
+        case .active: "pause.circle"
+        case .attention: "checkmark.shield"
+        case .all: "tray"
+        case .completed: "checkmark.circle"
+        }
+    }
+
+    private var emptyStateDescription: String {
+        switch filter {
+        case .active: "대량 번역을 시작하거나 ‘전체’ 화면을 선택하세요."
+        case .attention: "현재 실패·취소·일시 정지된 작업이 없습니다."
+        case .all: "대량 번역 창에서 영상을 추가하세요."
+        case .completed: "번역이 끝난 영상은 이곳에 자동으로 나타납니다."
+        }
     }
 
     private var visiblePlaybackSelectionCount: Int {
