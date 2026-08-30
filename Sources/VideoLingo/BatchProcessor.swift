@@ -1998,7 +1998,7 @@ private struct BatchMonitorTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ZStack(alignment: .topLeading) {
+            ZStack(alignment: .topTrailing) {
                 BatchMonitorPlayer(player: player)
                     .aspectRatio(16 / 9, contentMode: .fit)
                     .background(.black)
@@ -2006,7 +2006,6 @@ private struct BatchMonitorTile: View {
                 HStack(spacing: 6) {
                     Image(systemName: statusSymbol)
                     Text(statusText)
-                    Spacer()
                     Text(item.progress, format: .percent.precision(.fractionLength(0)))
                         .monospacedDigit()
                 }
