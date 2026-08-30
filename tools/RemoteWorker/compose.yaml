@@ -1,0 +1,21 @@
+services:
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${VIDEOLINGO_PORT:-8765}:8765"
+    volumes:
+      - whisper-cache:/root/.cache/huggingface
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+
+volumes:
+  whisper-cache:
+  ollama-data:
