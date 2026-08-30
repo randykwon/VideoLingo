@@ -37,38 +37,51 @@ struct ContentView: View {
             } else {
             VStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Picker("플레이어 모드", selection: $model.playerMode) {
-                        ForEach(PlayerWorkspaceMode.allCases) { mode in
-                            Label(mode.title, systemImage: mode.symbol).tag(mode)
+                    HStack(spacing: 8) {
+                        Picker("플레이어 모드", selection: $model.playerMode) {
+                            ForEach(PlayerWorkspaceMode.allCases) { mode in
+                                Label(mode.title, systemImage: mode.symbol).tag(mode)
+                            }
                         }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        Button("심플 메뉴로 전환", systemImage: "list.bullet") { simpleSidebar = true }
+                            .labelStyle(.iconOnly)
+                            .help("핵심 버튼만 표시하는 심플 메뉴로 전환")
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
 
                     HStack(spacing: 8) {
-                        Button("영상 열기", systemImage: "film") { model.openVideo() }
-                            .frame(maxWidth: .infinity)
-                        Button("대량 번역", systemImage: "rectangle.stack.badge.play") {
-                            BatchProcessor.shared.configure(options: model.currentProcessingOptions())
-                            openWindow(id: "batch")
+                        Button { model.openVideo() } label: {
+                            Label("영상 열기", systemImage: "film")
+                                .frame(maxWidth: .infinity)
                         }
-                        .frame(maxWidth: .infinity)
+                        Button {
+                                BatchProcessor.shared.configure(options: model.currentProcessingOptions())
+                                openWindow(id: "batch")
+                        } label: {
+                            Label("대량 번역", systemImage: "rectangle.stack.badge.play")
+                                .frame(maxWidth: .infinity)
+                        }
                         .help("여러 영상을 새 창에서 동시에 STT·LLM 번역합니다")
                     }
                     .buttonStyle(.bordered)
 
                     if isCurrentJobRunning {
-                        Button("STT·번역 중지", systemImage: "stop.fill", role: .destructive) {
+                        Button(role: .destructive) {
                             model.cancel()
+                        } label: {
+                            Label("STT·번역 중지", systemImage: "stop.fill")
+                                .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
-                        .frame(maxWidth: .infinity)
                     } else {
-                        Button("STT·번역 시작/재개", systemImage: "waveform.and.magnifyingglass") {
+                        Button {
                             model.startOrResume()
+                        } label: {
+                            Label("STT·번역 시작/재개", systemImage: "waveform.and.magnifyingglass")
+                                .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
-                        .frame(maxWidth: .infinity)
                         .disabled(!model.canStart)
                         .help(model.mediaURL == nil ? "먼저 영상을 열어 주세요" : "현재 설정으로 STT·번역을 시작하거나 저장된 지점부터 재개")
                     }
