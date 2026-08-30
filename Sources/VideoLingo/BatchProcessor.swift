@@ -1786,7 +1786,8 @@ struct BatchMultiMonitorView: View {
                             BatchMonitorTile(
                                 item: item,
                                 playsVideo: playbackBinding(for: item.id),
-                                onShowDetails: { openWindow(id: "batch-detail", value: item.id) }
+                                onShowDetails: { openWindow(id: "batch-detail", value: item.id) },
+                                onExpand: { openWindow(id: "batch-monitor-preview", value: item.id) }
                             )
                         }
                     }
@@ -1987,16 +1988,23 @@ private struct BatchMonitorTile: View {
     let item: BatchProcessor.Item
     @Binding var playsVideo: Bool
     let onShowDetails: () -> Void
+    let onExpand: (() -> Void)?
     @State private var player: AVPlayer
     @State private var isMuted = true
     @State private var currentTime: TimeInterval = 0
     @State private var duration: TimeInterval = 0
     @State private var isSeeking = false
 
-    init(item: BatchProcessor.Item, playsVideo: Binding<Bool>, onShowDetails: @escaping () -> Void) {
+    init(
+        item: BatchProcessor.Item,
+        playsVideo: Binding<Bool>,
+        onShowDetails: @escaping () -> Void,
+        onExpand: (() -> Void)? = nil
+    ) {
         self.item = item
         _playsVideo = playsVideo
         self.onShowDetails = onShowDetails
+        self.onExpand = onExpand
         _player = State(initialValue: AVPlayer(url: item.url))
     }
 
@@ -2006,6 +2014,8 @@ private struct BatchMonitorTile: View {
                 BatchMonitorPlayer(player: player)
                     .aspectRatio(16 / 9, contentMode: .fit)
                     .background(.black)
+                    .onTapGesture(count: 2) { onExpand?() }
+                    .help(onExpand == nil ? "영상 미리보기" : "더블클릭하여 큰 미리보기 창 열기")
 
                 HStack(spacing: 6) {
                     Image(systemName: statusSymbol)
@@ -2036,6 +2046,13 @@ private struct BatchMonitorTile: View {
                     Button("상세 진행 보기", systemImage: "arrow.up.right.square", action: onShowDetails)
                         .labelStyle(.iconOnly)
                         .help("이 영상의 상세 진행 창 열기")
+                    if let onExpand {
+                        Button("크게 보기", systemImage: "arrow.up.left.and.arrow.down.right") {
+                            onExpand()
+                        }
+                        .labelStyle(.iconOnly)
+                        .help("이 영상만 독립된 큰 미리보기 창에서 보기")
+                    }
                 }
 
                 if !item.message.isEmpty {
@@ -2211,6 +2228,44 @@ private struct BatchMonitorTile: View {
         case .completed: .green.opacity(0.45)
         default: item.isProcessing ? Color.accentColor.opacity(0.55) : Color.secondary.opacity(0.2)
         }
+    }
+}
+
+/// 멀티 화면에서 선택한 한 영상을 독립된 큰 창으로 재생합니다.
+struct BatchMonitorExpandedPreviewView: View {
+    @Environment(BatchProcessor.self) private var processor
+    @Environment(\.openWindow) private var openWindow
+    let itemID: UUID?
+    @State private var playsVideo = true
+
+    var body: some View {
+        Group {
+            if let item {
+                ScrollView {
+                    BatchMonitorTile(
+                        item: item,
+                        playsVideo: $playsVideo,
+                        onShowDetails: { openWindow(id: "batch-detail", value: item.id) }
+                    )
+                    .frame(maxWidth: 1_200)
+                    .padding(20)
+                    .frame(maxWidth: .infinity)
+                }
+                .navigationTitle(item.url.lastPathComponent)
+            } else {
+                ContentUnavailableView(
+                    "영상을 찾을 수 없습니다",
+                    systemImage: "film.stack",
+                    description: Text("대량 번역 목록에서 제거되었거나 더 이상 사용할 수 없는 영상입니다.")
+                )
+            }
+        }
+        .frame(minWidth: 800, minHeight: 560)
+    }
+
+    private var item: BatchProcessor.Item? {
+        guard let itemID else { return nil }
+        return processor.items.first { $0.id == itemID }
     }
 }
 
