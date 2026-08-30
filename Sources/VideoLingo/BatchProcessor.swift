@@ -146,9 +146,9 @@ final class BatchProcessor {
     }
 
     var effectiveSTTConcurrentJobs: Int {
-        automaticallyAdjustConcurrentJobs
+        (automaticallyAdjustConcurrentJobs
             ? min(4, max(2, recommendedConcurrentJobs + 1))
-            : maximumConcurrentSTTJobs
+            : maximumConcurrentSTTJobs) + RemoteWorkerPool.shared.totalSTTSlots
     }
 
     var effectiveConcurrentJobs: Int {
@@ -760,7 +760,10 @@ final class BatchProcessor {
         guard !isRunning else { return }
         isRunning = true
         isPaused = false
-        runTask = Task { [weak self] in await self?.runQueue() }
+        runTask = Task { [weak self] in
+            await RemoteWorkerPool.shared.refreshAll()
+            await self?.runQueue()
+        }
     }
 
     func pause() {
@@ -928,13 +931,6 @@ final class BatchProcessor {
             }
         }
         let url = items[initialIndex].url
-        guard service() != nil else {
-            if let index = items.firstIndex(where: { $0.id == itemID }) {
-                items[index].status = .failed
-                items[index].message = String(localized: "내장 AI 서버에 연결할 수 없습니다.")
-            }
-            return
-        }
         do {
             let paths = try AppPaths()
             let jobID = AppModel.stableJobID(
@@ -960,6 +956,26 @@ final class BatchProcessor {
                 // 품질 개선도 번역까지 끝난 뒤에 하는 편이 낭비가 없습니다.
                 itemOptions.targetLanguages = []
                 itemOptions.continuousImprovement = false
+            }
+
+            // 원격 Worker는 STT와 번역을 한 번에 수행합니다. STT 레인에서만 임대하고,
+            // 자리가 없거나 실패하면 기존 내장 서버 흐름을 그대로 사용합니다.
+            if phase == .stt, let worker = RemoteWorkerPool.shared.acquire() {
+                defer { RemoteWorkerPool.shared.release(worker.id) }
+                do {
+                    try await processRemotely(itemID: itemID, jobID: jobID, mediaURL: url, worker: worker)
+                    return
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    if let index = items.firstIndex(where: { $0.id == itemID }) {
+                        items[index].message = String(localized: "\(worker.name) 연결 실패 · 내장 서버로 자동 전환")
+                    }
+                }
+            }
+
+            guard service() != nil else {
+                throw NSError(domain: "VideoLingo.BatchProcessor", code: 3, userInfo: [NSLocalizedDescriptionKey: String(localized: "내장 AI 서버와 원격 Worker 모두 사용할 수 없습니다.")])
             }
             let request = StartJobRequest(
                 jobID: jobID,
@@ -1078,6 +1094,54 @@ final class BatchProcessor {
                 }
             }
         }
+    }
+
+    private func processRemotely(itemID: UUID, jobID: UUID, mediaURL: URL, worker: RemoteWorkerConfiguration) async throws {
+        guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
+        let attributes = try FileManager.default.attributesOfItem(atPath: mediaURL.path)
+        let byteCount = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+        let manifest = RemoteJobManifest(
+            jobID: jobID,
+            originalFilename: mediaURL.lastPathComponent,
+            mediaByteCount: byteCount,
+            options: options
+        )
+        items[index].status = .queued
+        items[index].message = String(localized: "\(worker.name)에 영상 전송 중")
+        let result = try await RemoteWorkerClient(worker: worker).run(mediaURL: mediaURL, manifest: manifest) { [weak self] progress in
+            await MainActor.run {
+                guard let self, let current = self.items.firstIndex(where: { $0.id == itemID }) else { return }
+                self.items[current].status = progress.status
+                self.items[current].sttProgress = progress.sttProgress
+                self.items[current].translationProgress = progress.translationProgress
+                self.items[current].progress = (progress.sttProgress + progress.translationProgress) / 2
+                self.items[current].message = "\(worker.name) · \(progress.message)"
+            }
+        }
+        let sidecar = try MediaSidecarStore(
+            mediaURL: mediaURL,
+            jobID: jobID,
+            sttModel: options.sttModel,
+            sourceLanguage: options.sourceLanguage,
+            alternateRootURL: needsAlternateResultDirectory(mediaURL) ? alternateResultDirectoryURL : nil
+        )
+        try sidecar.saveTranscripts(result.transcripts)
+        for language in options.targetLanguages {
+            try sidecar.saveTranslations(
+                result.translations.filter { $0.targetLanguage == language },
+                language: language,
+                modelID: options.translationModel,
+                transcripts: result.transcripts
+            )
+        }
+        guard let completed = items.firstIndex(where: { $0.id == itemID }) else { return }
+        items[completed].sttCompleted = true
+        items[completed].sttProgress = 1
+        items[completed].translationProgress = 1
+        items[completed].progress = 1
+        items[completed].status = .completed
+        items[completed].message = String(localized: "\(worker.name)에서 STT·번역 완료")
+        items[completed].existingResult = .complete(languages: options.targetLanguages)
     }
 
     // MARK: XPC
