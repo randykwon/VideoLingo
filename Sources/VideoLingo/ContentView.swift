@@ -15,6 +15,11 @@ struct ContentView: View {
     @State private var showProgressDetails = false
     @State private var showServiceDetails = false
 
+    private var isCurrentJobRunning: Bool {
+        guard let status = model.snapshot?.status else { return false }
+        return [.queued, .extracting, .transcribing, .translating, .synthesizing, .refining].contains(status)
+    }
+
     var body: some View {
         @Bindable var model = model
         Group {
@@ -30,23 +35,64 @@ struct ContentView: View {
             } else if simpleSidebar {
                 SimpleSidebarView(simpleSidebar: $simpleSidebar)
             } else {
-            Form {
-                Section {
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 12) {
                     Picker("플레이어 모드", selection: $model.playerMode) {
                         ForEach(PlayerWorkspaceMode.allCases) { mode in
                             Label(mode.title, systemImage: mode.symbol).tag(mode)
                         }
                     }
                     .pickerStyle(.segmented)
-                    Button("심플 메뉴로 전환", systemImage: "list.bullet") { simpleSidebar = true }
-                }
-                Section("영상") {
-                    Button("MP4 영상 열기…", systemImage: "film") { model.openVideo() }
-                    Button("대량 번역…", systemImage: "rectangle.stack.badge.play") {
-                        BatchProcessor.shared.configure(options: model.currentProcessingOptions())
-                        openWindow(id: "batch")
+                    .labelsHidden()
+
+                    HStack(spacing: 8) {
+                        Button("영상 열기", systemImage: "film") { model.openVideo() }
+                            .frame(maxWidth: .infinity)
+                        Button("대량 번역", systemImage: "rectangle.stack.badge.play") {
+                            BatchProcessor.shared.configure(options: model.currentProcessingOptions())
+                            openWindow(id: "batch")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .help("여러 영상을 새 창에서 동시에 STT·LLM 번역합니다")
                     }
-                    .help("여러 영상을 새 창에서 동시에 STT·LLM 번역합니다")
+                    .buttonStyle(.bordered)
+
+                    if isCurrentJobRunning {
+                        Button("STT·번역 중지", systemImage: "stop.fill", role: .destructive) {
+                            model.cancel()
+                        }
+                        .buttonStyle(.bordered)
+                        .frame(maxWidth: .infinity)
+                    } else {
+                        Button("STT·번역 시작/재개", systemImage: "waveform.and.magnifyingglass") {
+                            model.startOrResume()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .frame(maxWidth: .infinity)
+                        .disabled(!model.canStart)
+                        .help(model.mediaURL == nil ? "먼저 영상을 열어 주세요" : "현재 설정으로 STT·번역을 시작하거나 저장된 지점부터 재개")
+                    }
+
+                    if let snapshot = model.snapshot {
+                        HStack(spacing: 8) {
+                            ProgressView(value: snapshot.progress)
+                            Text(snapshot.progress, format: .percent.precision(.fractionLength(0)))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(snapshot.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                .controlSize(.large)
+                .padding(16)
+
+                Divider()
+
+            Form {
+                Section("현재 영상") {
                     if let url = model.mediaURL {
                         Text(url.lastPathComponent).lineLimit(2).font(.caption)
                         if let resultURL = model.resultDirectoryURL {
@@ -54,9 +100,13 @@ struct ContentView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
+                    } else {
+                        Text("상단의 ‘영상 열기’를 눌러 번역할 영상을 선택하세요.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                Section("번역") {
+                Section("언어 및 자막") {
                     Picker("STT 원어", selection: $model.sourceLanguage) {
                         ForEach(model.sourceLanguages, id: \.self) { language in
                             Text(model.sourceLanguageName(language)).tag(language)
@@ -132,9 +182,7 @@ struct ContentView: View {
                             .overlay(RoundedRectangle(cornerRadius: 5).stroke(.separator))
                     }
                 }
-                Section("작업") {
-                    Button("STT·번역 시작/재개", systemImage: "waveform.and.magnifyingglass") { model.startOrResume() }
-                        .disabled(!model.canStart)
+                Section("결과 및 재처리") {
                     Menu("결과 재생성", systemImage: "arrow.trianglehead.2.clockwise.rotate.90") {
                         Button("STT 재생성", systemImage: "waveform.badge.magnifyingglass") {
                             model.regenerateSTT()
@@ -157,15 +205,6 @@ struct ContentView: View {
                     .disabled(!model.canRegenerate || model.transcript.isEmpty)
                     .help("저장된 전체 스크립트에서 이름과 역할을 분석하고 STT·번역 결과에 반영합니다")
                     if let snapshot = model.snapshot {
-                        HStack {
-                            ProgressView(value: snapshot.progress)
-                            Text(snapshot.progress, format: .percent.precision(.fractionLength(0)))
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
-                        }
-                        Text(snapshot.message)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                         DisclosureGroup("진행 상세", isExpanded: $showProgressDetails) {
                             StageProgressView(
                                 title: "STT 추출",
@@ -183,9 +222,6 @@ struct ContentView: View {
                                 liveText: snapshot.liveTranslationText,
                                 latestText: snapshot.lastTranslationText
                             )
-                        }
-                        if snapshot.status != .completed {
-                            Button("작업 취소", role: .destructive) { model.cancel() }
                         }
                     }
                     Button("SRT 내보내기", systemImage: "square.and.arrow.up") { model.exportSRT() }
@@ -254,6 +290,7 @@ struct ContentView: View {
             }
             .formStyle(.grouped)
             .scrollContentBackground(theme.translucent ? .hidden : .automatic)
+            }
             }
             }
             .navigationSplitViewColumnWidth(min: 250, ideal: 290, max: 340)
