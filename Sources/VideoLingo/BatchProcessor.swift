@@ -1739,13 +1739,15 @@ private struct BatchStartConfirmationView: View {
 
 private enum BatchMonitorFilter: String, CaseIterable, Identifiable {
     case active
+    case attention
     case all
     case completed
 
     var id: Self { self }
     var title: String {
         switch self {
-        case .active: "실행 중"
+        case .active: "진행·대기"
+        case .attention: "주의 필요"
         case .all: "전체"
         case .completed: "완료"
         }
@@ -1802,45 +1804,74 @@ struct BatchMultiMonitorView: View {
     }
 
     private var monitorHeader: some View {
-        HStack(spacing: 16) {
-            Picker("표시 항목", selection: $filter) {
-                ForEach(BatchMonitorFilter.allCases) { option in
-                    Text("\(option.title) \(count(for: option))").tag(option)
-                }
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                BatchMonitorMetric(
+                    title: "전체 진행",
+                    value: processor.overallProgress.formatted(.percent.precision(.fractionLength(0))),
+                    systemImage: "chart.bar.fill",
+                    color: .accentColor
+                )
+                BatchMonitorMetric(
+                    title: "처리 중",
+                    value: "\(processor.runningCount)",
+                    systemImage: "dot.radiowaves.left.and.right",
+                    color: .blue
+                )
+                BatchMonitorMetric(
+                    title: "대기",
+                    value: "\(queuedCount)",
+                    systemImage: "clock.fill",
+                    color: .secondary
+                )
+                BatchMonitorMetric(
+                    title: "완료",
+                    value: "\(processor.completedCount)",
+                    systemImage: "checkmark.circle.fill",
+                    color: .green
+                )
+                BatchMonitorMetric(
+                    title: "주의 필요",
+                    value: "\(attentionCount)",
+                    systemImage: attentionCount == 0 ? "checkmark.shield.fill" : "exclamationmark.triangle.fill",
+                    color: attentionCount == 0 ? .green : .orange
+                )
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 400)
 
-            Spacer()
-
-            Label("실행 \(processor.runningCount) · 대기 \(processor.pendingCount) · 완료 \(processor.completedCount)",
-                  systemImage: processor.isRunning ? "dot.radiowaves.left.and.right" : "chart.bar")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-
-            Text("재생 선택 \(visiblePlaybackSelectionCount)개")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-
-            Button(allVisibleItemsSelected ? "표시 영상 선택 해제" : "표시 영상 전체 선택",
-                   systemImage: allVisibleItemsSelected ? "checkmark.square.fill" : "square.stack") {
-                if allVisibleItemsSelected {
-                    playbackSelection.subtract(visibleItems.map(\.id))
-                } else {
-                    playbackSelection.formUnion(visibleItems.map(\.id))
+            HStack(spacing: 16) {
+                Picker("표시 항목", selection: $filter) {
+                    ForEach(BatchMonitorFilter.allCases) { option in
+                        Text("\(option.title) \(count(for: option))").tag(option)
+                    }
                 }
-            }
-            .disabled(visibleItems.isEmpty)
-            .help("현재 필터에 표시된 영상의 음소거 재생을 한 번에 선택하거나 해제")
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 480)
 
-            Stepper(value: $columnCount, in: 1...4) {
-                Text("한 줄 \(columnCount)개")
+                Spacer()
+
+                Text("재생 선택 \(visiblePlaybackSelectionCount)개")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .monospacedDigit()
+
+                Button(allVisibleItemsSelected ? "표시 영상 선택 해제" : "표시 영상 전체 선택",
+                       systemImage: allVisibleItemsSelected ? "checkmark.square.fill" : "square.stack") {
+                    if allVisibleItemsSelected {
+                        playbackSelection.subtract(visibleItems.map(\.id))
+                    } else {
+                        playbackSelection.formUnion(visibleItems.map(\.id))
+                    }
+                }
+                .disabled(visibleItems.isEmpty)
+                .help("현재 필터에 표시된 영상의 음소거 재생을 한 번에 선택하거나 해제")
+
+                Stepper(value: $columnCount, in: 1...4) {
+                    Text("한 줄 \(columnCount)개")
+                        .monospacedDigit()
+                }
+                .frame(width: 125)
             }
-            .frame(width: 125)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -1849,7 +1880,8 @@ struct BatchMultiMonitorView: View {
 
     private var visibleItems: [BatchProcessor.Item] {
         switch filter {
-        case .active: processor.items.filter(\.isProcessing)
+        case .active: processor.items.filter { $0.isProcessing || $0.status == .queued }
+        case .attention: processor.items.filter { [.failed, .cancelled, .paused].contains($0.status) }
         case .all: processor.items
         case .completed: processor.items.filter { $0.status == .completed }
         }
@@ -1882,10 +1914,47 @@ struct BatchMultiMonitorView: View {
 
     private func count(for option: BatchMonitorFilter) -> Int {
         switch option {
-        case .active: processor.runningCount
+        case .active: processor.items.filter { $0.isProcessing || $0.status == .queued }.count
+        case .attention: attentionCount
         case .all: processor.items.count
         case .completed: processor.completedCount
         }
+    }
+
+    private var queuedCount: Int {
+        processor.items.filter { $0.status == .queued && !$0.isProcessing }.count
+    }
+
+    private var attentionCount: Int {
+        processor.items.filter { [.failed, .cancelled, .paused].contains($0.status) }.count
+    }
+}
+
+private struct BatchMonitorMetric: View {
+    let title: String
+    let value: String
+    let systemImage: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .foregroundStyle(color)
+                .font(.title3)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(.title3.weight(.semibold))
+                    .monospacedDigit()
+            }
+            Spacer(minLength: 4)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
@@ -1941,6 +2010,13 @@ private struct BatchMonitorTile: View {
                         .help("이 영상의 상세 진행 창 열기")
                 }
 
+                if !item.message.isEmpty {
+                    Label(item.message, systemImage: item.status == .failed ? "exclamationmark.circle.fill" : statusSymbol)
+                        .font(.caption)
+                        .foregroundStyle(item.status == .failed ? .red : .secondary)
+                        .lineLimit(2)
+                }
+
                 monitorProgress(title: "STT", value: item.sttProgress, icon: "waveform")
                 monitorProgress(title: "번역", value: item.translationProgress, icon: "character.book.closed")
 
@@ -1952,7 +2028,7 @@ private struct BatchMonitorTile: View {
         .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(playsVideo ? Color.accentColor : item.isProcessing ? Color.accentColor.opacity(0.55) : Color.secondary.opacity(0.2))
+                .strokeBorder(playsVideo ? Color.accentColor : statusBorderColor)
         }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .onAppear { updatePlayback() }
@@ -2013,6 +2089,15 @@ private struct BatchMonitorTile: View {
         case .cancelled, .paused: "pause.circle.fill"
         case .queued where !item.isProcessing: "clock"
         default: "dot.radiowaves.left.and.right"
+        }
+    }
+
+    private var statusBorderColor: Color {
+        switch item.status {
+        case .failed: .red.opacity(0.75)
+        case .paused, .cancelled: .orange.opacity(0.65)
+        case .completed: .green.opacity(0.45)
+        default: item.isProcessing ? Color.accentColor.opacity(0.55) : Color.secondary.opacity(0.2)
         }
     }
 }
