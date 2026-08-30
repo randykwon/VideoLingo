@@ -15,6 +15,7 @@
 		1391B8BEFCFD25266DABB369 /* VideoLingoAIService.xpc in CopyFiles */ = {isa = PBXBuildFile; fileRef = 1C2DCD3AC1DC0639EF79BA35 /* VideoLingoAIService.xpc */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		1BEB0E2536BACA979DEEB5B9 /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 2EEAB05B78C3A2F0DC32C72D /* SpeakerKit */; };
 		27055CA002B344DD1114FDF2 /* XPCProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 251F41FF88391DBF04DD4A1E /* XPCProtocol.swift */; };
+		297D051225F60461BEF392DA /* RemoteWorkerProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71060A2117004A8B4E49F458 /* RemoteWorkerProtocol.swift */; };
 		2D7D2D866794BB6400F33680 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DCEB4D1A3FF1AF17DFE806A7 /* AVFoundation.framework */; };
 		2FCBE5EC766797589C3B1BF7 /* SpeakerLabelRewriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62775C242691BCD4B3C8EDBD /* SpeakerLabelRewriter.swift */; };
 		36CD4058B1D2A97C02658AEB /* MobileContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E62F296B7BDF8CB730EE7572 /* MobileContentView.swift */; };
@@ -54,6 +55,7 @@
 		EC2439846AF83ED2B3D8E696 /* AVKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1A29A29F494EC232C80E8516 /* AVKit.framework */; };
 		EFEBC93D9B1D7FF375B0B260 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C9DED6B67062A46FC6A28F0F /* Assets.xcassets */; };
 		F1FBFD40AF667E1104575C7B /* AppPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = 706A159B88AE7E7F0E3B8EEE /* AppPaths.swift */; };
+		F435B1B1439F6747A2191990 /* RemoteWorkerPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45F5D328BCCFF44DB68B115B /* RemoteWorkerPool.swift */; };
 		F60B18D54AB749FC03566017 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7CD60344D8EAC5BD9D96EC7 /* main.swift */; };
 		F7E331D7AD07DA1808DA09B6 /* JobStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A14B444585205085F771932 /* JobStore.swift */; };
 		FD622FF84922BCF6A0AF6D4F /* KeyboardShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56255223A93BEE599B1BE55B /* KeyboardShortcuts.swift */; };
@@ -142,6 +144,7 @@
 		2D34AF221652871C5DA018C3 /* SubtitleExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleExporter.swift; sourceTree = "<group>"; };
 		301CAE7D02DB599971B5DA8D /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		3C5C249F9EA92D76B0F1B57A /* VideoLingo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VideoLingo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		45F5D328BCCFF44DB68B115B /* RemoteWorkerPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWorkerPool.swift; sourceTree = "<group>"; };
 		4A14B444585205085F771932 /* JobStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobStore.swift; sourceTree = "<group>"; };
 		4B5CA03129456DF44AEC88F4 /* FoundationModels.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FoundationModels.framework; path = System/Library/Frameworks/FoundationModels.framework; sourceTree = SDKROOT; };
 		56207C7826B10154A0FE4983 /* VideoLingoMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoLingoMobileApp.swift; sourceTree = "<group>"; };
@@ -153,6 +156,7 @@
 		6F9FF3E1248A71F566050CF8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		706A159B88AE7E7F0E3B8EEE /* AppPaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPaths.swift; sourceTree = "<group>"; };
 		709523048B431CBC0307F264 /* BatchProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchProcessor.swift; sourceTree = "<group>"; };
+		71060A2117004A8B4E49F458 /* RemoteWorkerProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWorkerProtocol.swift; sourceTree = "<group>"; };
 		71B98405400F44F0D2FFE7EB /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		72ED8A6BCA7371F5C1F61EB0 /* VideoLingo.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VideoLingo.entitlements; sourceTree = "<group>"; };
 		79A156114B29D4BC57E93E1B /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
@@ -241,6 +245,7 @@
 				56255223A93BEE599B1BE55B /* KeyboardShortcuts.swift */,
 				697523BC2EFF38888B491717 /* Localization.swift */,
 				64EA4C6F17A556F8A5CB6782 /* PanelLocationMemory.swift */,
+				45F5D328BCCFF44DB68B115B /* RemoteWorkerPool.swift */,
 				DED4EBD517BE61BC093C449E /* Theme.swift */,
 				72ED8A6BCA7371F5C1F61EB0 /* VideoLingo.entitlements */,
 				9DD89FEABFD63CD5DDE25032 /* VideoLingoApp.swift */,
@@ -297,6 +302,7 @@
 				4A14B444585205085F771932 /* JobStore.swift */,
 				646E49E8FB61BA60715DD692 /* MediaSidecarStore.swift */,
 				301CAE7D02DB599971B5DA8D /* Models.swift */,
+				71060A2117004A8B4E49F458 /* RemoteWorkerProtocol.swift */,
 				1D0E033737DF093CD2426172 /* SegmentQualityComparator.swift */,
 				62775C242691BCD4B3C8EDBD /* SpeakerLabelRewriter.swift */,
 				2D34AF221652871C5DA018C3 /* SubtitleExporter.swift */,
@@ -559,6 +565,7 @@
 				F7E331D7AD07DA1808DA09B6 /* JobStore.swift in Sources */,
 				90D2545110A5EC29AB25B524 /* MediaSidecarStore.swift in Sources */,
 				5177BD6DE1C97C6978D5BA3D /* Models.swift in Sources */,
+				297D051225F60461BEF392DA /* RemoteWorkerProtocol.swift in Sources */,
 				8BFEE98D0588EACC8EBE480B /* SegmentQualityComparator.swift in Sources */,
 				2FCBE5EC766797589C3B1BF7 /* SpeakerLabelRewriter.swift in Sources */,
 				EA8C16B7023925B4EDCFE78A /* SubtitleExporter.swift in Sources */,
@@ -590,6 +597,7 @@
 				FD622FF84922BCF6A0AF6D4F /* KeyboardShortcuts.swift in Sources */,
 				C97B1CBA186832A181C6AC86 /* Localization.swift in Sources */,
 				48F69E44316C54B5078C3C28 /* PanelLocationMemory.swift in Sources */,
+				F435B1B1439F6747A2191990 /* RemoteWorkerPool.swift in Sources */,
 				010D9A1AF38E0CBA1C30A84B /* Theme.swift in Sources */,
 				96D173351507CA322D5DBE16 /* VideoLingoApp.swift in Sources */,
 				5B587B4492F8F7AB42842A21 /* VideoLingoPackage.swift in Sources */,
