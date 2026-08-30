@@ -37,6 +37,7 @@
 		90D2545110A5EC29AB25B524 /* MediaSidecarStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 646E49E8FB61BA60715DD692 /* MediaSidecarStore.swift */; };
 		931EC3EA68A19A0BA6A68811 /* ServiceDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77000A3238B525A3BBEB590 /* ServiceDelegate.swift */; };
 		96D173351507CA322D5DBE16 /* VideoLingoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DD89FEABFD63CD5DDE25032 /* VideoLingoApp.swift */; };
+		9D86CCF6AD6AFD5D22FEF48D /* RemoteWorkerClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7F9084D8CDF7DA4C10CD51 /* RemoteWorkerClient.swift */; };
 		9EB513A8FC7BA8E4E6779740 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = A9A5493549E0483F23505EDF /* Localizable.strings */; };
 		9ED15EC1D94252A1C51E13B0 /* BatchProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 709523048B431CBC0307F264 /* BatchProcessor.swift */; };
 		A5BDE1A2E1B2923093E32A58 /* VideoLingoCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; };
@@ -144,6 +145,7 @@
 		2D34AF221652871C5DA018C3 /* SubtitleExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleExporter.swift; sourceTree = "<group>"; };
 		301CAE7D02DB599971B5DA8D /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		3C5C249F9EA92D76B0F1B57A /* VideoLingo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VideoLingo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3C7F9084D8CDF7DA4C10CD51 /* RemoteWorkerClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWorkerClient.swift; sourceTree = "<group>"; };
 		45F5D328BCCFF44DB68B115B /* RemoteWorkerPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWorkerPool.swift; sourceTree = "<group>"; };
 		4A14B444585205085F771932 /* JobStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobStore.swift; sourceTree = "<group>"; };
 		4B5CA03129456DF44AEC88F4 /* FoundationModels.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FoundationModels.framework; path = System/Library/Frameworks/FoundationModels.framework; sourceTree = SDKROOT; };
@@ -245,6 +247,7 @@
 				56255223A93BEE599B1BE55B /* KeyboardShortcuts.swift */,
 				697523BC2EFF38888B491717 /* Localization.swift */,
 				64EA4C6F17A556F8A5CB6782 /* PanelLocationMemory.swift */,
+				3C7F9084D8CDF7DA4C10CD51 /* RemoteWorkerClient.swift */,
 				45F5D328BCCFF44DB68B115B /* RemoteWorkerPool.swift */,
 				DED4EBD517BE61BC093C449E /* Theme.swift */,
 				72ED8A6BCA7371F5C1F61EB0 /* VideoLingo.entitlements */,
@@ -597,6 +600,7 @@
 				FD622FF84922BCF6A0AF6D4F /* KeyboardShortcuts.swift in Sources */,
 				C97B1CBA186832A181C6AC86 /* Localization.swift in Sources */,
 				48F69E44316C54B5078C3C28 /* PanelLocationMemory.swift in Sources */,
+				9D86CCF6AD6AFD5D22FEF48D /* RemoteWorkerClient.swift in Sources */,
 				F435B1B1439F6747A2191990 /* RemoteWorkerPool.swift in Sources */,
 				010D9A1AF38E0CBA1C30A84B /* Theme.swift in Sources */,
 				96D173351507CA322D5DBE16 /* VideoLingoApp.swift in Sources */,
