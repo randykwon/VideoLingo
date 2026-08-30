@@ -33,6 +33,7 @@ final class RemoteWorkerPool {
     private(set) var workers: [RemoteWorkerConfiguration] = []
     private(set) var states: [UUID: RemoteWorkerConnectionState] = [:]
     private let defaultsKey = "remoteWorkerConfigurations.v1"
+    private var activeLeases: [UUID: Int] = [:]
 
     private init() {
         guard let data = UserDefaults.standard.data(forKey: defaultsKey),
@@ -49,6 +50,21 @@ final class RemoteWorkerPool {
 
     var totalSTTSlots: Int { availableWorkers.reduce(0) { $0 + $1.1.capabilities.sttSlots } }
     var totalTranslationSlots: Int { availableWorkers.reduce(0) { $0 + $1.1.capabilities.translationSlots } }
+
+    func acquire() -> RemoteWorkerConfiguration? {
+        let candidates = availableWorkers.filter { worker, status in
+            activeLeases[worker.id, default: 0] < max(1, min(status.capabilities.sttSlots, status.capabilities.translationSlots))
+        }
+        guard let selected = candidates.min(by: {
+            activeLeases[$0.0.id, default: 0] < activeLeases[$1.0.id, default: 0]
+        })?.0 else { return nil }
+        activeLeases[selected.id, default: 0] += 1
+        return selected
+    }
+
+    func release(_ id: UUID) {
+        activeLeases[id] = max(0, activeLeases[id, default: 0] - 1)
+    }
 
     func add(name: String, address: String, token: String) throws {
         let normalized = address.contains("://") ? address : "https://\(address)"

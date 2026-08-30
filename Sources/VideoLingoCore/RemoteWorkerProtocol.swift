@@ -5,6 +5,8 @@ public enum RemoteWorkerAPI {
     public static let version = 1
     public static let statusPath = "/v1/status"
     public static let jobsPath = "/v1/jobs"
+
+    public static func jobPath(_ id: UUID) -> String { "\(jobsPath)/\(id.uuidString)" }
 }
 
 public struct RemoteWorkerCapabilities: Codable, Sendable, Equatable {
@@ -63,5 +65,33 @@ public struct RemoteJobReceipt: Codable, Sendable {
         self.jobID = jobID
         self.accepted = accepted
         self.message = message
+    }
+}
+
+public struct RemoteJobProgress: Codable, Sendable {
+    public let jobID: UUID
+    public let status: JobStatus
+    public let sttProgress: Double
+    public let translationProgress: Double
+    public let message: String
+    public let result: RemoteJobResult?
+
+    public init(jobID: UUID, status: JobStatus, sttProgress: Double, translationProgress: Double, message: String, result: RemoteJobResult? = nil) {
+        self.jobID = jobID
+        self.status = status
+        self.sttProgress = sttProgress
+        self.translationProgress = translationProgress
+        self.message = message
+        self.result = result
+    }
+}
+
+public struct RemoteJobResult: Codable, Sendable {
+    public let transcripts: [TranscriptSegment]
+    public let translations: [TranslationSegment]
+
+    public init(transcripts: [TranscriptSegment], translations: [TranslationSegment]) {
+        self.transcripts = transcripts
+        self.translations = translations
     }
 }
