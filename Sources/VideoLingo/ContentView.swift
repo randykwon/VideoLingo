@@ -1921,6 +1921,12 @@ private struct DatabaseSettingsView: View {
 
 private struct ServerSettingsView: View {
     @Environment(AppModel.self) private var model
+    @State private var remotePool = RemoteWorkerPool.shared
+    @State private var workerName = ""
+    @State private var workerAddress = ""
+    @State private var workerToken = ""
+    @State private var workerMessage = ""
+    @State private var workerToRemove: RemoteWorkerConfiguration?
 
     var body: some View {
         Form {
@@ -1950,10 +1956,142 @@ private struct ServerSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Section("추가 STT·LLM 서버") {
+                if remotePool.workers.isEmpty {
+                    ContentUnavailableView(
+                        "추가 서버 없음",
+                        systemImage: "server.rack",
+                        description: Text("다른 노트북에 VideoLingo Worker를 설치한 뒤 주소와 인증 토큰을 등록하세요.")
+                    )
+                } else {
+                    ForEach(remotePool.workers) { worker in
+                        HStack(spacing: 12) {
+                            workerStatusIcon(remotePool.states[worker.id] ?? .unchecked)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(worker.name.isEmpty ? worker.baseURL.host() ?? "Worker" : worker.name)
+                                    .font(.callout.weight(.semibold))
+                                Text(worker.baseURL.absoluteString)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                workerStatusText(remotePool.states[worker.id] ?? .unchecked)
+                            }
+                            Spacer()
+                            Toggle("사용", isOn: Binding(
+                                get: { worker.isEnabled },
+                                set: { remotePool.setEnabled($0, for: worker.id) }
+                            ))
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            Button("상태 확인", systemImage: "arrow.clockwise") {
+                                Task { await remotePool.refresh(worker.id) }
+                            }
+                            .labelStyle(.iconOnly)
+                            .disabled(!worker.isEnabled || remotePool.states[worker.id] == .checking)
+                            Button("서버 제거", systemImage: "trash", role: .destructive) {
+                                workerToRemove = worker
+                            }
+                            .labelStyle(.iconOnly)
+                        }
+                    }
+                    LabeledContent("사용 가능한 추가 용량") {
+                        Text("STT \(remotePool.totalSTTSlots)개 · 번역 \(remotePool.totalTranslationSlots)개")
+                            .monospacedDigit()
+                    }
+                }
+
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                    GridRow {
+                        Text("이름")
+                        TextField("예: 작업실 MacBook", text: $workerName)
+                    }
+                    GridRow {
+                        Text("서버 주소")
+                        TextField("https://192.168.0.20:9443", text: $workerAddress)
+                    }
+                    GridRow {
+                        Text("인증 토큰")
+                        SecureField("Worker에 표시된 토큰", text: $workerToken)
+                    }
+                }
+                HStack {
+                    Button("서버 추가", systemImage: "plus") { addRemoteWorker() }
+                        .disabled(workerAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workerToken.isEmpty)
+                    Button("전체 상태 확인", systemImage: "arrow.clockwise") {
+                        Task { await remotePool.refreshAll() }
+                    }
+                    .disabled(remotePool.workers.isEmpty)
+                    Spacer()
+                }
+                if !workerMessage.isEmpty {
+                    Text(workerMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text("같은 네트워크에서는 HTTPS를 권장합니다. 인증 토큰은 작업 요청과 상태 확인에 사용됩니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             SettingsMessageView()
         }
         .formStyle(.grouped)
         .padding()
+        .task { await remotePool.refreshAll() }
+        .confirmationDialog(
+            "이 추가 서버를 목록에서 제거할까요?",
+            isPresented: Binding(get: { workerToRemove != nil }, set: { if !$0 { workerToRemove = nil } }),
+            presenting: workerToRemove
+        ) { worker in
+            Button("‘\(worker.name)’ 제거", role: .destructive) {
+                remotePool.remove(worker.id)
+                workerToRemove = nil
+            }
+            Button("취소", role: .cancel) { workerToRemove = nil }
+        } message: { _ in
+            Text("원격 노트북의 Worker와 저장된 결과는 삭제되지 않습니다.")
+        }
+    }
+
+    private func addRemoteWorker() {
+        do {
+            try remotePool.add(name: workerName, address: workerAddress, token: workerToken)
+            workerName = ""
+            workerAddress = ""
+            workerToken = ""
+            workerMessage = "서버를 추가했습니다. 상태를 확인합니다."
+            if let id = remotePool.workers.last?.id { Task { await remotePool.refresh(id) } }
+        } catch {
+            workerMessage = "서버 주소를 확인하세요: \(error.localizedDescription)"
+        }
+    }
+
+    @ViewBuilder
+    private func workerStatusIcon(_ state: RemoteWorkerConnectionState) -> some View {
+        switch state {
+        case .available:
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case .checking:
+            ProgressView().controlSize(.small)
+        case .unchecked:
+            Image(systemName: "questionmark.circle").foregroundStyle(.secondary)
+        case .unavailable:
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+        }
+    }
+
+    @ViewBuilder
+    private func workerStatusText(_ state: RemoteWorkerConnectionState) -> some View {
+        switch state {
+        case .available(let status):
+            Text("연결됨 · STT \(status.capabilities.sttSlots) · 번역 \(status.capabilities.translationSlots) · 실행 \(status.activeJobs)")
+                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+        case .checking:
+            Text("연결 확인 중…").font(.caption).foregroundStyle(.secondary)
+        case .unchecked:
+            Text("상태를 확인하지 않음").font(.caption).foregroundStyle(.secondary)
+        case .unavailable(let message):
+            Text("연결 실패 · \(message)").font(.caption).foregroundStyle(.orange).lineLimit(2)
+        }
     }
 }
 
