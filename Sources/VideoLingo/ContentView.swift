@@ -1961,7 +1961,7 @@ private struct ServerSettingsView: View {
                     ContentUnavailableView(
                         "추가 서버 없음",
                         systemImage: "server.rack",
-                        description: Text("다른 노트북에 VideoLingo Worker를 설치한 뒤 주소와 인증 토큰을 등록하세요.")
+                        description: Text("Windows, Linux 또는 macOS PC에 Worker를 설치한 뒤 주소와 인증 토큰을 등록하세요.")
                     )
                 } else {
                     ForEach(remotePool.workers) { worker in
@@ -2003,11 +2003,11 @@ private struct ServerSettingsView: View {
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
                     GridRow {
                         Text("이름")
-                        TextField("예: 작업실 MacBook", text: $workerName)
+                        TextField("예: 작업실 Windows GPU", text: $workerName)
                     }
                     GridRow {
                         Text("서버 주소")
-                        TextField("https://192.168.0.20:9443", text: $workerAddress)
+                        TextField("http://192.168.0.20:8765", text: $workerAddress)
                     }
                     GridRow {
                         Text("인증 토큰")
@@ -2028,7 +2028,7 @@ private struct ServerSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Text("같은 네트워크에서는 HTTPS를 권장합니다. 인증 토큰은 작업 요청과 상태 확인에 사용됩니다.")
+                Text("Windows·Linux·macOS Worker를 함께 사용할 수 있습니다. 외부 네트워크에서는 VPN 또는 HTTPS를 사용하세요.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -2048,7 +2048,7 @@ private struct ServerSettingsView: View {
             }
             Button("취소", role: .cancel) { workerToRemove = nil }
         } message: { _ in
-            Text("원격 노트북의 Worker와 저장된 결과는 삭제되지 않습니다.")
+            Text("원격 PC의 Worker와 저장된 결과는 삭제되지 않습니다.")
         }
     }
 

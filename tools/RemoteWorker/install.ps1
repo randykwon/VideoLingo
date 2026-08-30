@@ -10,7 +10,7 @@ python -m venv .venv
 
 if (-not (Test-Path -LiteralPath .env)) {
     $token = & .\.venv\Scripts\python.exe -c 'import secrets; print(secrets.token_urlsafe(32))'
-    @"
+    $configuration = @"
 VIDEOLINGO_TOKEN=$token
 VIDEOLINGO_NAME=$env:COMPUTERNAME
 VIDEOLINGO_PORT=8765
@@ -21,6 +21,7 @@ OLLAMA_MODEL=qwen3:8b
 WHISPER_MODEL=large-v3
 WHISPER_DEVICE=auto
 WHISPER_COMPUTE_TYPE=auto
-"@ | Set-Content -LiteralPath .env -Encoding utf8
+"@
+    [IO.File]::WriteAllText((Join-Path $PSScriptRoot '.env'), $configuration, [Text.UTF8Encoding]::new($false))
 }
 Write-Host '설치 완료. Ollama 모델을 받은 뒤 .\start.ps1 을 실행하세요.'
