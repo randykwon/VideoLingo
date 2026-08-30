@@ -1988,6 +1988,10 @@ private struct BatchMonitorTile: View {
     @Binding var playsVideo: Bool
     let onShowDetails: () -> Void
     @State private var player: AVPlayer
+    @State private var isMuted = true
+    @State private var currentTime: TimeInterval = 0
+    @State private var duration: TimeInterval = 0
+    @State private var isSeeking = false
 
     init(item: BatchProcessor.Item, playsVideo: Binding<Bool>, onShowDetails: @escaping () -> Void) {
         self.item = item
@@ -2041,6 +2045,53 @@ private struct BatchMonitorTile: View {
                         .lineLimit(2)
                 }
 
+                HStack(spacing: 8) {
+                    Button(isMuted ? "소리 켜기" : "소리 끄기",
+                           systemImage: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill") {
+                        isMuted.toggle()
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help(isMuted ? "이 영상의 소리 켜기" : "이 영상 음소거")
+
+                    Button("10초 뒤로", systemImage: "gobackward.10") {
+                        seek(by: -10)
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help("10초 뒤로 이동")
+
+                    Text(timeText(currentTime))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 42, alignment: .trailing)
+
+                    Slider(
+                        value: Binding(
+                            get: { currentTime },
+                            set: { currentTime = $0 }
+                        ),
+                        in: 0...max(1, duration)
+                    ) { editing in
+                        isSeeking = editing
+                        if !editing { seek(to: currentTime) }
+                    }
+                    .help("드래그해서 영상 위치 이동")
+
+                    Text(timeText(duration))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 42, alignment: .leading)
+
+                    Button("10초 앞으로", systemImage: "goforward.10") {
+                        seek(by: 10)
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help("10초 앞으로 이동")
+                }
+                .controlSize(.small)
+
                 monitorProgress(title: "STT", value: item.sttProgress, icon: "waveform")
                 monitorProgress(title: "번역", value: item.translationProgress, icon: "character.book.closed")
 
@@ -2058,6 +2109,18 @@ private struct BatchMonitorTile: View {
         .onAppear { updatePlayback() }
         .onDisappear { player.pause() }
         .onChange(of: playsVideo) { _, _ in updatePlayback() }
+        .onChange(of: isMuted) { _, muted in player.isMuted = muted }
+        .task {
+            while !Task.isCancelled {
+                if !isSeeking {
+                    let position = player.currentTime().seconds
+                    if position.isFinite { currentTime = max(0, position) }
+                    let itemDuration = player.currentItem?.duration.seconds ?? 0
+                    if itemDuration.isFinite, itemDuration > 0 { duration = itemDuration }
+                }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
     }
 
     private func monitorProgress(title: String, value: Double, icon: String) -> some View {
@@ -2087,8 +2150,33 @@ private struct BatchMonitorTile: View {
     }
 
     private func updatePlayback() {
-        player.isMuted = true
+        player.isMuted = isMuted
         if playsVideo { player.play() } else { player.pause() }
+    }
+
+    private func seek(by seconds: TimeInterval) {
+        seek(to: currentTime + seconds)
+    }
+
+    private func seek(to seconds: TimeInterval) {
+        let target = min(max(0, seconds), duration > 0 ? duration : .greatestFiniteMagnitude)
+        currentTime = target
+        player.seek(
+            to: CMTime(seconds: target, preferredTimescale: 600),
+            toleranceBefore: CMTime(seconds: 0.1, preferredTimescale: 600),
+            toleranceAfter: CMTime(seconds: 0.1, preferredTimescale: 600)
+        )
+    }
+
+    private func timeText(_ seconds: TimeInterval) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+        let total = Int(seconds.rounded(.down))
+        let hours = total / 3_600
+        let minutes = (total % 3_600) / 60
+        let remainingSeconds = total % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, remainingSeconds)
+            : String(format: "%d:%02d", minutes, remainingSeconds)
     }
 
     private var statusText: String {
