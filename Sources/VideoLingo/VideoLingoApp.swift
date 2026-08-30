@@ -215,6 +215,31 @@ private struct VideoLingoCommands: Commands {
                 openWindow(id: "batch")
             }
             .keyboardShortcut("b", modifiers: [.command, .shift])
+            Menu("대량 번역 결과 저장 위치") {
+                Button(
+                    batchProcessor.alternateResultDirectoryURL == nil ? "폴더 지정…" : "저장 폴더 변경…",
+                    systemImage: "folder.badge.plus"
+                ) {
+                    batchProcessor.chooseAlternateResultDirectory()
+                }
+                .disabled(batchProcessor.isRunning)
+
+                if let path = batchProcessor.alternateResultDirectoryDisplayPath {
+                    Button("Finder에서 열기", systemImage: "folder") {
+                        batchProcessor.revealAlternateResultDirectory()
+                    }
+                    Divider()
+                    Button(path) {}
+                        .disabled(true)
+                    Button("지정 해제", systemImage: "xmark.circle") {
+                        batchProcessor.clearAlternateResultDirectory()
+                    }
+                    .disabled(batchProcessor.isRunning)
+                } else {
+                    Button("지정된 폴더 없음") {}
+                        .disabled(true)
+                }
+            }
             Divider()
             Button("시작/재개") { model?.startOrResume() }
                 .keyboardShortcut(shortcuts[.startOrResume].keyEquivalent, modifiers: shortcuts[.startOrResume].modifiers)

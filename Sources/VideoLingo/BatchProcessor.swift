@@ -278,6 +278,11 @@ final class BatchProcessor {
         UserDefaults.standard.removeObject(forKey: "batchAlternateResultDirectoryBookmark")
     }
 
+    func revealAlternateResultDirectory() {
+        guard let alternateResultDirectoryURL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([alternateResultDirectoryURL])
+    }
+
     private func needsAlternateResultDirectory(_ mediaURL: URL) -> Bool {
         if (try? mediaURL.resourceValues(forKeys: [.volumeIsReadOnlyKey]).volumeIsReadOnly) == true {
             return true
