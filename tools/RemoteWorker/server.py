@@ -11,6 +11,7 @@ NAME = os.environ.get("VIDEOLINGO_NAME", "VideoLingo Worker")
 STT_SLOTS = int(os.environ.get("VIDEOLINGO_STT_SLOTS", "1"))
 TRANSLATION_SLOTS = int(os.environ.get("VIDEOLINGO_TRANSLATION_SLOTS", "1"))
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:8b")
 WORKER_ID = uuid.uuid5(uuid.NAMESPACE_DNS, NAME)
 jobs: dict[str, dict] = {}
 semaphore = asyncio.Semaphore(max(1, min(STT_SLOTS, TRANSLATION_SLOTS)))
@@ -88,7 +89,7 @@ async def run_job(jid: str, media: Path, options: dict):
                         if job["cancelled"]: return
                         prompt = f"Translate this subtitle to {target}. Return only the translation:\n{transcript['text']}"
                         response = await client.post(f"{OLLAMA_URL}/api/generate", json={
-                            "model": options.get("translationModel", "qwen3:8b"), "prompt": prompt, "stream": False})
+                            "model": OLLAMA_MODEL, "prompt": prompt, "stream": False})
                         response.raise_for_status()
                         translations.append({"id": str(uuid.uuid4()), "transcriptID": transcript["id"], "jobID": jid,
                             "targetLanguage": target, "modelID": options.get("translationModel", "ollama"),

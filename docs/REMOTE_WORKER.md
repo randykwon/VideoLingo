@@ -15,6 +15,8 @@ ollama pull qwen3:8b
 
 `.env`의 `VIDEOLINGO_TOKEN`은 비밀번호처럼 관리한다. 방화벽에서 TCP 8765를 같은 LAN에만 허용한다. 메인 앱의 설정 > 서버에서 `http://노트북-IP:8765`와 토큰을 등록하고 연결 확인을 누른다.
 
+Ollama에서 다른 모델을 쓸 때는 `.env`의 `OLLAMA_MODEL`을 해당 태그로 변경한다.
+
 `VIDEOLINGO_STT_SLOTS`와 `VIDEOLINGO_TRANSLATION_SLOTS`는 노트북 메모리에 맞게 설정한다. 기본값 1을 권장하며, 여러 Worker를 등록하면 작업 단위로 자동 분산된다.
 
 현재 전송은 Bearer 토큰 인증을 사용한다. 신뢰할 수 없는 네트워크나 인터넷을 경유할 때는 리버스 프록시에서 HTTPS를 반드시 적용한다.
