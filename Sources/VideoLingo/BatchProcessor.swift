@@ -2132,21 +2132,6 @@ private struct BatchMonitorTile: View {
                 }
 
                 HStack(spacing: 8) {
-                    Button(isMuted ? "소리 켜기" : "소리 끄기",
-                           systemImage: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill") {
-                        isMuted.toggle()
-                    }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .help(isMuted ? "이 영상의 소리 켜기" : "이 영상 음소거")
-
-                    Button("10초 뒤로", systemImage: "gobackward.10") {
-                        seek(by: -10)
-                    }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .help("10초 뒤로 이동")
-
                     Text(timeText(currentTime))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
@@ -2168,6 +2153,23 @@ private struct BatchMonitorTile: View {
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                         .frame(minWidth: 42, alignment: .leading)
+                }
+
+                HStack(spacing: 20) {
+                    Button("10초 뒤로", systemImage: "gobackward.10") {
+                        seek(by: -10)
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help("10초 뒤로 이동")
+
+                    Button(isMuted ? "소리 켜기" : "소리 끄기",
+                           systemImage: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill") {
+                        isMuted.toggle()
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help(isMuted ? "이 영상의 소리 켜기" : "이 영상 음소거")
 
                     Button("10초 앞으로", systemImage: "goforward.10") {
                         seek(by: 10)
@@ -2176,6 +2178,7 @@ private struct BatchMonitorTile: View {
                     .buttonStyle(.borderless)
                     .help("10초 앞으로 이동")
                 }
+                .frame(maxWidth: .infinity, alignment: .center)
                 .controlSize(.small)
 
                 monitorProgress(title: "STT", value: item.sttProgress, icon: "waveform")
@@ -2847,6 +2850,13 @@ struct BatchCompletedPreviewView: View {
         VStack(spacing: 0) {
             VideoPlayer(player: model.player)
                 .background(.black)
+                .overlay(alignment: .top) {
+                    PlayerVolumeBar(volume: Binding(
+                        get: { Double(model.player.volume) },
+                        set: { model.player.volume = Float($0) }
+                    ))
+                    .padding(.top, 12)
+                }
                 .overlay(alignment: .bottom) {
                     if model.subtitlesEnabled, !model.activeSubtitle.isEmpty {
                         VStack(spacing: 6) {

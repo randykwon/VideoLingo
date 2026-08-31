@@ -520,6 +520,13 @@ private struct ViewingSidebarView: View {
                 .controlSize(.large)
                 .disabled(model.mediaURL == nil)
 
+                PlayerVolumeBar(volume: Binding(
+                    get: { Double(model.player.volume) },
+                    set: { model.player.volume = Float($0) }
+                ))
+                .frame(maxWidth: .infinity, alignment: .center)
+                .disabled(model.mediaURL == nil)
+
                 Text("\(timeText(model.currentTime)) / \(timeText(duration))")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
@@ -1088,7 +1095,7 @@ private struct PanelResizeHandle: View {
 /// 영상 위에 얹는 통일된 자막 캡션. color가 nil이면 화자 색상(기본 흰색),
 /// 지정하면 단색으로 렌더링합니다. 비어 있으면 아무것도 그리지 않습니다.
 /// 영상 상단 가운데에 겹쳐 놓는 음량 조절 바입니다.
-private struct PlayerVolumeBar: View {
+struct PlayerVolumeBar: View {
     @Binding var volume: Double
     @State private var volumeBeforeMute: Double?
 
