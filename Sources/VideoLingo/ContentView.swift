@@ -1964,11 +1964,11 @@ private struct ServerSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Section("추가 STT·LLM 서버") {
+            Section("STTLMMServer 추가") {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("1. Worker 설치 패키지 만들기", systemImage: "shippingbox")
                         .font(.callout.weight(.semibold))
-                    Text("Windows, Linux, macOS에서 사용할 수 있는 설치 파일과 인증 토큰을 ZIP으로 저장합니다.")
+                    Text("randykwon/STTLMMServer 설치 스크립트와 API 키를 ZIP으로 저장합니다.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     HStack {
@@ -1992,7 +1992,7 @@ private struct ServerSettingsView: View {
                     Divider()
                     Label("2. 다른 PC에서 Worker 실행", systemImage: "desktopcomputer")
                         .font(.callout.weight(.semibold))
-                    Text("ZIP을 풀고 Docker 명령 또는 운영체제별 설치 스크립트를 실행한 뒤, 해당 PC의 IP 주소를 아래에 입력하세요.")
+                    Text("ZIP을 풀고 운영체제별 설치 스크립트를 실행한 뒤, 해당 PC의 IP 주소를 아래에 입력하세요. 기본 포트는 8848입니다.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Label("3. 주소를 등록하고 연결 확인", systemImage: "network")
@@ -2003,7 +2003,7 @@ private struct ServerSettingsView: View {
                     ContentUnavailableView(
                         "추가 서버 없음",
                         systemImage: "server.rack",
-                        description: Text("Windows, Linux 또는 macOS PC에 Worker를 설치한 뒤 주소와 인증 토큰을 등록하세요.")
+                        description: Text("다른 PC에서 STTLMMServer를 실행한 뒤 주소와 API 키를 등록하세요.")
                     )
                 } else {
                     ForEach(remotePool.workers) { worker in
@@ -2045,15 +2045,15 @@ private struct ServerSettingsView: View {
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
                     GridRow {
                         Text("이름")
-                        TextField("예: 작업실 Windows GPU", text: $workerName)
+                        TextField("예: 작업실 STTLMM GPU", text: $workerName)
                     }
                     GridRow {
                         Text("서버 주소")
-                        TextField("http://192.168.0.20:8765", text: $workerAddress)
+                        TextField("http://192.168.0.20:8848", text: $workerAddress)
                     }
                     GridRow {
-                        Text("인증 토큰")
-                        SecureField("Worker에 표시된 토큰", text: $workerToken)
+                        Text("API 키")
+                        SecureField("STTLMMServer API 키", text: $workerToken)
                     }
                 }
                 HStack {
@@ -2070,7 +2070,7 @@ private struct ServerSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Text("Windows·Linux·macOS Worker를 함께 사용할 수 있습니다. 외부 네트워크에서는 VPN 또는 HTTPS를 사용하세요.")
+                Text("STTLMMServer의 /health와 /v1/system으로 연결 및 처리 용량을 확인합니다. 외부 네트워크에서는 VPN 또는 HTTPS를 사용하세요.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
