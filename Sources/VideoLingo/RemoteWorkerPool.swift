@@ -8,14 +8,31 @@ struct RemoteWorkerConfiguration: Codable, Identifiable, Equatable {
     var name: String
     var baseURL: URL
     var authenticationToken: String
+    var usesAuthentication: Bool
     var isEnabled: Bool
 
-    init(id: UUID = UUID(), name: String, baseURL: URL, authenticationToken: String, isEnabled: Bool = true) {
+    init(id: UUID = UUID(), name: String, baseURL: URL, authenticationToken: String, usesAuthentication: Bool = true, isEnabled: Bool = true) {
         self.id = id
         self.name = name
         self.baseURL = baseURL
         self.authenticationToken = authenticationToken
+        self.usesAuthentication = usesAuthentication
         self.isEnabled = isEnabled
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, baseURL, authenticationToken, usesAuthentication, isEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        baseURL = try container.decode(URL.self, forKey: .baseURL)
+        authenticationToken = try container.decode(String.self, forKey: .authenticationToken)
+        // 기존 설정은 이전과 동일하게 인증을 사용하도록 마이그레이션합니다.
+        usesAuthentication = try container.decodeIfPresent(Bool.self, forKey: .usesAuthentication) ?? true
+        isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
     }
 }
 
@@ -88,16 +105,16 @@ final class RemoteWorkerPool {
         hasDefaultAuthenticationToken = false
     }
 
-    func add(name: String, address: String, token: String) throws {
-        let configuration = try configuration(name: name, address: address, token: token)
+    func add(name: String, address: String, token: String, usesAuthentication: Bool = true) throws {
+        let configuration = try configuration(name: name, address: address, token: token, usesAuthentication: usesAuthentication)
         workers.append(configuration)
         persist()
     }
 
     /// 별도 VideoLingo Worker 설치 없이 실행 중인 STTLMMServer를 확인한 뒤 저장합니다.
     @discardableResult
-    func connectAndAdd(name: String, address: String, token: String) async throws -> RemoteWorkerStatus {
-        let worker = try configuration(name: name, address: address, token: token)
+    func connectAndAdd(name: String, address: String, token: String, usesAuthentication: Bool = true) async throws -> RemoteWorkerStatus {
+        let worker = try configuration(name: name, address: address, token: token, usesAuthentication: usesAuthentication)
         guard !workers.contains(where: { $0.baseURL == worker.baseURL }) else {
             throw NSError(
                 domain: "VideoLingo.STTLMMServer",
@@ -149,7 +166,7 @@ final class RemoteWorkerPool {
         }
     }
 
-    private func configuration(name: String, address: String, token: String) throws -> RemoteWorkerConfiguration {
+    private func configuration(name: String, address: String, token: String, usesAuthentication: Bool) throws -> RemoteWorkerConfiguration {
         var value = address.trimmingCharacters(in: .whitespacesAndNewlines)
         let suppliedScheme = value.contains("://")
         if !suppliedScheme { value = "http://\(value)" }
@@ -164,7 +181,8 @@ final class RemoteWorkerPool {
         return RemoteWorkerConfiguration(
             name: name.trimmingCharacters(in: .whitespacesAndNewlines),
             baseURL: url,
-            authenticationToken: token.trimmingCharacters(in: .whitespacesAndNewlines)
+            authenticationToken: usesAuthentication ? token.trimmingCharacters(in: .whitespacesAndNewlines) : "",
+            usesAuthentication: usesAuthentication
         )
     }
 
@@ -182,7 +200,7 @@ final class RemoteWorkerPool {
 
         var systemRequest = URLRequest(url: worker.baseURL.appending(path: "/v1/system"))
         systemRequest.timeoutInterval = 5
-        if !worker.authenticationToken.isEmpty {
+        if worker.usesAuthentication && !worker.authenticationToken.isEmpty {
             systemRequest.setValue("Bearer \(worker.authenticationToken)", forHTTPHeaderField: "Authorization")
         }
         let (systemData, systemResponse) = try await URLSession.shared.data(for: systemRequest)
@@ -213,7 +231,8 @@ final class RemoteWorkerPool {
     }
 
     private func workerUsingDefaultTokenIfNeeded(_ worker: RemoteWorkerConfiguration) -> RemoteWorkerConfiguration {
-        guard worker.authenticationToken.isEmpty, let token = credentialStore.load(), !token.isEmpty else { return worker }
+        guard worker.usesAuthentication, worker.authenticationToken.isEmpty,
+              let token = credentialStore.load(), !token.isEmpty else { return worker }
         var authenticatedWorker = worker
         authenticatedWorker.authenticationToken = token
         return authenticatedWorker

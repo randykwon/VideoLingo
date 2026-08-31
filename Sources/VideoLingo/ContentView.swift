@@ -1935,6 +1935,7 @@ private struct ServerSettingsView: View {
     @State private var workerMessage = ""
     @State private var defaultServerKey = ""
     @State private var keyMessage = ""
+    @State private var workerUsesAuthentication = true
     @State private var workerToRemove: RemoteWorkerConfiguration?
     @State private var isAddingWorker = false
     @State private var confirmsClearingServerKey = false
@@ -2020,6 +2021,9 @@ private struct ServerSettingsView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
+                                Label(worker.usesAuthentication ? "API 키 인증" : "키 없이 연결", systemImage: worker.usesAuthentication ? "key" : "key.slash")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                                 workerStatusText(remotePool.states[worker.id] ?? .unchecked)
                             }
                             Spacer()
@@ -2058,9 +2062,14 @@ private struct ServerSettingsView: View {
                             .onSubmit { connectAndAddRemoteWorker() }
                     }
                     GridRow {
+                        Text("인증")
+                        Toggle("API 키 사용", isOn: $workerUsesAuthentication)
+                    }
+                    GridRow {
                         Text("개별 키 (선택)")
                         SecureField("공통 키와 다른 경우에만 입력", text: $workerToken)
                             .onSubmit { connectAndAddRemoteWorker() }
+                            .disabled(!workerUsesAuthentication)
                     }
                 }
                 HStack {
@@ -2080,7 +2089,7 @@ private struct ServerSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Text("IP만 입력하면 http와 기본 포트 8848을 자동 적용합니다. 개별 키가 비어 있으면 위의 공통 키를 사용하며, 연결 확인에 성공한 서버만 저장합니다.")
+                Text("IP만 입력하면 http와 기본 포트 8848을 자동 적용합니다. API 키 사용을 끄면 인증 헤더 없이 연결하며, 켜면 개별 키 또는 위의 공통 키를 사용합니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -2140,10 +2149,16 @@ private struct ServerSettingsView: View {
         Task {
             defer { isAddingWorker = false }
             do {
-                let status = try await remotePool.connectAndAdd(name: workerName, address: workerAddress, token: workerToken)
+                let status = try await remotePool.connectAndAdd(
+                    name: workerName,
+                    address: workerAddress,
+                    token: workerToken,
+                    usesAuthentication: workerUsesAuthentication
+                )
                 workerName = ""
                 workerAddress = ""
                 workerToken = ""
+                workerUsesAuthentication = true
                 workerMessage = "연결 및 추가 완료 · \(status.name) · STT \(status.capabilities.sttSlots)개 · 번역 \(status.capabilities.translationSlots)개"
             } catch {
                 workerMessage = "추가하지 못했습니다: \(error.localizedDescription)"
