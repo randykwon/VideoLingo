@@ -47,7 +47,8 @@ final class RemoteWorkerInstaller {
 
                 let process = Process()
                 process.executableURL = URL(filePath: "/usr/bin/ditto")
-                process.arguments = ["-c", "-k", "--sequesterRsrc", "--keepParent", package.path, destination.path]
+                // Windows에서 보이는 __MACOSX/._ 메타데이터를 만들지 않도록 리소스 포크는 제외합니다.
+                process.arguments = ["-c", "-k", "--keepParent", package.path, destination.path]
                 try process.run()
                 process.waitUntilExit()
                 guard process.terminationStatus == 0 else {
