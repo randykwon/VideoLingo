@@ -76,6 +76,9 @@ targets:
         excludes:
           - DesignAssets
       - path: Sources/VideoLingoTransfer
+      - path: tools/RemoteWorker
+        type: folder
+        buildPhase: resources
     info:
       path: Sources/VideoLingo/Info.plist
       properties:
