@@ -92,7 +92,7 @@ struct RemoteWorkerClient: Sendable {
                     transcriptID: transcript.id,
                     jobID: manifest.jobID,
                     targetLanguage: language,
-                    modelID: "STTLMMServer",
+                    modelID: manifest.options.translationModel,
                     text: text,
                     qualityStatus: .good,
                     qualityNotes: []

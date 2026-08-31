@@ -124,8 +124,8 @@ final class RemoteWorkerPool {
             let performance = system["effective_performance"] as? [String: Any] ?? [:]
             let runtime = system["runtime"] as? [String: Any] ?? [:]
             let inFlight = runtime["in_flight"] as? [String: Any] ?? [:]
-            let sttActive = inFlight["stt_active"] as? Int ?? 0
-            let llmActive = inFlight["llm_active"] as? Int ?? 0
+            let sttActive = inFlight["stt_waiting"] as? Int ?? 0
+            let llmActive = inFlight["llm_waiting"] as? Int ?? 0
             let defaults = system["defaults"] as? [String: Any] ?? [:]
             let version = health["version"] as? String ?? "STTLMMServer"
             let accelerator = health["accelerator"] as? String ?? "unknown"
