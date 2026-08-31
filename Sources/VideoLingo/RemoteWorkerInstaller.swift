@@ -40,8 +40,8 @@ final class RemoteWorkerInstaller {
                 let example = package.appending(path: ".env.example")
                 var configuration = try String(contentsOf: example, encoding: .utf8)
                 configuration = configuration.replacingOccurrences(
-                    of: "VIDEOLINGO_TOKEN=replace-with-a-long-random-token",
-                    with: "VIDEOLINGO_TOKEN=\(token)"
+                    of: "STTLMM_API_KEY=replace-with-a-long-random-token",
+                    with: "STTLMM_API_KEY=\(token)"
                 )
                 try configuration.write(to: package.appending(path: ".env"), atomically: true, encoding: .utf8)
 

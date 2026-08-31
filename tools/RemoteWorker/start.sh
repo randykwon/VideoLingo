@@ -5,4 +5,6 @@ cd "$script_dir"
 set -a
 source .env
 set +a
-exec .venv/bin/uvicorn server:app --host 0.0.0.0 --port "${VIDEOLINGO_PORT:-8765}"
+: "${STTLMM_API_KEY:?STTLMM_API_KEY가 필요합니다.}"
+export STTLMM_SERVER__API_KEYS="[\"${STTLMM_API_KEY}\"]"
+exec .venv/bin/sttlmm serve --host 0.0.0.0 --port "${STTLMM_PORT:-8848}" --profile "${STTLMM_PROFILE:-balanced}"

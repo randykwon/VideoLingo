@@ -2,21 +2,20 @@
 set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$script_dir"
+
+command -v git >/dev/null || { echo "git이 필요합니다." >&2; exit 1; }
+command -v python3 >/dev/null || { echo "Python 3.10~3.13이 필요합니다." >&2; exit 1; }
+
+if [[ -d STTLMMServer/.git ]]; then
+  git -C STTLMMServer pull --ff-only
+else
+  git clone https://github.com/randykwon/STTLMMServer.git STTLMMServer
+fi
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
-.venv/bin/pip install -r requirements.txt
-if [[ ! -f .env ]]; then
-  token="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
-  {
-    echo "VIDEOLINGO_TOKEN=$token"
-    echo "VIDEOLINGO_NAME=$(hostname)"
-    echo "VIDEOLINGO_STT_SLOTS=1"
-    echo "VIDEOLINGO_TRANSLATION_SLOTS=1"
-    echo "OLLAMA_URL=http://127.0.0.1:11434"
-    echo "OLLAMA_MODEL=qwen3:8b"
-    echo "WHISPER_MODEL=large-v3"
-    echo "WHISPER_DEVICE=auto"
-    echo "WHISPER_COMPUTE_TYPE=auto"
-  } > .env
+if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
+  .venv/bin/pip install -e './STTLMMServer[mlx,audio]'
+else
+  .venv/bin/pip install -e './STTLMMServer[cpu,llamacpp,audio]'
 fi
-echo "설치 완료. ./start.sh 를 실행한 뒤 .env의 VIDEOLINGO_TOKEN을 메인 Mac에 등록하세요."
+echo "STTLMMServer 설치 완료. ./start.sh 로 실행하세요."
