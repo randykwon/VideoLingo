@@ -1933,8 +1933,11 @@ private struct ServerSettingsView: View {
     @State private var workerAddress = ""
     @State private var workerToken = ""
     @State private var workerMessage = ""
+    @State private var defaultServerKey = ""
+    @State private var keyMessage = ""
     @State private var workerToRemove: RemoteWorkerConfiguration?
     @State private var isAddingWorker = false
+    @State private var confirmsClearingServerKey = false
     @FocusState private var workerAddressIsFocused: Bool
 
     var body: some View {
@@ -1962,6 +1965,32 @@ private struct ServerSettingsView: View {
                         .disabled(model.isRestartingService)
                 }
                 Text("재시작 중인 STT·번역 작업은 DB의 마지막 저장 지점부터 자동으로 이어집니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("원격 서버 API 키") {
+                SecureField("STTLMMServer 공통 API 키", text: $defaultServerKey)
+                    .onSubmit { saveDefaultServerKey() }
+                HStack {
+                    Button("키 저장", systemImage: "key") { saveDefaultServerKey() }
+                        .disabled(defaultServerKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("저장된 키 삭제", systemImage: "trash", role: .destructive) {
+                        confirmsClearingServerKey = true
+                    }
+                    .disabled(!remotePool.hasDefaultAuthenticationToken)
+                    Spacer()
+                    Label(
+                        remotePool.hasDefaultAuthenticationToken ? "Keychain에 저장됨" : "저장된 키 없음",
+                        systemImage: remotePool.hasDefaultAuthenticationToken ? "checkmark.circle.fill" : "circle"
+                    )
+                    .foregroundStyle(remotePool.hasDefaultAuthenticationToken ? .green : .secondary)
+                }
+                if !keyMessage.isEmpty {
+                    Text(keyMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text("키는 macOS Keychain에 안전하게 저장되며, 별도 키를 입력하지 않은 모든 원격 서버에 자동 적용됩니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -2023,14 +2052,14 @@ private struct ServerSettingsView: View {
                         TextField("예: 작업실 STTLMM GPU", text: $workerName)
                     }
                     GridRow {
-                        Text("서버 주소")
-                        TextField("192.168.0.20 또는 https://server.example.com", text: $workerAddress)
+                        Text("서버 IP 또는 주소")
+                        TextField("예: 192.168.0.20", text: $workerAddress)
                             .focused($workerAddressIsFocused)
                             .onSubmit { connectAndAddRemoteWorker() }
                     }
                     GridRow {
-                        Text("API 키 (선택)")
-                        SecureField("서버에서 인증을 사용하는 경우에만 입력", text: $workerToken)
+                        Text("개별 키 (선택)")
+                        SecureField("공통 키와 다른 경우에만 입력", text: $workerToken)
                             .onSubmit { connectAndAddRemoteWorker() }
                     }
                 }
@@ -2051,7 +2080,7 @@ private struct ServerSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Text("프로토콜을 생략하면 LAN용 http와 기본 포트 8848을 사용합니다. /health와 /v1/system 확인에 성공한 서버만 저장합니다. 외부 네트워크에서는 VPN 또는 HTTPS를 사용하세요.")
+                Text("IP만 입력하면 http와 기본 포트 8848을 자동 적용합니다. 개별 키가 비어 있으면 위의 공통 키를 사용하며, 연결 확인에 성공한 서버만 저장합니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -2075,6 +2104,32 @@ private struct ServerSettingsView: View {
             Button("취소", role: .cancel) { workerToRemove = nil }
         } message: { _ in
             Text("원격 PC의 Worker와 저장된 결과는 삭제되지 않습니다.")
+        }
+        .confirmationDialog("Keychain에 저장된 원격 서버 키를 삭제할까요?", isPresented: $confirmsClearingServerKey) {
+            Button("키 삭제", role: .destructive) { clearDefaultServerKey() }
+            Button("취소", role: .cancel) { }
+        } message: {
+            Text("공통 키를 사용하는 서버는 다음 연결 확인 및 작업부터 인증에 실패할 수 있습니다.")
+        }
+    }
+
+    private func saveDefaultServerKey() {
+        do {
+            try remotePool.saveDefaultAuthenticationToken(defaultServerKey)
+            defaultServerKey = ""
+            keyMessage = "원격 서버 공통 키를 Keychain에 저장했습니다."
+        } catch {
+            keyMessage = "키를 저장하지 못했습니다: \(error.localizedDescription)"
+        }
+    }
+
+    private func clearDefaultServerKey() {
+        do {
+            try remotePool.clearDefaultAuthenticationToken()
+            defaultServerKey = ""
+            keyMessage = "저장된 원격 서버 공통 키를 삭제했습니다."
+        } catch {
+            keyMessage = "키를 삭제하지 못했습니다: \(error.localizedDescription)"
         }
     }
 
