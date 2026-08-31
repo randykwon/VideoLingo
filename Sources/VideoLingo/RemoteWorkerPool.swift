@@ -100,16 +100,47 @@ final class RemoteWorkerPool {
         guard let worker = workers.first(where: { $0.id == id }), worker.isEnabled else { return }
         states[id] = .checking
         do {
-            var request = URLRequest(url: worker.baseURL.appending(path: RemoteWorkerAPI.statusPath))
-            request.timeoutInterval = 5
-            request.setValue("Bearer \(worker.authenticationToken)", forHTTPHeaderField: "Authorization")
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw URLError(.badServerResponse) }
-            let status = try WireCodec.decode(RemoteWorkerStatus.self, from: data)
-            guard status.apiVersion == RemoteWorkerAPI.version else {
-                throw NSError(domain: "VideoLingo.RemoteWorker", code: 1, userInfo: [NSLocalizedDescriptionKey: "지원하지 않는 Worker API 버전입니다."])
+            // STTLMMServer의 공개 health/system API를 사용합니다.
+            var healthRequest = URLRequest(url: worker.baseURL.appending(path: "/health"))
+            healthRequest.timeoutInterval = 5
+            let (healthData, healthResponse) = try await URLSession.shared.data(for: healthRequest)
+            guard let healthHTTP = healthResponse as? HTTPURLResponse, healthHTTP.statusCode == 200,
+                  let health = try JSONSerialization.jsonObject(with: healthData) as? [String: Any],
+                  let healthStatus = health["status"] as? String,
+                  healthStatus == "ok" || healthStatus == "degraded" else {
+                throw NSError(domain: "VideoLingo.STTLMMServer", code: 1, userInfo: [NSLocalizedDescriptionKey: "STTLMMServer health 확인에 실패했습니다."])
             }
-            states[id] = .available(status)
+
+            var systemRequest = URLRequest(url: worker.baseURL.appending(path: "/v1/system"))
+            systemRequest.timeoutInterval = 5
+            if !worker.authenticationToken.isEmpty {
+                systemRequest.setValue("Bearer \(worker.authenticationToken)", forHTTPHeaderField: "Authorization")
+            }
+            let (systemData, systemResponse) = try await URLSession.shared.data(for: systemRequest)
+            guard let systemHTTP = systemResponse as? HTTPURLResponse, systemHTTP.statusCode == 200,
+                  let system = try JSONSerialization.jsonObject(with: systemData) as? [String: Any] else {
+                throw NSError(domain: "VideoLingo.STTLMMServer", code: 2, userInfo: [NSLocalizedDescriptionKey: "API 키 또는 /v1/system 접근을 확인하세요."])
+            }
+            let performance = system["effective_performance"] as? [String: Any] ?? [:]
+            let runtime = system["runtime"] as? [String: Any] ?? [:]
+            let inFlight = runtime["in_flight"] as? [String: Any] ?? [:]
+            let sttActive = inFlight["stt_active"] as? Int ?? 0
+            let llmActive = inFlight["llm_active"] as? Int ?? 0
+            let defaults = system["defaults"] as? [String: Any] ?? [:]
+            let version = health["version"] as? String ?? "STTLMMServer"
+            let accelerator = health["accelerator"] as? String ?? "unknown"
+            states[id] = .available(RemoteWorkerStatus(
+                workerID: id,
+                name: worker.name.isEmpty ? worker.baseURL.host() ?? "STTLMMServer" : worker.name,
+                version: "\(version) · \(accelerator)",
+                activeJobs: max(sttActive, llmActive),
+                capabilities: RemoteWorkerCapabilities(
+                    sttSlots: performance["stt_concurrency"] as? Int ?? 1,
+                    translationSlots: performance["llm_concurrency"] as? Int ?? 1,
+                    sttModels: [defaults["stt_model"] as? String].compactMap { $0 },
+                    translationModels: [defaults["llm_model"] as? String].compactMap { $0 }
+                )
+            ))
         } catch {
             states[id] = .unavailable(error.localizedDescription)
         }
