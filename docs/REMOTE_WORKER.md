@@ -2,6 +2,10 @@
 
 Worker는 운영체제와 관계없는 HTTP API를 사용한다. 메인 Mac은 내장 XPC 서버와 Windows, Linux, macOS의 원격 Worker를 함께 사용하며, 대량 번역 시작 시 각 서버의 가용 슬롯으로 작업을 자동 분산한다. 영상은 HTTP로 전송되므로 공유 폴더나 동일한 파일 경로가 필요 없다. 원격 장애 시 해당 작업은 내장 서버로 자동 전환된다.
 
+## 앱에서 설치 패키지 만들기
+
+VideoLingo의 `설정 > 서버 > 추가 STT·LLM 서버`에서 `설치 패키지 저장…`을 누른다. 앱이 인증 토큰을 자동 생성하고 Windows, Linux, macOS 공용 ZIP에 함께 기록한다. ZIP을 다른 PC로 복사해 압축을 풀고 포함된 `README.md`를 따른다. Worker 실행 후 같은 설정 화면에 `http://Worker-PC-IP:8765`를 입력하고 `서버 추가`를 누르면 저장과 연결 확인이 연속으로 실행된다.
+
 ## 권장 설치: Docker
 
 Windows 10/11에서는 Docker Desktop(WSL2), Linux에서는 Docker Engine과 Compose plugin, macOS에서는 Docker Desktop을 설치한다. `tools/RemoteWorker` 폴더를 대상 PC로 복사한 다음 `.env.example`을 `.env`로 복사하고 다음 값을 변경한다.
