@@ -1934,7 +1934,8 @@ private struct ServerSettingsView: View {
     @State private var workerToken = ""
     @State private var workerMessage = ""
     @State private var workerToRemove: RemoteWorkerConfiguration?
-    @State private var workerInstaller = RemoteWorkerInstaller()
+    @State private var isAddingWorker = false
+    @FocusState private var workerAddressIsFocused: Bool
 
     var body: some View {
         Form {
@@ -1966,44 +1967,18 @@ private struct ServerSettingsView: View {
             }
             Section("STTLMMServer 추가") {
                 VStack(alignment: .leading, spacing: 12) {
-                    Label("1. Worker 설치 패키지 만들기", systemImage: "shippingbox")
+                    Label("설치 없이 서버 연결", systemImage: "network")
                         .font(.callout.weight(.semibold))
-                    Text("randykwon/STTLMMServer 설치 스크립트와 API 키를 ZIP으로 저장합니다.")
+                    Text("Windows·Linux·macOS에서 이미 실행 중인 STTLMMServer 주소만 입력하세요. VideoLingo Worker나 추가 프로그램을 설치할 필요가 없습니다.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    HStack {
-                        Button("설치 패키지 저장…", systemImage: "square.and.arrow.down") {
-                            if workerToken.isEmpty { workerToken = RemoteWorkerInstaller.makeToken() }
-                            Task { await workerInstaller.exportPackage(token: workerToken) }
-                        }
-                        .disabled(workerInstaller.isExporting)
-                        if workerInstaller.isExporting { ProgressView().controlSize(.small) }
-                        if let url = workerInstaller.exportedURL {
-                            Button("Finder에서 보기", systemImage: "folder") {
-                                NSWorkspace.shared.activateFileViewerSelecting([url])
-                            }
-                        }
-                    }
-                    if !workerInstaller.message.isEmpty {
-                        Text(workerInstaller.message)
-                            .font(.caption)
-                            .foregroundStyle(workerInstaller.exportedURL == nil && !workerInstaller.isExporting ? .orange : .secondary)
-                    }
-                    Divider()
-                    Label("2. 다른 PC에서 Worker 실행", systemImage: "desktopcomputer")
-                        .font(.callout.weight(.semibold))
-                    Text("ZIP을 풀고 운영체제별 설치 스크립트를 실행한 뒤, 해당 PC의 IP 주소를 아래에 입력하세요. 기본 포트는 8848입니다.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Label("3. 주소를 등록하고 연결 확인", systemImage: "network")
-                        .font(.callout.weight(.semibold))
                 }
 
                 if remotePool.workers.isEmpty {
                     ContentUnavailableView(
                         "추가 서버 없음",
                         systemImage: "server.rack",
-                        description: Text("다른 PC에서 STTLMMServer를 실행한 뒤 주소와 API 키를 등록하세요.")
+                        description: Text("실행 중인 STTLMMServer의 IP 주소나 도메인을 아래에 입력하세요.")
                     )
                 } else {
                     ForEach(remotePool.workers) { worker in
@@ -2049,20 +2024,26 @@ private struct ServerSettingsView: View {
                     }
                     GridRow {
                         Text("서버 주소")
-                        TextField("http://192.168.0.20:8848", text: $workerAddress)
+                        TextField("192.168.0.20 또는 https://server.example.com", text: $workerAddress)
+                            .focused($workerAddressIsFocused)
+                            .onSubmit { connectAndAddRemoteWorker() }
                     }
                     GridRow {
-                        Text("API 키")
-                        SecureField("STTLMMServer API 키", text: $workerToken)
+                        Text("API 키 (선택)")
+                        SecureField("서버에서 인증을 사용하는 경우에만 입력", text: $workerToken)
+                            .onSubmit { connectAndAddRemoteWorker() }
                     }
                 }
                 HStack {
-                    Button("서버 추가", systemImage: "plus") { addRemoteWorker() }
-                        .disabled(workerAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workerToken.isEmpty)
+                    Button("연결 후 추가", systemImage: "link.badge.plus") { connectAndAddRemoteWorker() }
+                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(workerAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAddingWorker)
+                    if isAddingWorker { ProgressView().controlSize(.small) }
                     Button("전체 상태 확인", systemImage: "arrow.clockwise") {
                         Task { await remotePool.refreshAll() }
                     }
-                    .disabled(remotePool.workers.isEmpty)
+                    .disabled(remotePool.workers.isEmpty || isAddingWorker)
                     Spacer()
                 }
                 if !workerMessage.isEmpty {
@@ -2070,7 +2051,7 @@ private struct ServerSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Text("STTLMMServer의 /health와 /v1/system으로 연결 및 처리 용량을 확인합니다. 외부 네트워크에서는 VPN 또는 HTTPS를 사용하세요.")
+                Text("프로토콜을 생략하면 LAN용 http와 기본 포트 8848을 사용합니다. /health와 /v1/system 확인에 성공한 서버만 저장합니다. 외부 네트워크에서는 VPN 또는 HTTPS를 사용하세요.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -2078,7 +2059,10 @@ private struct ServerSettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
-        .task { await remotePool.refreshAll() }
+        .task {
+            await remotePool.refreshAll()
+            if remotePool.workers.isEmpty { workerAddressIsFocused = true }
+        }
         .confirmationDialog(
             "이 추가 서버를 목록에서 제거할까요?",
             isPresented: Binding(get: { workerToRemove != nil }, set: { if !$0 { workerToRemove = nil } }),
@@ -2094,28 +2078,22 @@ private struct ServerSettingsView: View {
         }
     }
 
-    private func addRemoteWorker() {
-        do {
-            try remotePool.add(name: workerName, address: workerAddress, token: workerToken)
-            workerName = ""
-            workerAddress = ""
-            workerToken = ""
-            workerMessage = "서버를 추가했습니다. 연결을 확인하는 중…"
-            if let id = remotePool.workers.last?.id {
-                Task {
-                    await remotePool.refresh(id)
-                    switch remotePool.states[id] {
-                    case .available(let status):
-                        workerMessage = "연결 성공 · \(status.name) · STT \(status.capabilities.sttSlots)개 · 번역 \(status.capabilities.translationSlots)개"
-                    case .unavailable(let reason):
-                        workerMessage = "서버는 목록에 저장했습니다. 연결 실패: \(reason)"
-                    default:
-                        workerMessage = "서버는 목록에 저장했습니다. 상태 확인을 다시 시도하세요."
-                    }
-                }
+    private func connectAndAddRemoteWorker() {
+        guard !isAddingWorker, !workerAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        isAddingWorker = true
+        workerMessage = "STTLMMServer 연결을 확인하는 중…"
+        Task {
+            defer { isAddingWorker = false }
+            do {
+                let status = try await remotePool.connectAndAdd(name: workerName, address: workerAddress, token: workerToken)
+                workerName = ""
+                workerAddress = ""
+                workerToken = ""
+                workerMessage = "연결 및 추가 완료 · \(status.name) · STT \(status.capabilities.sttSlots)개 · 번역 \(status.capabilities.translationSlots)개"
+            } catch {
+                workerMessage = "추가하지 못했습니다: \(error.localizedDescription)"
+                workerAddressIsFocused = true
             }
-        } catch {
-            workerMessage = "서버 주소를 확인하세요: \(error.localizedDescription)"
         }
     }
 

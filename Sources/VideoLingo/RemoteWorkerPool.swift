@@ -67,12 +67,33 @@ final class RemoteWorkerPool {
     }
 
     func add(name: String, address: String, token: String) throws {
-        let normalized = address.contains("://") ? address : "https://\(address)"
-        guard let url = URL(string: normalized), let scheme = url.scheme, ["http", "https"].contains(scheme), url.host != nil else {
-            throw URLError(.badURL)
-        }
-        workers.append(RemoteWorkerConfiguration(name: name.trimmingCharacters(in: .whitespacesAndNewlines), baseURL: url, authenticationToken: token))
+        let configuration = try configuration(name: name, address: address, token: token)
+        workers.append(configuration)
         persist()
+    }
+
+    /// 별도 VideoLingo Worker 설치 없이 실행 중인 STTLMMServer를 확인한 뒤 저장합니다.
+    @discardableResult
+    func connectAndAdd(name: String, address: String, token: String) async throws -> RemoteWorkerStatus {
+        let worker = try configuration(name: name, address: address, token: token)
+        guard !workers.contains(where: { $0.baseURL == worker.baseURL }) else {
+            throw NSError(
+                domain: "VideoLingo.STTLMMServer",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "이미 추가된 STTLMMServer 주소입니다."]
+            )
+        }
+        states[worker.id] = .checking
+        do {
+            let status = try await checkConnection(to: worker)
+            workers.append(worker)
+            states[worker.id] = .available(status)
+            persist()
+            return status
+        } catch {
+            states[worker.id] = nil
+            throw error
+        }
     }
 
     func remove(_ id: UUID) {
@@ -100,50 +121,73 @@ final class RemoteWorkerPool {
         guard let worker = workers.first(where: { $0.id == id }), worker.isEnabled else { return }
         states[id] = .checking
         do {
-            // STTLMMServer의 공개 health/system API를 사용합니다.
-            var healthRequest = URLRequest(url: worker.baseURL.appending(path: "/health"))
-            healthRequest.timeoutInterval = 5
-            let (healthData, healthResponse) = try await URLSession.shared.data(for: healthRequest)
-            guard let healthHTTP = healthResponse as? HTTPURLResponse, healthHTTP.statusCode == 200,
-                  let health = try JSONSerialization.jsonObject(with: healthData) as? [String: Any],
-                  let healthStatus = health["status"] as? String,
-                  healthStatus == "ok" || healthStatus == "degraded" else {
-                throw NSError(domain: "VideoLingo.STTLMMServer", code: 1, userInfo: [NSLocalizedDescriptionKey: "STTLMMServer health 확인에 실패했습니다."])
-            }
-
-            var systemRequest = URLRequest(url: worker.baseURL.appending(path: "/v1/system"))
-            systemRequest.timeoutInterval = 5
-            if !worker.authenticationToken.isEmpty {
-                systemRequest.setValue("Bearer \(worker.authenticationToken)", forHTTPHeaderField: "Authorization")
-            }
-            let (systemData, systemResponse) = try await URLSession.shared.data(for: systemRequest)
-            guard let systemHTTP = systemResponse as? HTTPURLResponse, systemHTTP.statusCode == 200,
-                  let system = try JSONSerialization.jsonObject(with: systemData) as? [String: Any] else {
-                throw NSError(domain: "VideoLingo.STTLMMServer", code: 2, userInfo: [NSLocalizedDescriptionKey: "API 키 또는 /v1/system 접근을 확인하세요."])
-            }
-            let performance = system["effective_performance"] as? [String: Any] ?? [:]
-            let runtime = system["runtime"] as? [String: Any] ?? [:]
-            let inFlight = runtime["in_flight"] as? [String: Any] ?? [:]
-            let sttActive = inFlight["stt_waiting"] as? Int ?? 0
-            let llmActive = inFlight["llm_waiting"] as? Int ?? 0
-            let defaults = system["defaults"] as? [String: Any] ?? [:]
-            let version = health["version"] as? String ?? "STTLMMServer"
-            let accelerator = health["accelerator"] as? String ?? "unknown"
-            states[id] = .available(RemoteWorkerStatus(
-                workerID: id,
-                name: worker.name.isEmpty ? worker.baseURL.host() ?? "STTLMMServer" : worker.name,
-                version: "\(version) · \(accelerator)",
-                activeJobs: max(sttActive, llmActive),
-                capabilities: RemoteWorkerCapabilities(
-                    sttSlots: performance["stt_concurrency"] as? Int ?? 1,
-                    translationSlots: performance["llm_concurrency"] as? Int ?? 1,
-                    sttModels: [defaults["stt_model"] as? String].compactMap { $0 },
-                    translationModels: [defaults["llm_model"] as? String].compactMap { $0 }
-                )
-            ))
+            states[id] = .available(try await checkConnection(to: worker))
         } catch {
             states[id] = .unavailable(error.localizedDescription)
         }
+    }
+
+    private func configuration(name: String, address: String, token: String) throws -> RemoteWorkerConfiguration {
+        var value = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suppliedScheme = value.contains("://")
+        if !suppliedScheme { value = "http://\(value)" }
+        guard var components = URLComponents(string: value),
+              let scheme = components.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              components.host != nil else {
+            throw URLError(.badURL)
+        }
+        if !suppliedScheme && components.port == nil { components.port = 8848 }
+        components.scheme = scheme
+        guard let url = components.url else { throw URLError(.badURL) }
+        return RemoteWorkerConfiguration(
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            baseURL: url,
+            authenticationToken: token.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    private func checkConnection(to worker: RemoteWorkerConfiguration) async throws -> RemoteWorkerStatus {
+        // STTLMMServer 자체의 공개 API만 사용하므로 VideoLingo용 Worker 설치가 필요 없습니다.
+        var healthRequest = URLRequest(url: worker.baseURL.appending(path: "/health"))
+        healthRequest.timeoutInterval = 5
+        let (healthData, healthResponse) = try await URLSession.shared.data(for: healthRequest)
+        guard let healthHTTP = healthResponse as? HTTPURLResponse, healthHTTP.statusCode == 200,
+              let health = try JSONSerialization.jsonObject(with: healthData) as? [String: Any],
+              let healthStatus = health["status"] as? String,
+              healthStatus == "ok" || healthStatus == "degraded" else {
+            throw NSError(domain: "VideoLingo.STTLMMServer", code: 1, userInfo: [NSLocalizedDescriptionKey: "STTLMMServer /health 확인에 실패했습니다."])
+        }
+
+        var systemRequest = URLRequest(url: worker.baseURL.appending(path: "/v1/system"))
+        systemRequest.timeoutInterval = 5
+        if !worker.authenticationToken.isEmpty {
+            systemRequest.setValue("Bearer \(worker.authenticationToken)", forHTTPHeaderField: "Authorization")
+        }
+        let (systemData, systemResponse) = try await URLSession.shared.data(for: systemRequest)
+        guard let systemHTTP = systemResponse as? HTTPURLResponse, systemHTTP.statusCode == 200,
+              let system = try JSONSerialization.jsonObject(with: systemData) as? [String: Any] else {
+            throw NSError(domain: "VideoLingo.STTLMMServer", code: 2, userInfo: [NSLocalizedDescriptionKey: "STTLMMServer /v1/system 접근 또는 API 키를 확인하세요."])
+        }
+        let performance = system["effective_performance"] as? [String: Any] ?? [:]
+        let runtime = system["runtime"] as? [String: Any] ?? [:]
+        let inFlight = runtime["in_flight"] as? [String: Any] ?? [:]
+        let sttActive = inFlight["stt_waiting"] as? Int ?? 0
+        let llmActive = inFlight["llm_waiting"] as? Int ?? 0
+        let defaults = system["defaults"] as? [String: Any] ?? [:]
+        let version = health["version"] as? String ?? "STTLMMServer"
+        let accelerator = health["accelerator"] as? String ?? "unknown"
+        return RemoteWorkerStatus(
+            workerID: worker.id,
+            name: worker.name.isEmpty ? worker.baseURL.host() ?? "STTLMMServer" : worker.name,
+            version: "\(version) · \(accelerator)",
+            activeJobs: max(sttActive, llmActive),
+            capabilities: RemoteWorkerCapabilities(
+                sttSlots: performance["stt_concurrency"] as? Int ?? 1,
+                translationSlots: performance["llm_concurrency"] as? Int ?? 1,
+                sttModels: [defaults["stt_model"] as? String].compactMap { $0 },
+                translationModels: [defaults["llm_model"] as? String].compactMap { $0 }
+            )
+        )
     }
 
     private func persist() {
