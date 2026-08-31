@@ -46,9 +46,10 @@ final class RemoteWorkerInstaller {
                 try configuration.write(to: package.appending(path: ".env"), atomically: true, encoding: .utf8)
 
                 let process = Process()
-                process.executableURL = URL(filePath: "/usr/bin/ditto")
-                // Windows에서 보이는 __MACOSX/._ 메타데이터를 만들지 않도록 리소스 포크는 제외합니다.
-                process.arguments = ["-c", "-k", "--keepParent", package.path, destination.path]
+                process.executableURL = URL(filePath: "/usr/bin/zip")
+                process.currentDirectoryURL = temporaryRoot
+                // -X는 Windows에서 보이는 macOS 확장 속성(._ 파일)을 제외합니다.
+                process.arguments = ["-r", "-X", destination.path, package.lastPathComponent]
                 try process.run()
                 process.waitUntilExit()
                 guard process.terminationStatus == 0 else {
