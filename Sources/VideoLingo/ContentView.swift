@@ -1927,6 +1927,7 @@ private struct ServerSettingsView: View {
     @State private var workerToken = ""
     @State private var workerMessage = ""
     @State private var workerToRemove: RemoteWorkerConfiguration?
+    @State private var workerInstaller = RemoteWorkerInstaller()
 
     var body: some View {
         Form {
@@ -1957,6 +1958,40 @@ private struct ServerSettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Section("추가 STT·LLM 서버") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("1. Worker 설치 패키지 만들기", systemImage: "shippingbox")
+                        .font(.callout.weight(.semibold))
+                    Text("Windows, Linux, macOS에서 사용할 수 있는 설치 파일과 인증 토큰을 ZIP으로 저장합니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Button("설치 패키지 저장…", systemImage: "square.and.arrow.down") {
+                            if workerToken.isEmpty { workerToken = RemoteWorkerInstaller.makeToken() }
+                            Task { await workerInstaller.exportPackage(token: workerToken) }
+                        }
+                        .disabled(workerInstaller.isExporting)
+                        if workerInstaller.isExporting { ProgressView().controlSize(.small) }
+                        if let url = workerInstaller.exportedURL {
+                            Button("Finder에서 보기", systemImage: "folder") {
+                                NSWorkspace.shared.activateFileViewerSelecting([url])
+                            }
+                        }
+                    }
+                    if !workerInstaller.message.isEmpty {
+                        Text(workerInstaller.message)
+                            .font(.caption)
+                            .foregroundStyle(workerInstaller.exportedURL == nil && !workerInstaller.isExporting ? .orange : .secondary)
+                    }
+                    Divider()
+                    Label("2. 다른 PC에서 Worker 실행", systemImage: "desktopcomputer")
+                        .font(.callout.weight(.semibold))
+                    Text("ZIP을 풀고 Docker 명령 또는 운영체제별 설치 스크립트를 실행한 뒤, 해당 PC의 IP 주소를 아래에 입력하세요.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Label("3. 주소를 등록하고 연결 확인", systemImage: "network")
+                        .font(.callout.weight(.semibold))
+                }
+
                 if remotePool.workers.isEmpty {
                     ContentUnavailableView(
                         "추가 서버 없음",
@@ -2058,8 +2093,20 @@ private struct ServerSettingsView: View {
             workerName = ""
             workerAddress = ""
             workerToken = ""
-            workerMessage = "서버를 추가했습니다. 상태를 확인합니다."
-            if let id = remotePool.workers.last?.id { Task { await remotePool.refresh(id) } }
+            workerMessage = "서버를 추가했습니다. 연결을 확인하는 중…"
+            if let id = remotePool.workers.last?.id {
+                Task {
+                    await remotePool.refresh(id)
+                    switch remotePool.states[id] {
+                    case .available(let status):
+                        workerMessage = "연결 성공 · \(status.name) · STT \(status.capabilities.sttSlots)개 · 번역 \(status.capabilities.translationSlots)개"
+                    case .unavailable(let reason):
+                        workerMessage = "서버는 목록에 저장했습니다. 연결 실패: \(reason)"
+                    default:
+                        workerMessage = "서버는 목록에 저장했습니다. 상태 확인을 다시 시도하세요."
+                    }
+                }
+            }
         } catch {
             workerMessage = "서버 주소를 확인하세요: \(error.localizedDescription)"
         }
