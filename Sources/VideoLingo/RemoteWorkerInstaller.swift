@@ -45,6 +45,9 @@ final class RemoteWorkerInstaller {
                 )
                 try configuration.write(to: package.appending(path: ".env"), atomically: true, encoding: .utf8)
 
+                if manager.fileExists(atPath: destination.path) {
+                    try manager.removeItem(at: destination)
+                }
                 let process = Process()
                 process.executableURL = URL(filePath: "/usr/bin/zip")
                 process.currentDirectoryURL = temporaryRoot
