@@ -520,13 +520,6 @@ private struct ViewingSidebarView: View {
                 .controlSize(.large)
                 .disabled(model.mediaURL == nil)
 
-                PlayerVolumeBar(volume: Binding(
-                    get: { Double(model.player.volume) },
-                    set: { model.player.volume = Float($0) }
-                ))
-                .frame(maxWidth: .infinity, alignment: .center)
-                .disabled(model.mediaURL == nil)
-
                 Text("\(timeText(model.currentTime)) / \(timeText(duration))")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
@@ -612,7 +605,7 @@ private struct PlayerPane: View {
                        let screenText = model.translatedScreenText,
                        !screenText.isEmpty {
                         PlayerCaption(text: screenText, color: .yellow)
-                            .padding(.top, model.mediaURL == nil ? 14 : 58)
+                            .padding(.top, model.mediaURL != nil && theme.volumeBarPosition == .top ? 58 : 14)
                             .allowsHitTesting(false)
                     }
                 }
@@ -711,14 +704,14 @@ private struct PlayerPane: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.92)))
                     }
                 }
-                .overlay(alignment: .top) {
+                .overlay(alignment: theme.volumeBarPosition.alignment) {
                     // 재생 조작 레이어보다 뒤에 놓아야 슬라이더 드래그가 가려지지 않습니다.
                     if model.mediaURL != nil {
                         PlayerVolumeBar(volume: Binding(
                             get: { Double(model.player.volume) },
                             set: { model.player.volume = Float($0) }
                         ))
-                            .padding(.top, 12)
+                            .padding(theme.volumeBarPosition.edge, 12)
                     }
                 }
                 .contextMenu {
@@ -1786,6 +1779,10 @@ private struct GeneralSettingsView: View {
                         .foregroundStyle(.secondary)
                     Slider(value: $theme.subtitleOpacity, in: 0.35...1)
                 }
+                Picker("음량 바 위치", selection: $theme.volumeBarPosition) {
+                    ForEach(VolumeBarPosition.allCases) { Text($0.displayName).tag($0) }
+                }
+                .pickerStyle(.segmented)
                 Toggle("원문과 번역 자막 함께 보기", isOn: $model.showOriginalWithTranslation)
                 Toggle("원문 자막 반투명", isOn: $model.originalSubtitleTranslucent)
                     .disabled(!model.showOriginalWithTranslation)

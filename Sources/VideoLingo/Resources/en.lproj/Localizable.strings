@@ -397,3 +397,6 @@
 "수동 번역 %lld개" = "Manual translation ×%lld";
 "자동 STT %lld개" = "Auto STT ×%lld";
 "수동 STT %lld개" = "Manual STT ×%lld";
+"음량 바 위치" = "Volume bar position";
+"아래" = "Bottom";
+"위" = "Top";

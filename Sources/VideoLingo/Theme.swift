@@ -81,6 +81,22 @@ enum InterfaceDensity: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// 영상 위에 겹쳐 표시하는 음량 바의 위치입니다.
+enum VolumeBarPosition: String, CaseIterable, Identifiable, Sendable {
+    case bottom, top
+    var id: String { rawValue }
+
+    var alignment: Alignment { self == .top ? .top : .bottom }
+    var edge: Edge.Set { self == .top ? .top : .bottom }
+
+    var displayName: String {
+        switch self {
+        case .bottom: String(localized: "아래")
+        case .top: String(localized: "위")
+        }
+    }
+}
+
 /// 앱 전역 UI 스타일(외형·강조색·밀도)을 관리합니다. 설정에서 바꾸면 즉시 반영됩니다.
 @MainActor
 @Observable
@@ -105,6 +121,11 @@ final class ThemeManager {
         didSet { Self.saveSubtitleColor(subtitleColor) }
     }
 
+    /// 영상 위 음량 바의 위치입니다. 기본은 일반적인 플레이어와 같은 아래쪽입니다.
+    var volumeBarPosition: VolumeBarPosition {
+        didSet { UserDefaults.standard.set(volumeBarPosition.rawValue, forKey: "volumeBarPosition") }
+    }
+
     /// 영상 위 자막의 불투명도입니다. 반투명하게 두면 자막이 화면을 덜 가립니다.
     var subtitleOpacity: Double {
         didSet { UserDefaults.standard.set(subtitleOpacity, forKey: "subtitleOpacity") }
@@ -125,6 +146,9 @@ final class ThemeManager {
         subtitleColor = Self.loadSubtitleColor()
         subtitleOpacity = (UserDefaults.standard.object(forKey: "subtitleOpacity") as? Double)
             .map { min(1, max(0.35, $0)) } ?? 1
+        volumeBarPosition = VolumeBarPosition(
+            rawValue: UserDefaults.standard.string(forKey: "volumeBarPosition") ?? ""
+        ) ?? .bottom
     }
 
     var colorScheme: ColorScheme? { appearance.colorScheme }
