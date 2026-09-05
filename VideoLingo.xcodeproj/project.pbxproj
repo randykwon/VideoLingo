@@ -27,6 +27,7 @@
 		5476A1E3FC0CDCEE511A4AC1 /* VideoLingoPackage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90D29C25E10A1B9B2BB883D /* VideoLingoPackage.swift */; };
 		5B587B4492F8F7AB42842A21 /* VideoLingoPackage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90D29C25E10A1B9B2BB883D /* VideoLingoPackage.swift */; };
 		66B4E95470361214F3F3B6BA /* TranscriptCoverage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8622B216D379DB3EFB80BE0B /* TranscriptCoverage.swift */; };
+		67491D8C761A7685AA6B6D16 /* ExternalLLMClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15E2FEF10B9776F29E368F21 /* ExternalLLMClient.swift */; };
 		71AF96C00DB31CB885B81BB7 /* VideoLingoCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; };
 		76CC2D41CBE1755C0EF376A9 /* VideoLingoMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56207C7826B10154A0FE4983 /* VideoLingoMobileApp.swift */; };
 		7B6E4D6AB96969EA70E57110 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A5043D4A8F25D593601FB90 /* UniformTypeIdentifiers.framework */; };
@@ -137,6 +138,7 @@
 		0C832255181DE453DEE6FEEB /* DemosaicPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemosaicPipeline.swift; sourceTree = "<group>"; };
 		0DC3B7097938C5DC4805FCA5 /* ModelEngines.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelEngines.swift; sourceTree = "<group>"; };
 		0E827E047831CF98D776646F /* VideoLingoCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = VideoLingoCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		15E2FEF10B9776F29E368F21 /* ExternalLLMClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalLLMClient.swift; sourceTree = "<group>"; };
 		1A29A29F494EC232C80E8516 /* AVKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVKit.framework; path = System/Library/Frameworks/AVKit.framework; sourceTree = SDKROOT; };
 		1BB51EB5CBE7EA1BF5009ECD /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/Localizable.strings; sourceTree = "<group>"; };
 		1C1731F2F44296391874900D /* VideoLingoCoreTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VideoLingoCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -286,6 +288,7 @@
 			isa = PBXGroup;
 			children = (
 				0C832255181DE453DEE6FEEB /* DemosaicPipeline.swift */,
+				15E2FEF10B9776F29E368F21 /* ExternalLLMClient.swift */,
 				6F9FF3E1248A71F566050CF8 /* Info.plist */,
 				B7CD60344D8EAC5BD9D96EC7 /* main.swift */,
 				030837DF8066B9905C335525 /* MediaPipeline.swift */,
@@ -598,6 +601,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				7ED19338E2E1FBC5B5FD6B20 /* DemosaicPipeline.swift in Sources */,
+				67491D8C761A7685AA6B6D16 /* ExternalLLMClient.swift in Sources */,
 				E9CC298CBBDCB316648F3ECF /* MediaPipeline.swift in Sources */,
 				49383AFC6BB83EFEC4A62AC5 /* ModelEngines.swift in Sources */,
 				931EC3EA68A19A0BA6A68811 /* ServiceDelegate.swift in Sources */,

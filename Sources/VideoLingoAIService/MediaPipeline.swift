@@ -547,6 +547,7 @@ final class MediaPipeline: @unchecked Sendable {
                             nextContext: nextContext,
                             glossary: glossary,
                             qualityMode: qualityMode,
+                            externalServer: externalServerConfiguration(request.options),
                             onPartialText: { [onLiveTranslation] text in
                                 onLiveTranslation(request.jobID, index, total, language, text)
                             }
@@ -752,6 +753,7 @@ final class MediaPipeline: @unchecked Sendable {
                         nextContext: translationContext(after: index, transcripts: transcripts),
                         glossary: glossary,
                         qualityMode: .maximum,
+                        externalServer: externalServerConfiguration(request.options),
                         onPartialText: { [onLiveTranslation] text in
                             onLiveTranslation(request.jobID, index, total, language, "품질 개선 후보 · \(text)")
                         }
