@@ -1099,25 +1099,89 @@ private struct PanelResizeHandle: View {
 
 /// 영상 위에 얹는 통일된 자막 캡션. color가 nil이면 화자 색상(기본 흰색),
 /// 지정하면 단색으로 렌더링합니다. 비어 있으면 아무것도 그리지 않습니다.
-/// 영상 상단 가운데에 겹쳐 놓는 음량 조절 바입니다.
-struct PlayerVolumeBar: View {
+/// AVKit 기본 재생 컨트롤을 끈 영상 표면입니다.
+/// 기본 컨트롤에도 음량 슬라이더가 있어 커스텀 컨트롤 바와 중복으로 보였습니다.
+struct PlayerVideoSurface: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.player = player
+        view.controlsStyle = .none
+        view.videoGravity = .resizeAspect
+        return view
+    }
+
+    func updateNSView(_ view: AVPlayerView, context: Context) {
+        if view.player !== player { view.player = player }
+    }
+}
+
+/// 영상 위에 겹쳐 놓는 재생 컨트롤 바입니다. 재생·타임라인·음량을 하나로 모았습니다.
+struct PlayerControlBar: View {
     @Binding var volume: Double
+    let currentTime: TimeInterval
+    let duration: TimeInterval
+    let isPlaying: Bool
+    let onTogglePlayback: () -> Void
+    let onSeek: (TimeInterval) -> Void
+
     @State private var volumeBeforeMute: Double?
+    /// 드래그 중에는 재생 위치 갱신이 슬라이더를 되돌리지 않도록 로컬 값을 씁니다.
+    @State private var scrubbingTime: TimeInterval?
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
+            Button(action: onTogglePlayback) {
+                Label(isPlaying ? "일시 정지" : "재생", systemImage: isPlaying ? "pause.fill" : "play.fill")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .help(isPlaying ? "일시 정지" : "재생")
+
+            Text(timeText(scrubbingTime ?? currentTime))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 42, alignment: .trailing)
+
+            Slider(
+                value: Binding(
+                    get: { min(scrubbingTime ?? currentTime, max(duration, 0.1)) },
+                    set: { scrubbingTime = $0 }
+                ),
+                in: 0...max(duration, 0.1),
+                onEditingChanged: { editing in
+                    guard !editing, let target = scrubbingTime else { return }
+                    onSeek(target)
+                    scrubbingTime = nil
+                }
+            )
+            .frame(width: 190)
+            .controlSize(.small)
+            .disabled(duration <= 0)
+
+            Text(timeText(duration))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 42, alignment: .leading)
+
+            Divider().frame(height: 16)
+
             Button {
                 toggleMute()
             } label: {
                 Label(volume <= 0 ? "음량 켜기" : "음소거", systemImage: symbol)
                     .labelStyle(.iconOnly)
+                    .frame(width: 18)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
             .help(volume <= 0 ? "음량 켜기" : "음소거")
 
             Slider(value: $volume, in: 0...1)
-                .frame(width: 150)
+                .frame(width: 92)
                 .controlSize(.small)
 
             Text(volume, format: .percent.precision(.fractionLength(0)))
@@ -1129,7 +1193,12 @@ struct PlayerVolumeBar: View {
         .padding(.vertical, 6)
         .background(.regularMaterial, in: Capsule())
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("음량")
+        .accessibilityLabel("재생 컨트롤")
+    }
+
+    private func timeText(_ seconds: TimeInterval) -> String {
+        let value = max(0, Int(seconds.rounded(.down)))
+        return String(format: "%d:%02d", value / 60, value % 60)
     }
 
     private var symbol: String {
