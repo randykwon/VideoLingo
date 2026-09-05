@@ -208,6 +208,12 @@ private struct VideoLingoCommands: Commands {
             .disabled(model == nil)
             Button("앱 숨기기") { NSApplication.shared.hide(nil) }
                 .keyboardShortcut(shortcuts[.hideApp].keyEquivalent, modifiers: shortcuts[.hideApp].modifiers)
+            // 소리부터 끄고 창을 숨겨야 숨긴 뒤에 소리가 새지 않습니다.
+            Button("앱 숨기고 음소거") {
+                AppModel.muteAllWindows()
+                NSApplication.shared.hide(nil)
+            }
+            .keyboardShortcut(shortcuts[.hideAndMute].keyEquivalent, modifiers: shortcuts[.hideAndMute].modifiers)
         }
         CommandMenu("STT·번역") {
             Button("대량 번역…") {

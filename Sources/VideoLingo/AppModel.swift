@@ -220,7 +220,23 @@ final class AppModel {
     private var pendingResumeAfterRestart = false
     private var timeObserver: Any?
 
+    /// 열려 있는 창의 모델을 약한 참조로 모아 둡니다. 전체 음소거처럼 앱 단위 동작에 씁니다.
+    private final class WeakModelBox {
+        weak var model: AppModel?
+        init(_ model: AppModel) { self.model = model }
+    }
+
+    private static var liveModels: [WeakModelBox] = []
+
+    /// 모든 플레이어 창의 소리를 끕니다.
+    static func muteAllWindows() {
+        liveModels.removeAll { $0.model == nil }
+        for box in liveModels { box.model?.player.volume = 0 }
+    }
+
     init(autoloadLastVideo: Bool = true) {
+        AppModel.liveModels.removeAll { $0.model == nil }
+        AppModel.liveModels.append(WeakModelBox(self))
         if !targetLanguages.contains(selectedLanguage) {
             targetLanguages.append(selectedLanguage)
         }

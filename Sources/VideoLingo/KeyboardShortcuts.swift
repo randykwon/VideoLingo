@@ -4,7 +4,7 @@ import SwiftUI
 
 enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
     case openVideo, playPause, seekBackward, seekForward, volumeUp, volumeDown
-    case toggleSimpleMode, toggleMiniViewer, toggleBottomPanel, toggleTranslucency, hideApp
+    case toggleSimpleMode, toggleMiniViewer, toggleBottomPanel, toggleTranslucency, hideApp, hideAndMute
     case startOrResume, refreshResults, exportSRT, revealOutput, cancelJob
 
     var id: String { rawValue }
@@ -22,6 +22,7 @@ enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
         case .toggleBottomPanel: "아래 결과 패널 전환"
         case .toggleTranslucency: "앱 반투명 모드 전환"
         case .hideApp: "앱 숨기기"
+        case .hideAndMute: "앱 숨기고 음소거"
         case .startOrResume: "STT·번역 시작/재개"
         case .refreshResults: "결과 새로 고침"
         case .exportSRT: "SRT 내보내기"
@@ -32,7 +33,7 @@ enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
 
     var category: String {
         switch self {
-        case .openVideo, .toggleSimpleMode, .toggleMiniViewer, .toggleBottomPanel, .toggleTranslucency, .hideApp: "앱·화면"
+        case .openVideo, .toggleSimpleMode, .toggleMiniViewer, .toggleBottomPanel, .toggleTranslucency, .hideApp, .hideAndMute: "앱·화면"
         case .playPause, .seekBackward, .seekForward, .volumeUp, .volumeDown: "재생"
         default: "STT·번역"
         }
@@ -164,6 +165,7 @@ final class ShortcutSettings {
         .toggleBottomPanel: ShortcutDefinition("b", [.command, .shift]),
         .toggleTranslucency: ShortcutDefinition("t", [.command, .shift]),
         .hideApp: ShortcutDefinition("q", .shift),
+        .hideAndMute: ShortcutDefinition("h", [.command, .shift]),
         .startOrResume: ShortcutDefinition("return", .command),
         .refreshResults: ShortcutDefinition("r", [.command, .shift]),
         .exportSRT: ShortcutDefinition("e", .command),
