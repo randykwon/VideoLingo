@@ -47,11 +47,14 @@ public struct ExternalLLMClient: Sendable {
         if let apiKey = configuration.apiKey {
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
+        // 추론(thinking) 모델은 사고 과정에 토큰을 먼저 씁니다. 여유가 부족하면 응답이 빈 채로 돌아오므로
+        // 실측 기준으로 넉넉한 하한을 둡니다. (think:false·chat_template_kwargs는 Ollama에서 효과가 없었습니다.)
+        let tokenBudget = max(1024, min(4096, maximumTokens))
         let body: [String: Any] = [
             "model": configuration.model,
             "temperature": 0,
             "stream": false,
-            "max_tokens": maximumTokens,
+            "max_tokens": tokenBudget,
             "messages": [
                 ["role": "system", "content": instructions],
                 ["role": "user", "content": prompt]
@@ -78,12 +81,23 @@ public struct ExternalLLMClient: Sendable {
         guard
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let choices = object["choices"] as? [[String: Any]],
-            let message = choices.first?["message"] as? [String: Any],
+            let first = choices.first,
+            let message = first["message"] as? [String: Any],
             let content = message["content"] as? String
         else {
             throw VideoLingoError.modelUnavailable("외부 LLM 서버가 예상과 다른 형식으로 응답했습니다.")
         }
-        return content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            // 추론 모델이 사고 과정만으로 토큰을 다 쓰면 실제로 이런 응답이 옵니다.
+            if first["finish_reason"] as? String == "length" {
+                throw VideoLingoError.modelUnavailable(
+                    "외부 LLM 서버가 길이 제한에 걸려 빈 응답을 반환했습니다(\(configuration.model)). 사고 과정이 없는 모델을 쓰거나 더 작은 청크 길이를 사용하세요."
+                )
+            }
+            throw VideoLingoError.modelUnavailable("외부 LLM 서버가 빈 응답을 반환했습니다(\(configuration.model)).")
+        }
+        return trimmed
     }
 
     /// 설정 화면의 연결 테스트용입니다. 성공하면 모델이 돌려준 짧은 응답을 반환합니다.

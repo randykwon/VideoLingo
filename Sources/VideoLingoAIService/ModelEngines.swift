@@ -620,7 +620,7 @@ actor FoundationTranslationEngine {
         let value = try await client.complete(
             instructions: instructions,
             prompt: prompt,
-            maximumTokens: min(1024, max(128, text.count * 2))
+            maximumTokens: min(4096, max(1024, text.count * 3))
         )
         let cleaned = cleanMLXResponse(value)
         if !cleaned.isEmpty { onPartialText(cleaned) }
@@ -796,7 +796,7 @@ actor FoundationTranslationEngine {
             let value = try await client.complete(
                 instructions: "You review video subtitle translations. Return only the corrected subtitle.",
                 prompt: prompt,
-                maximumTokens: min(512, max(64, draft.count * 2))
+                maximumTokens: min(4096, max(1024, draft.count * 3))
             )
             if !value.isEmpty { onPartialText("2차 검수 · \(value)") }
             repaired = value
