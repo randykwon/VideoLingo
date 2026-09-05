@@ -44,6 +44,8 @@ targets:
       properties:
         CFBundleDisplayName: VideoLingo AI Service
         CFBundlePackageType: XPC!
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         XPCService:
           ServiceType: Application
     settings:
@@ -86,6 +88,8 @@ targets:
         CFBundleName: VideoLingo
         LSApplicationCategoryType: public.app-category.video
         NSMicrophoneUsageDescription: 음성 인식 기능에 필요합니다.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         CFBundleDocumentTypes:
           - CFBundleTypeName: VideoLingo Package
             CFBundleTypeRole: Editor

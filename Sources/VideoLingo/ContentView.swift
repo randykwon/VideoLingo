@@ -185,6 +185,9 @@ struct ContentView: View {
                             }
                         }
                         .onChange(of: model.translationModel) { _, _ in model.refreshResults() }
+                        if model.translationModel == ProcessingOptions.externalServerModelID {
+                            ExternalServerFields()
+                        }
                         Toggle("번역 음성 MP4 생성", isOn: $model.synthesizeSpeech)
                         Text("용어집 · 원문=번역, 한 줄에 하나")
                             .font(.caption2)
@@ -2441,6 +2444,39 @@ private func sttModelName(_ modelID: String) -> String {
     }
 }
 
+/// 외부 LLM 서버 접속 정보를 입력받습니다. API 키는 필요한 서버에서만 씁니다.
+private struct ExternalServerFields: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        VStack(alignment: .leading, spacing: 6) {
+            TextField("서버 주소", text: $model.externalServerEndpoint, prompt: Text("http://localhost:11434/v1"))
+                .textFieldStyle(.roundedBorder)
+            TextField("모델 이름", text: $model.externalServerModel, prompt: Text("qwen2.5:7b"))
+                .textFieldStyle(.roundedBorder)
+            TextField("API 키 (선택)", text: $model.externalServerAPIKey, prompt: Text("대부분의 로컬 서버는 비워 둡니다"))
+                .textFieldStyle(.roundedBorder)
+            HStack(spacing: 8) {
+                Button("연결 테스트") {
+                    Task { await model.testExternalServerConnection() }
+                }
+                .disabled(model.isTestingExternalServer)
+                if model.isTestingExternalServer { ProgressView().controlSize(.small) }
+            }
+            if !model.externalServerTestMessage.isEmpty {
+                Text(model.externalServerTestMessage)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            Text("Ollama · LM Studio · llama.cpp · vLLM 등 OpenAI 호환 서버를 API 키 없이 연결합니다.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
 private func translationModelName(_ modelID: String) -> String {
     switch modelID {
     case "apple-foundation-models": String(localized: "Apple Foundation Models (시스템)")
@@ -2449,6 +2485,7 @@ private func translationModelName(_ modelID: String) -> String {
     case "mlx-community/Qwen3-4B-4bit": String(localized: "Qwen3 4B 4-bit · 균형")
     case "mlx-community/Qwen3-8B-4bit": String(localized: "Qwen3 8B 4-bit · 고품질")
     case "mlx-community/gemma-3-1b-it-qat-4bit": "Gemma 3 1B QAT 4-bit"
+    case ProcessingOptions.externalServerModelID: String(localized: "외부 LLM 서버 (OpenAI 호환)")
     default: modelID
     }
 }

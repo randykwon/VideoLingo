@@ -402,3 +402,12 @@
 "위" = "Top";
 "재생 컨트롤" = "Playback controls";
 "앱 숨기고 음소거" = "Hide App and Mute";
+"외부 LLM 서버 (OpenAI 호환)" = "External LLM server (OpenAI-compatible)";
+"서버 주소" = "Server URL";
+"모델 이름" = "Model name";
+"API 키 (선택)" = "API key (optional)";
+"대부분의 로컬 서버는 비워 둡니다" = "Leave empty for most local servers";
+"연결 테스트" = "Test connection";
+"연결 확인 중…" = "Testing connection…";
+"주소와 모델 이름을 모두 입력하세요." = "Enter both the server URL and the model name.";
+"Ollama · LM Studio · llama.cpp · vLLM 등 OpenAI 호환 서버를 API 키 없이 연결합니다." = "Connects to OpenAI-compatible servers such as Ollama, LM Studio, llama.cpp, and vLLM without an API key.";
