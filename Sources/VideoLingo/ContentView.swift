@@ -596,9 +596,14 @@ private struct PlayerPane: View {
     @State private var swipeSeekFeedback: TimeInterval?
     @State private var swipeFeedbackID = UUID()
 
+    private var playerDuration: TimeInterval {
+        let seconds = model.player.currentItem?.duration.seconds ?? 0
+        return seconds.isFinite ? seconds : 0
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            VideoPlayer(player: model.player)
+            PlayerVideoSurface(player: model.player)
                 .background(Color.black)
                 .overlay(alignment: .top) {
                     if model.screenTextTranslationEnabled,
@@ -707,11 +712,18 @@ private struct PlayerPane: View {
                 .overlay(alignment: theme.volumeBarPosition.alignment) {
                     // 재생 조작 레이어보다 뒤에 놓아야 슬라이더 드래그가 가려지지 않습니다.
                     if model.mediaURL != nil {
-                        PlayerVolumeBar(volume: Binding(
-                            get: { Double(model.player.volume) },
-                            set: { model.player.volume = Float($0) }
-                        ))
-                            .padding(theme.volumeBarPosition.edge, 12)
+                        PlayerControlBar(
+                            volume: Binding(
+                                get: { Double(model.player.volume) },
+                                set: { model.player.volume = Float($0) }
+                            ),
+                            currentTime: model.currentTime,
+                            duration: playerDuration,
+                            isPlaying: model.isPlaying,
+                            onTogglePlayback: { model.togglePlayback() },
+                            onSeek: { model.seekVideo(to: $0) }
+                        )
+                        .padding(theme.volumeBarPosition.edge, 12)
                     }
                 }
                 .contextMenu {

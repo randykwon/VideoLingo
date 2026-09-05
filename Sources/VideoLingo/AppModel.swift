@@ -409,6 +409,19 @@ final class AppModel {
         )
     }
 
+    /// 타임라인 스크러버에서 지정한 지점으로 바로 이동합니다.
+    func seekVideo(to seconds: TimeInterval) {
+        guard player.currentItem != nil else { return }
+        let total = player.currentItem?.duration.seconds ?? 0
+        var target = max(0, seconds)
+        if total.isFinite, total > 0 { target = min(target, total) }
+        player.seek(
+            to: CMTime(seconds: target, preferredTimescale: 600),
+            toleranceBefore: CMTime(seconds: 0.1, preferredTimescale: 600),
+            toleranceAfter: CMTime(seconds: 0.1, preferredTimescale: 600)
+        )
+    }
+
     func togglePlayback() {
         guard player.currentItem != nil else { return }
         if player.timeControlStatus == .playing {
