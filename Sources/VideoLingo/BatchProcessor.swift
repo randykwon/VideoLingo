@@ -2064,6 +2064,17 @@ private struct BatchMonitorTile: View {
     let onExpand: (() -> Void)?
     @State private var player: AVPlayer
     @State private var isMuted = true
+    /// 미리보기 음량입니다. 음소거를 풀었을 때 곧바로 들리도록 기본값을 적당히 둡니다.
+    @State private var previewVolume: Double = 0.6
+
+    private var volumeSymbol: String {
+        switch previewVolume {
+        case ..<0.01: "speaker.fill"
+        case ..<0.34: "speaker.wave.1.fill"
+        case ..<0.67: "speaker.wave.2.fill"
+        default: "speaker.wave.3.fill"
+        }
+    }
     @State private var currentTime: TimeInterval = 0
     @State private var duration: TimeInterval = 0
     @State private var isSeeking = false
@@ -2168,12 +2179,23 @@ private struct BatchMonitorTile: View {
                     .help("10초 뒤로 이동")
 
                     Button(isMuted ? "소리 켜기" : "소리 끄기",
-                           systemImage: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill") {
+                           systemImage: isMuted ? "speaker.slash.fill" : volumeSymbol) {
                         isMuted.toggle()
                     }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
                     .help(isMuted ? "이 영상의 소리 켜기" : "이 영상 음소거")
+
+                    // 켜고 끄는 것만이 아니라 크기도 조절할 수 있게 합니다.
+                    Slider(value: $previewVolume, in: 0...1)
+                        .frame(width: 90)
+                        .controlSize(.small)
+                        .disabled(isMuted)
+                        .help("미리보기 음량")
+                    Text(previewVolume, format: .percent.precision(.fractionLength(0)))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, alignment: .trailing)
 
                     Button("10초 앞으로", systemImage: "goforward.10") {
                         seek(by: 10)
@@ -2203,6 +2225,7 @@ private struct BatchMonitorTile: View {
         .onDisappear { player.pause() }
         .onChange(of: playsVideo) { _, _ in updatePlayback() }
         .onChange(of: isMuted) { _, muted in player.isMuted = muted }
+        .onChange(of: previewVolume) { _, value in player.volume = Float(value) }
         .task {
             while !Task.isCancelled {
                 if !isSeeking {
@@ -2244,6 +2267,7 @@ private struct BatchMonitorTile: View {
 
     private func updatePlayback() {
         player.isMuted = isMuted
+        player.volume = Float(previewVolume)
         if playsVideo { player.play() } else { player.pause() }
     }
 
