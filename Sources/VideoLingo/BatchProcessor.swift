@@ -2397,7 +2397,7 @@ private struct BatchRemoteServerSection: View {
                                 .frame(width: 8, height: 8)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(worker.name).font(.callout)
-                                Text(worker.address)
+                                Text(worker.baseURL.absoluteString)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
