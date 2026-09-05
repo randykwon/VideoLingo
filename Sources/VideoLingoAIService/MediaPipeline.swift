@@ -740,6 +740,14 @@ final class MediaPipeline: @unchecked Sendable {
                 for language in request.options.targetLanguages {
                     try Task.checkCancellation()
                     let existing = translations[language]?[currentTranscript.id]
+                    // 이미 검수를 통과했고 원문도 그대로면 다시 번역하지 않습니다.
+                    // 예전에는 실행할 때마다 전 구간을 다시 번역해 같은 일을 반복했습니다.
+                    if !transcriptChanged,
+                       let existing,
+                       existing.qualityStatus == .reviewed,
+                       !existing.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        continue
+                    }
                     snapshot.message = "기존 번역 유지 · \(language.uppercased()) \(index + 1)/\(total) 개선 후보 비교 중"
                     snapshot.updatedAt = .now
                     try store.save(snapshot: snapshot)
