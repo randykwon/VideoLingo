@@ -56,6 +56,11 @@ final class MediaPipeline: @unchecked Sendable {
             try store.createJob(id: request.jobID, mediaURL: mediaURL, options: request.options)
             snapshot = try store.snapshot(jobID: request.jobID) ?? snapshot
             snapshot.error = nil
+            // 이전 실행의 종료 상태를 물려받으면 배치가 첫 폴링에서 곧바로 실패로 판단합니다.
+            if [.failed, .cancelled, .completed].contains(snapshot.status) {
+                snapshot.status = .queued
+                snapshot.message = ""
+            }
             let sidecar = try MediaSidecarStore(
                 mediaURL: mediaURL,
                 jobID: request.jobID,
