@@ -2390,7 +2390,7 @@ private struct BatchRemoteServerSection: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(pool.workers) { worker in
+                    ForEach(pool.workers, id: \.id) { worker in
                         HStack(spacing: 8) {
                             Circle()
                                 .fill(worker.isEnabled ? Color.green : Color.secondary)
