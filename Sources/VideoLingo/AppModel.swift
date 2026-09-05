@@ -161,6 +161,9 @@ final class AppModel {
     var transcript: [TranscriptSegment] = []
     var translations: [UUID: TranslationSegment] = [:]
     var currentTime: TimeInterval = 0
+    /// 영상 전체 길이입니다. AVPlayerItem의 길이는 비동기로 결정되고 관찰 대상도 아니라서,
+    /// 정지 상태에서는 화면이 갱신되지 않아 타임라인이 비활성으로 남았습니다.
+    var duration: TimeInterval = 0
     /// 재생 중인지 여부입니다. AVPlayer.timeControlStatus는 관찰 대상이 아니라 화면이 갱신되지 않아 별도로 둡니다.
     var isPlaying = false
     var errorMessage: String?
@@ -1325,6 +1328,9 @@ final class AppModel {
             Task { @MainActor in
                 self?.currentTime = time.seconds.isFinite ? time.seconds : 0
                 self?.isPlaying = self?.player.timeControlStatus == .playing
+                if let seconds = self?.player.currentItem?.duration.seconds, seconds.isFinite, seconds > 0 {
+                    self?.duration = seconds
+                }
                 self?.savePlaybackPositionIfNeeded()
             }
         }
@@ -1369,6 +1375,15 @@ final class AppModel {
         item.add(output)
         videoOutput = output
         player.replaceCurrentItem(with: item)
+        duration = 0
+        // 길이는 비동기로 결정되므로, 확정되면 반영해 정지 상태에서도 타임라인이 동작하게 합니다.
+        Task { [weak self] in
+            let asset = AVURLAsset(url: url)
+            guard let loaded = try? await asset.load(.duration) else { return }
+            let seconds = loaded.seconds
+            guard seconds.isFinite, seconds > 0 else { return }
+            await MainActor.run { self?.duration = seconds }
+        }
         recognizedScreenText = nil
         translatedScreenText = nil
         currentTime = 0

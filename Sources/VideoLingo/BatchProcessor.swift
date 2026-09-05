@@ -2846,11 +2846,6 @@ struct BatchCompletedPreviewView: View {
         .onDisappear { model.player.pause() }
     }
 
-    private var previewDuration: TimeInterval {
-        let seconds = model.player.currentItem?.duration.seconds ?? 0
-        return seconds.isFinite ? seconds : 0
-    }
-
     private func playerPane(_ item: BatchProcessor.Item) -> some View {
         VStack(spacing: 0) {
             PlayerVideoSurface(player: model.player)
@@ -2862,7 +2857,7 @@ struct BatchCompletedPreviewView: View {
                             set: { model.player.volume = Float($0) }
                         ),
                         currentTime: model.currentTime,
-                        duration: previewDuration,
+                        duration: model.duration,
                         isPlaying: model.isPlaying,
                         onTogglePlayback: { model.togglePlayback() },
                         onSeek: { model.seekVideo(to: $0) }

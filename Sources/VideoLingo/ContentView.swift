@@ -596,11 +596,6 @@ private struct PlayerPane: View {
     @State private var swipeSeekFeedback: TimeInterval?
     @State private var swipeFeedbackID = UUID()
 
-    private var playerDuration: TimeInterval {
-        let seconds = model.player.currentItem?.duration.seconds ?? 0
-        return seconds.isFinite ? seconds : 0
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             PlayerVideoSurface(player: model.player)
@@ -718,7 +713,7 @@ private struct PlayerPane: View {
                                 set: { model.player.volume = Float($0) }
                             ),
                             currentTime: model.currentTime,
-                            duration: playerDuration,
+                            duration: model.duration,
                             isPlaying: model.isPlaying,
                             onTogglePlayback: { model.togglePlayback() },
                             onSeek: { model.seekVideo(to: $0) }
