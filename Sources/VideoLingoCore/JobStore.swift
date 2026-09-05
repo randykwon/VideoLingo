@@ -29,7 +29,18 @@ public final class JobStore: @unchecked Sendable {
         try withStatement("""
             INSERT INTO jobs(id, media_url, options, status, progress, current_chunk, total_chunks, message, updated_at)
             VALUES(?, ?, ?, ?, 0, 0, 0, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET media_url=excluded.media_url, options=excluded.options, updated_at=excluded.updated_at;
+            ON CONFLICT(id) DO UPDATE SET
+                media_url=excluded.media_url,
+                options=excluded.options,
+                status=excluded.status,
+                progress=0,
+                current_chunk=0,
+                total_chunks=0,
+                stt_progress=0,
+                translation_progress=0,
+                message=excluded.message,
+                error=NULL,
+                updated_at=excluded.updated_at;
             """) { statement in
             bind(id.uuidString, at: 1, to: statement)
             bind(mediaURL.absoluteString, at: 2, to: statement)
