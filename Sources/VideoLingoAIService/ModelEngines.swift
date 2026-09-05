@@ -275,6 +275,7 @@ actor FoundationTranslationEngine {
         sourceLanguage: String?,
         modelID: String,
         modelsURL: URL,
+        externalServer: ExternalLLMClient.Configuration? = nil,
         onPartialText: @escaping @Sendable (String) -> Void
     ) async throws -> [String: String] {
         // 재분석에서는 이미 이름이 적용된 라벨을 그대로 다시 판별하도록 외부에서 목록을 넘깁니다.
@@ -304,7 +305,17 @@ actor FoundationTranslationEngine {
             """
 
         let response: String
-        if modelID == "apple-foundation-models" {
+        if modelID == ProcessingOptions.externalServerModelID {
+            guard let externalServer else {
+                throw VideoLingoError.modelUnavailable("외부 LLM 서버 주소와 모델 이름을 설정에서 입력하세요.")
+            }
+            onPartialText("화자 이름 분석 중 · 외부 서버 요청")
+            response = try await ExternalLLMClient(configuration: externalServer).complete(
+                instructions: "문서의 화자를 식별하는 분석기입니다. 반드시 요청된 JSON만 출력하세요.",
+                prompt: prompt,
+                maximumTokens: min(1024, max(256, labels.count * 96))
+            )
+        } else if modelID == "apple-foundation-models" {
             let model = SystemLanguageModel.default
             guard case .available = model.availability else {
                 throw VideoLingoError.modelUnavailable("Apple Intelligence 언어 모델이 현재 사용 불가합니다.")
@@ -351,10 +362,29 @@ actor FoundationTranslationEngine {
         nextContext: [String],
         glossary: [GlossaryEntry],
         qualityMode: ProcessingQualityMode,
+        externalServer: ExternalLLMClient.Configuration? = nil,
         attempt: Int = 0,
         onPartialText: @escaping @Sendable (String) -> Void
     ) async throws -> TranslationOutput {
         guard !text.isEmpty else { return TranslationOutput(text: "", qualityStatus: .good, qualityNotes: []) }
+        if modelID == ProcessingOptions.externalServerModelID {
+            let draft = try await translateWithExternalServer(
+                text,
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage,
+                externalServer: externalServer,
+                previousContext: previousContext,
+                nextContext: nextContext,
+                glossary: glossary,
+                onPartialText: onPartialText
+            )
+            translationFailureStreaks[jobID] = 0
+            return try await finalizeTranslation(
+                source: text, draft: draft, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage,
+                modelID: modelID, modelsURL: modelsURL, glossary: glossary, qualityMode: qualityMode,
+                externalServer: externalServer, onPartialText: onPartialText
+            )
+        }
         if modelID != "apple-foundation-models" {
             let draft = try await translateWithMLX(
                 text,
@@ -370,7 +400,7 @@ actor FoundationTranslationEngine {
             return try await finalizeTranslation(
                 source: text, draft: draft, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage,
                 modelID: modelID, modelsURL: modelsURL, glossary: glossary, qualityMode: qualityMode,
-                onPartialText: onPartialText
+                externalServer: externalServer, onPartialText: onPartialText
             )
         }
         let model = SystemLanguageModel.default
@@ -564,6 +594,39 @@ actor FoundationTranslationEngine {
         return TranslationOutput(text: "", qualityStatus: .warning, qualityNotes: [note])
     }
 
+    /// OpenAI 호환 외부 서버로 한 청크를 번역합니다.
+    private func translateWithExternalServer(
+        _ text: String,
+        sourceLanguage: String?,
+        targetLanguage: String,
+        externalServer: ExternalLLMClient.Configuration?,
+        previousContext: [String],
+        nextContext: [String],
+        glossary: [GlossaryEntry],
+        onPartialText: @escaping @Sendable (String) -> Void
+    ) async throws -> String {
+        guard let externalServer else {
+            throw VideoLingoError.modelUnavailable("외부 LLM 서버 주소와 모델 이름을 설정에서 입력하세요.")
+        }
+        let client = ExternalLLMClient(configuration: externalServer)
+        let instructions = """
+            영상 자막을 \(languageName(sourceLanguage))에서 \(languageName(targetLanguage))로 번역하세요.
+            이전 문장은 문맥 확인에만 사용하고 CURRENT SUBTITLE만 번역하세요.
+            대괄호 안의 화자 라벨(예: [화자 1], [김민수])은 번역하거나 제거하지 말고 각 화자의 줄 구분을 그대로 유지하세요.
+            의미, 이름, 숫자, 존댓말과 말투를 보존하고 설명이나 따옴표를 추가하지 마세요.
+            자연스럽고 간결한 번역문만 출력하세요.
+            """
+        let prompt = translationPrompt(text: text, previousContext: previousContext, nextContext: nextContext, glossary: glossary)
+        let value = try await client.complete(
+            instructions: instructions,
+            prompt: prompt,
+            maximumTokens: min(1024, max(128, text.count * 2))
+        )
+        let cleaned = cleanMLXResponse(value)
+        if !cleaned.isEmpty { onPartialText(cleaned) }
+        return cleaned
+    }
+
     private func translateWithMLX(
         _ text: String,
         sourceLanguage: String?,
@@ -687,6 +750,7 @@ actor FoundationTranslationEngine {
         modelsURL: URL,
         glossary: [GlossaryEntry],
         qualityMode: ProcessingQualityMode,
+        externalServer: ExternalLLMClient.Configuration? = nil,
         onPartialText: @escaping @Sendable (String) -> Void
     ) async throws -> TranslationOutput {
         var issues = translationIssues(source: source, translation: draft, glossary: glossary)
@@ -723,6 +787,18 @@ actor FoundationTranslationEngine {
                 value = partial.content.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !value.isEmpty { onPartialText("2차 검수 · \(value)") }
             }
+            repaired = value
+        } else if modelID == ProcessingOptions.externalServerModelID {
+            guard let externalServer else {
+                return TranslationOutput(text: draft, qualityStatus: .warning, qualityNotes: issues + ["검수 서버 설정 없음"])
+            }
+            let client = ExternalLLMClient(configuration: externalServer)
+            let value = try await client.complete(
+                instructions: "You review video subtitle translations. Return only the corrected subtitle.",
+                prompt: prompt,
+                maximumTokens: min(512, max(64, draft.count * 2))
+            )
+            if !value.isEmpty { onPartialText("2차 검수 · \(value)") }
             repaired = value
         } else {
             let container = try await mlxContainer(modelID: modelID, modelsURL: modelsURL)
