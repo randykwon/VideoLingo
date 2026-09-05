@@ -2846,16 +2846,28 @@ struct BatchCompletedPreviewView: View {
         .onDisappear { model.player.pause() }
     }
 
+    private var previewDuration: TimeInterval {
+        let seconds = model.player.currentItem?.duration.seconds ?? 0
+        return seconds.isFinite ? seconds : 0
+    }
+
     private func playerPane(_ item: BatchProcessor.Item) -> some View {
         VStack(spacing: 0) {
-            VideoPlayer(player: model.player)
+            PlayerVideoSurface(player: model.player)
                 .background(.black)
-                .overlay(alignment: .top) {
-                    PlayerVolumeBar(volume: Binding(
-                        get: { Double(model.player.volume) },
-                        set: { model.player.volume = Float($0) }
-                    ))
-                    .padding(.top, 12)
+                .overlay(alignment: .bottom) {
+                    PlayerControlBar(
+                        volume: Binding(
+                            get: { Double(model.player.volume) },
+                            set: { model.player.volume = Float($0) }
+                        ),
+                        currentTime: model.currentTime,
+                        duration: previewDuration,
+                        isPlaying: model.isPlaying,
+                        onTogglePlayback: { model.togglePlayback() },
+                        onSeek: { model.seekVideo(to: $0) }
+                    )
+                    .padding(.bottom, 12)
                 }
                 .overlay(alignment: .bottom) {
                     if model.subtitlesEnabled, !model.activeSubtitle.isEmpty {
