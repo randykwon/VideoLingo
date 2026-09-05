@@ -2390,7 +2390,7 @@ private struct BatchRemoteServerSection: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(pool.workers, id: \.id) { worker in
+                    ForEach(pool.workers) { (worker: RemoteWorkerConfiguration) in
                         HStack(spacing: 8) {
                             Circle()
                                 .fill(worker.isEnabled ? Color.green : Color.secondary)
@@ -2404,13 +2404,11 @@ private struct BatchRemoteServerSection: View {
                                     .truncationMode(.middle)
                             }
                             Spacer()
-                            Toggle("사용", isOn: Binding(
-                                get: { worker.isEnabled },
-                                set: { pool.setEnabled($0, for: worker.id) }
-                            ))
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                            .controlSize(.mini)
+                            Button(worker.isEnabled ? "사용 중지" : "사용") {
+                                pool.setEnabled(!worker.isEnabled, for: worker.id)
+                            }
+                            .buttonStyle(.borderless)
+                            .controlSize(.small)
                             Button("제거", systemImage: "trash") { pool.remove(worker.id) }
                                 .labelStyle(.iconOnly)
                                 .buttonStyle(.borderless)
