@@ -613,3 +613,29 @@ import Testing
     #expect(restarted.progress == 0)
     #expect(restarted.sttProgress == 0)
 }
+
+@Test func externalServerURLIsNormalizedForCommonLocalServers() throws {
+    // 사용자가 어떤 형태로 주소를 넣어도 같은 채팅 엔드포인트를 가리켜야 합니다.
+    let inputs = [
+        "http://localhost:11434",
+        "http://localhost:11434/",
+        "http://localhost:11434/v1",
+        "http://localhost:11434/v1/chat/completions",
+        "localhost:11434"
+    ]
+    for input in inputs {
+        let config = try #require(
+            ExternalLLMClient.Configuration(endpoint: input, model: "qwen2.5:7b", apiKey: nil),
+            "정규화 실패: \(input)"
+        )
+        #expect(config.endpoint.absoluteString == "http://localhost:11434/v1/chat/completions")
+    }
+
+    // 키를 비워 두면 인증 헤더를 붙이지 않도록 nil로 정리합니다.
+    let noKey = try #require(ExternalLLMClient.Configuration(endpoint: "localhost:1234", model: "m", apiKey: "   "))
+    #expect(noKey.apiKey == nil)
+
+    // 주소나 모델 이름이 비면 설정 자체가 만들어지지 않아야 합니다.
+    #expect(ExternalLLMClient.Configuration(endpoint: "", model: "m", apiKey: nil) == nil)
+    #expect(ExternalLLMClient.Configuration(endpoint: "localhost:1234", model: "", apiKey: nil) == nil)
+}
