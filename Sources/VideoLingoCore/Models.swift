@@ -80,6 +80,11 @@ public struct ProcessingOptions: Codable, Sendable, Equatable {
     }
 }
 
+public extension ProcessingOptions {
+    /// 외부 LLM 서버를 쓰도록 설정돼 있는지.
+    var usesExternalServer: Bool { translationModel == ProcessingOptions.externalServerModelID }
+}
+
 public struct StartJobRequest: Codable, Sendable {
     public let jobID: UUID
     public let mediaURL: URL
