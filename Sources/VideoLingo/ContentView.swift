@@ -1517,6 +1517,18 @@ private struct TranscriptInspector: View {
                     .labelStyle(.iconOnly)
                     .disabled(!model.canRegenerate)
                     .help("저장된 STT·번역을 모두 지우고 처음부터 다시 만듭니다")
+                    .confirmationDialog(
+                        "저장된 STT·번역을 모두 지우고 다시 생성할까요?",
+                        isPresented: $showRegenerateConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button("삭제 후 다시 생성", role: .destructive) {
+                            model.regenerateSTTAndTranslations()
+                        }
+                        Button("취소", role: .cancel) {}
+                    } message: {
+                        Text("이 영상의 저장된 결과가 삭제됩니다. 되돌릴 수 없습니다.")
+                    }
                     Picker("표시 내용", selection: $displayMode) {
                         ForEach(ResultDisplayMode.allCases) { mode in
                             Text(LocalizedStringKey(mode.rawValue)).tag(mode)
