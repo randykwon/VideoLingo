@@ -232,6 +232,7 @@ final class MediaPipeline: @unchecked Sendable {
                     let mapping = try await translator.resolveSpeakerNames(
                         in: Array(existingByChunk.values),
                         labels: genericSpeakerLabels,
+                        externalServer: externalServerConfiguration(request.options),
                         sourceLanguage: request.options.sourceLanguage,
                         modelID: request.options.translationModel,
                         modelsURL: modelsURL,
@@ -952,6 +953,16 @@ final class MediaPipeline: @unchecked Sendable {
         for url in files where url.pathExtension == "m4a" {
             try? fileManager.removeItem(at: url)
         }
+    }
+
+    /// 외부 LLM 서버 설정을 작업 옵션에서 만듭니다. 설정이 불완전하면 nil이라 엔진이 명확히 오류를 냅니다.
+    private func externalServerConfiguration(_ options: ProcessingOptions) -> ExternalLLMClient.Configuration? {
+        guard options.usesExternalServer else { return nil }
+        return ExternalLLMClient.Configuration(
+            endpoint: options.externalServerEndpoint ?? "",
+            model: options.externalServerModel ?? "",
+            apiKey: options.externalServerAPIKey
+        )
     }
 
     private func publish(_ snapshot: JobSnapshot) {
