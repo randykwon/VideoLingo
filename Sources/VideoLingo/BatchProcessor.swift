@@ -1045,7 +1045,9 @@ final class BatchProcessor {
                 }
                 if phase == .stt {
                     if [.failed, .cancelled].contains(snapshot.status) { break }
-                    guard snapshot.sttProgress >= 0.999 || [.completed, .refining].contains(snapshot.status) else { continue }
+                    // 같은 jobID를 번역 단계에서 다시 쓰므로, 작업이 완전히 끝난 뒤에 넘겨야 합니다.
+                    // 끝나기 전에 보내면 XPC가 '이미 실행 중'으로 판단해 번역 요청을 버립니다.
+                    guard snapshot.status == .completed else { continue }
                     items[index].sttCompleted = true
                     if options.targetLanguages.isEmpty {
                         items[index].status = .completed
@@ -1056,6 +1058,8 @@ final class BatchProcessor {
                         // 번역 레인이 이어받도록 대기 상태로 돌려놓습니다.
                         items[index].status = .queued
                         items[index].message = String(localized: "STT 완료 · 번역 대기 중")
+                        // 서비스가 끝난 작업을 정리할 틈을 줍니다.
+                        try? await Task.sleep(for: .milliseconds(600))
                     }
                     break
                 }

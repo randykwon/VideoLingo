@@ -216,12 +216,15 @@ final class MediaPipeline: @unchecked Sendable {
             completedTranslations = await coordinator.currentCompletedTranslations()
             detectedLanguage = await coordinator.currentDetectedLanguage()
 
+            // 번역 대상이 없는 STT 전용 작업(대량 번역의 STT 레인)은 화자 분석까지 하지 않고 바로 끝냅니다.
+            // 여기서 LLM 작업을 계속하면 같은 jobID의 번역 요청이 '이미 실행 중'으로 무시됩니다.
+            let sttOnly = request.options.targetLanguages.isEmpty
             // 화자 다시 분석을 요청하면 이미 이름이 적용된 라벨까지 대상으로 삼습니다.
             let forceSpeakerReanalysis = request.options.forceSpeakerReanalysis ?? false
             let genericSpeakerLabels = forceSpeakerReanalysis
                 ? SpeakerLabelRewriter.allSpeakerLabels(in: Array(existingByChunk.values))
                 : SpeakerLabelRewriter.labels(in: Array(existingByChunk.values))
-            if !genericSpeakerLabels.isEmpty {
+            if !sttOnly, !genericSpeakerLabels.isEmpty {
                 snapshot.status = .transcribing
                 snapshot.message = "전체 문서에서 화자 이름과 역할 분석 중"
                 snapshot.liveTranscriptText = "화자 문맥 분석 준비 중"
