@@ -586,3 +586,30 @@ import Testing
     #expect(discovered?.transcripts.first?.text == "Hello")
     #expect(MediaSidecarStore.existingResultsDirectoryURL(for: mediaURL) != nil)
 }
+
+@Test func rerunningAJobClearsPreviousFailure() throws {
+    // 재실행할 때 이전 실패 상태가 남아 있으면, 배치가 곧바로 옛 오류를 다시 보고합니다.
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = try JobStore(url: directory.appending(path: "rerun.sqlite"))
+    let jobID = UUID()
+    let mediaURL = directory.appending(path: "clip.mp4")
+    try store.createJob(id: jobID, mediaURL: mediaURL, options: ProcessingOptions())
+
+    var failed = try #require(try store.snapshot(jobID: jobID))
+    failed.status = .failed
+    failed.error = "번역이 연속 8회 실패했습니다."
+    failed.progress = 0.42
+    failed.sttProgress = 1
+    try store.save(snapshot: failed)
+    #expect(try store.snapshot(jobID: jobID)?.status == .failed)
+
+    // 같은 작업을 다시 시작하면 깨끗한 상태에서 출발해야 합니다.
+    try store.createJob(id: jobID, mediaURL: mediaURL, options: ProcessingOptions())
+    let restarted = try #require(try store.snapshot(jobID: jobID))
+    #expect(restarted.status == .queued)
+    #expect(restarted.error == nil)
+    #expect(restarted.progress == 0)
+    #expect(restarted.sttProgress == 0)
+}
