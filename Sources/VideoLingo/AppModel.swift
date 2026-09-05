@@ -161,6 +161,8 @@ final class AppModel {
     var transcript: [TranscriptSegment] = []
     var translations: [UUID: TranslationSegment] = [:]
     var currentTime: TimeInterval = 0
+    /// 재생 중인지 여부입니다. AVPlayer.timeControlStatus는 관찰 대상이 아니라 화면이 갱신되지 않아 별도로 둡니다.
+    var isPlaying = false
     var errorMessage: String?
     var serviceMessage = String(localized: "서비스 확인 중")
     var serviceStatus: AIServiceStatus?
@@ -429,6 +431,7 @@ final class AppModel {
         } else {
             player.play()
         }
+        isPlaying = player.timeControlStatus == .playing
     }
 
     func adjustVolume(by amount: Double) {
@@ -1305,6 +1308,7 @@ final class AppModel {
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor in
                 self?.currentTime = time.seconds.isFinite ? time.seconds : 0
+                self?.isPlaying = self?.player.timeControlStatus == .playing
                 self?.savePlaybackPositionIfNeeded()
             }
         }
