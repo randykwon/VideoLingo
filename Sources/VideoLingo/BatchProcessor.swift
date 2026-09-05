@@ -1721,6 +1721,8 @@ private struct BatchStartConfirmationView: View {
                 Label("처리 설정", systemImage: "gearshape.2")
             }
 
+            BatchRemoteServerSection()
+
             if readOnlyCount > 0 {
                 GroupBox {
                     HStack(spacing: 12) {
@@ -2366,6 +2368,121 @@ struct BatchMonitorExpandedPreviewView: View {
     private var item: BatchProcessor.Item? {
         guard let itemID else { return nil }
         return processor.items.first { $0.id == itemID }
+    }
+}
+
+/// 대량 번역 설정에서 원격 STT·번역 서버(STTLMMServer)를 주소만으로 등록합니다.
+/// 등록된 서버는 앱 전체가 공유하므로 설정 화면에서 추가한 서버도 여기에 함께 보입니다.
+private struct BatchRemoteServerSection: View {
+    @State private var pool = RemoteWorkerPool.shared
+    @State private var address = ""
+    @State private var name = ""
+    @State private var token = ""
+    @State private var usesAuthentication = false
+    @State private var message = ""
+    @State private var isAdding = false
+
+    var body: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                if pool.workers.isEmpty {
+                    Text("등록된 원격 서버가 없습니다. 주소를 입력하면 STT와 번역을 그 서버에서 처리합니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(pool.workers) { worker in
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(worker.isEnabled ? Color.green : Color.secondary)
+                                .frame(width: 8, height: 8)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(worker.name).font(.callout)
+                                Text(worker.address)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            Spacer()
+                            Toggle("사용", isOn: Binding(
+                                get: { worker.isEnabled },
+                                set: { pool.setEnabled($0, for: worker.id) }
+                            ))
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .controlSize(.mini)
+                            Button("제거", systemImage: "trash") { pool.remove(worker.id) }
+                                .labelStyle(.iconOnly)
+                                .buttonStyle(.borderless)
+                        }
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    TextField("서버 주소", text: $address, prompt: Text("예: 192.168.0.20 또는 http://mac-server:8848"))
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { connect() }
+                    TextField("이름 (선택)", text: $name)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 130)
+                }
+                HStack(spacing: 8) {
+                    Toggle("API 키 사용", isOn: $usesAuthentication)
+                        .controlSize(.small)
+                    if usesAuthentication {
+                        SecureField("개별 키 (선택)", text: $token)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 180)
+                    }
+                    Spacer()
+                    Button("연결 후 추가", systemImage: "link.badge.plus") { connect() }
+                        .disabled(address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAdding)
+                    if isAdding { ProgressView().controlSize(.small) }
+                    Button("상태 확인", systemImage: "arrow.clockwise") {
+                        Task { await pool.refreshAll() }
+                    }
+                    .labelStyle(.iconOnly)
+                    .disabled(pool.workers.isEmpty || isAdding)
+                }
+                if !message.isEmpty {
+                    Text(message)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                Text("IP만 입력하면 http와 기본 포트 8848을 적용합니다. 원격 서버는 STT와 번역을 함께 처리하며, 연결이 안 되면 자동으로 내장 서버로 넘어갑니다.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(4)
+        } label: {
+            Label("원격 STT·번역 서버", systemImage: "network")
+        }
+        .task { await pool.refreshAll() }
+    }
+
+    private func connect() {
+        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !isAdding, !trimmed.isEmpty else { return }
+        isAdding = true
+        message = String(localized: "서버 연결을 확인하는 중…")
+        Task {
+            defer { isAdding = false }
+            do {
+                let status = try await pool.connectAndAdd(
+                    name: name,
+                    address: trimmed,
+                    token: token,
+                    usesAuthentication: usesAuthentication
+                )
+                address = ""
+                name = ""
+                token = ""
+                message = String(localized: "추가 완료 · \(status.name) · STT \(status.capabilities.sttSlots)개 · 번역 \(status.capabilities.translationSlots)개")
+            } catch {
+                message = String(localized: "추가하지 못했습니다: \(error.localizedDescription)")
+            }
+        }
     }
 }
 
