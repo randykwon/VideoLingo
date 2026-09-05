@@ -1463,6 +1463,8 @@ private enum ResultDisplayMode: String, CaseIterable, Identifiable {
 }
 
 private struct TranscriptInspector: View {
+    @State private var showRegenerateConfirmation = false
+
     @Environment(AppModel.self) private var model
     @Environment(ThemeManager.self) private var theme
     @State private var displayMode: ResultDisplayMode = .both
@@ -1477,18 +1479,44 @@ private struct TranscriptInspector: View {
         }
     }
 
+    /// 모든 구간의 번역이 채워졌는지. 진행 상태가 아니라 실제 결과를 기준으로 판단합니다.
+    private var resultsAreComplete: Bool {
+        !model.transcript.isEmpty && model.untranslatedSegments.isEmpty
+    }
+
+    private var remainingSegmentCount: Int { model.untranslatedSegments.count }
+
     var body: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("STT·번역 결과 확인")
-                            .font(.headline)
+                        HStack(spacing: 8) {
+                            Text("STT·번역 결과 확인")
+                                .font(.headline)
+                            if resultsAreComplete {
+                                Label("완료", systemImage: "checkmark.seal.fill")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.green)
+                                    .labelStyle(.titleAndIcon)
+                                    .help("모든 구간의 번역이 채워졌습니다")
+                            } else if remainingSegmentCount > 0 {
+                                Text("남은 구간 \(remainingSegmentCount)개")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.orange)
+                            }
+                        }
                         Text("STT \(model.transcript.count)개 · \(model.selectedLanguage.uppercased()) 번역 \(model.translations.count)개")
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
+                    Button("삭제 후 다시 생성", systemImage: "trash") {
+                        showRegenerateConfirmation = true
+                    }
+                    .labelStyle(.iconOnly)
+                    .disabled(!model.canRegenerate)
+                    .help("저장된 STT·번역을 모두 지우고 처음부터 다시 만듭니다")
                     Picker("표시 내용", selection: $displayMode) {
                         ForEach(ResultDisplayMode.allCases) { mode in
                             Text(LocalizedStringKey(mode.rawValue)).tag(mode)
