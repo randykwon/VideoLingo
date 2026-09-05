@@ -235,6 +235,7 @@ final class MediaPipeline: @unchecked Sendable {
                         sourceLanguage: request.options.sourceLanguage,
                         modelID: request.options.translationModel,
                         modelsURL: modelsURL,
+                        externalServer: externalServerConfiguration(request.options),
                         onPartialText: { [onLiveTranscript] text in
                             onLiveTranscript(request.jobID, total, total, text)
                         }
