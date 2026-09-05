@@ -1,18 +1,17 @@
 import Foundation
-import VideoLingoCore
 
 /// OpenAI 호환 채팅 API를 쓰는 외부 LLM 서버 클라이언트입니다.
 /// Ollama·LM Studio·llama.cpp server·vLLM·LocalAI처럼 API 키 없이 도는 로컬/사내 서버를 상정하며,
 /// 키가 필요한 서버를 위해 인증 헤더는 값이 있을 때만 붙입니다.
-struct ExternalLLMClient: Sendable {
-    struct Configuration: Sendable, Equatable {
-        let endpoint: URL
-        let model: String
-        let apiKey: String?
+public struct ExternalLLMClient: Sendable {
+    public struct Configuration: Sendable, Equatable {
+        public let endpoint: URL
+        public let model: String
+        public let apiKey: String?
 
         /// 사용자가 넣은 주소를 관대하게 받아들입니다.
         /// `http://localhost:11434`, `.../v1`, `.../v1/chat/completions` 모두 같은 곳을 가리키게 만듭니다.
-        init?(endpoint: String, model: String, apiKey: String?) {
+        public init?(endpoint: String, model: String, apiKey: String?) {
             let trimmed = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
             let modelName = model.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty, !modelName.isEmpty else { return nil }
@@ -31,11 +30,16 @@ struct ExternalLLMClient: Sendable {
         }
     }
 
-    let configuration: Configuration
-    var timeout: TimeInterval = 180
+    public let configuration: Configuration
+    public var timeout: TimeInterval
+
+    public init(configuration: Configuration, timeout: TimeInterval = 180) {
+        self.configuration = configuration
+        self.timeout = timeout
+    }
 
     /// 시스템 지시와 사용자 프롬프트를 보내고 응답 본문만 돌려줍니다.
-    func complete(instructions: String, prompt: String, maximumTokens: Int) async throws -> String {
+    public func complete(instructions: String, prompt: String, maximumTokens: Int) async throws -> String {
         var request = URLRequest(url: configuration.endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = timeout
@@ -83,7 +87,7 @@ struct ExternalLLMClient: Sendable {
     }
 
     /// 설정 화면의 연결 테스트용입니다. 성공하면 모델이 돌려준 짧은 응답을 반환합니다.
-    func probe() async throws -> String {
+    public func probe() async throws -> String {
         try await complete(
             instructions: "You are a connection test. Reply with the single word OK.",
             prompt: "Reply with OK.",
