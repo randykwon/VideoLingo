@@ -232,7 +232,6 @@ final class MediaPipeline: @unchecked Sendable {
                     let mapping = try await translator.resolveSpeakerNames(
                         in: Array(existingByChunk.values),
                         labels: genericSpeakerLabels,
-                        externalServer: externalServerConfiguration(request.options),
                         sourceLanguage: request.options.sourceLanguage,
                         modelID: request.options.translationModel,
                         modelsURL: modelsURL,
