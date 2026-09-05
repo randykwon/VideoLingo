@@ -194,8 +194,46 @@ final class AppModel {
         "openai_whisper-large-v3-v20240930_547MB",
         "openai_whisper-small_216MB"
     ]
+    /// 외부 LLM 서버 주소입니다. 예: http://localhost:11434/v1 (Ollama), http://localhost:1234/v1 (LM Studio)
+    var externalServerEndpoint = UserDefaults.standard.string(forKey: "externalServerEndpoint") ?? "" {
+        didSet { UserDefaults.standard.set(externalServerEndpoint, forKey: "externalServerEndpoint") }
+    }
+    /// 외부 서버에서 쓸 모델 이름입니다. 예: qwen2.5:7b
+    var externalServerModel = UserDefaults.standard.string(forKey: "externalServerModel") ?? "" {
+        didSet { UserDefaults.standard.set(externalServerModel, forKey: "externalServerModel") }
+    }
+    /// 인증이 필요한 서버를 위한 선택 항목입니다. 비워 두면 인증 헤더를 보내지 않습니다.
+    var externalServerAPIKey = UserDefaults.standard.string(forKey: "externalServerAPIKey") ?? "" {
+        didSet { UserDefaults.standard.set(externalServerAPIKey, forKey: "externalServerAPIKey") }
+    }
+    /// 연결 테스트 결과 메시지입니다.
+    var externalServerTestMessage = ""
+    var isTestingExternalServer = false
+
+    /// 설정 화면에서 외부 서버 연결을 실제로 확인합니다.
+    func testExternalServerConnection() async {
+        guard let config = ExternalLLMClient.Configuration(
+            endpoint: externalServerEndpoint,
+            model: externalServerModel,
+            apiKey: externalServerAPIKey
+        ) else {
+            externalServerTestMessage = String(localized: "주소와 모델 이름을 모두 입력하세요.")
+            return
+        }
+        isTestingExternalServer = true
+        externalServerTestMessage = String(localized: "연결 확인 중…")
+        defer { isTestingExternalServer = false }
+        do {
+            let reply = try await ExternalLLMClient(configuration: config, timeout: 20).probe()
+            externalServerTestMessage = String(localized: "연결 성공 · 응답: \(reply.prefix(40))")
+        } catch {
+            externalServerTestMessage = error.localizedDescription
+        }
+    }
+
     let translationModels = [
         "apple-foundation-models",
+        ProcessingOptions.externalServerModelID,
         "mlx-community/Qwen3-0.6B-4bit",
         "mlx-community/Qwen3-1.7B-4bit",
         "mlx-community/Qwen3-4B-4bit",
@@ -1543,6 +1581,9 @@ final class AppModel {
             qualityMode: qualityMode,
             glossary: glossaryEntries,
             continuousImprovement: continuousImprovement,
+            externalServerEndpoint: externalServerEndpoint,
+            externalServerModel: externalServerModel,
+            externalServerAPIKey: externalServerAPIKey,
             maximumRefinementPasses: maximumRefinementPasses
         )
     }
