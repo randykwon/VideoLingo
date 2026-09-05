@@ -24,6 +24,9 @@ public struct GlossaryEntry: Codable, Sendable, Equatable, Hashable {
 
 public struct ProcessingOptions: Codable, Sendable, Equatable {
     public static let defaultChunkDuration: TimeInterval = 60
+    /// OpenAI 호환 외부 LLM 서버를 쓸 때 translationModel에 넣는 값입니다.
+    /// Ollama·LM Studio·llama.cpp·vLLM처럼 API 키 없이 도는 로컬/사내 서버를 상정합니다.
+    public static let externalServerModelID = "external-openai"
 
     public var sourceLanguage: String?
     public var targetLanguages: [String]
@@ -36,6 +39,12 @@ public struct ProcessingOptions: Codable, Sendable, Equatable {
     public var continuousImprovement: Bool?
     /// 화자 이름이 이미 적용된 결과에도 화자 분석을 다시 실행합니다.
     public var forceSpeakerReanalysis: Bool?
+    /// 외부 LLM 서버의 기본 주소입니다. 예: http://localhost:11434/v1
+    public var externalServerEndpoint: String?
+    /// 외부 서버에서 사용할 모델 이름입니다. 예: qwen2.5:7b
+    public var externalServerModel: String?
+    /// 인증이 필요한 서버를 위한 선택 항목입니다. 비어 있으면 인증 헤더를 보내지 않습니다.
+    public var externalServerAPIKey: String?
     public var maximumRefinementPasses: Int?
 
     public init(
@@ -49,6 +58,9 @@ public struct ProcessingOptions: Codable, Sendable, Equatable {
         glossary: [GlossaryEntry] = [],
         continuousImprovement: Bool = true,
         forceSpeakerReanalysis: Bool = false,
+        externalServerEndpoint: String? = nil,
+        externalServerModel: String? = nil,
+        externalServerAPIKey: String? = nil,
         maximumRefinementPasses: Int = 3
     ) {
         self.sourceLanguage = sourceLanguage
@@ -61,6 +73,9 @@ public struct ProcessingOptions: Codable, Sendable, Equatable {
         self.glossary = glossary
         self.continuousImprovement = continuousImprovement
         self.forceSpeakerReanalysis = forceSpeakerReanalysis
+        self.externalServerEndpoint = externalServerEndpoint
+        self.externalServerModel = externalServerModel
+        self.externalServerAPIKey = externalServerAPIKey
         self.maximumRefinementPasses = maximumRefinementPasses
     }
 }
