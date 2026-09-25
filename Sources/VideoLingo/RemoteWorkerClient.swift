@@ -135,21 +135,138 @@ struct RemoteWorkerClient: Sendable {
         return try JSONDecoder().decode(STTResponse.self, from: data)
     }
 
-    /// 오디오 청크 하나만 원격 서버에서 인식합니다.
-    /// 60초 청크는 0.5MB 안팎이라 서버 업로드 한도(기본 200MB)와 무관합니다.
-    func transcribeChunk(audioURL: URL, language: String?) async throws -> STTResponse {
-        var fields = ["response_format": "verbose_json", "timestamp_granularities": "segment"]
-        if let language, !language.isEmpty { fields["language"] = language }
-        let (bodyURL, boundary) = try multipartBody(fileURL: audioURL, fields: fields)
-        defer { try? FileManager.default.removeItem(at: bodyURL) }
-        var request = authenticatedRequest(path: "/v1/audio/transcriptions")
-        request.httpMethod = "POST"
-        request.timeoutInterval = 600
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        let (data, response) = try await URLSession.shared.upload(for: request, fromFile: bodyURL)
-        try validate(response, data: data)
-        return try JSONDecoder().decode(STTResponse.self, from: data)
+    /// 오디오 트랙 전체를 한 번에 인식합니다.
+    /// 서버가 파일 하나를 통으로 처리하는 편이 훨씬 빠르므로(실측 65배속) 구간을 쪼개 보내지 않습니다.
+    /// 단일 요청 한도(기본 200MB)를 넘으면 자동으로 청크 업로드 세션으로 넘어갑니다.
+    func transcribeAudio(
+        audioURL: URL,
+        language: String?,
+        onProgress: @Sendable (String) -> Void = { _ in }
+    ) async throws -> STTResponse {
+        let size = (try? FileManager.default.attributesOfItem(atPath: audioURL.path)[.size] as? NSNumber)??.intValue ?? 0
+        if size > Self.singleRequestLimit {
+            return try await transcribeViaUploadSession(audioURL: audioURL, size: size, language: language, onProgress: onProgress)
+        }
+        return try await withRetry {
+            var fields = ["response_format": "verbose_json", "timestamp_granularities": "segment"]
+            if let language, !language.isEmpty { fields["language"] = language }
+            let (bodyURL, boundary) = try multipartBody(fileURL: audioURL, fields: fields)
+            defer { try? FileManager.default.removeItem(at: bodyURL) }
+            var request = authenticatedRequest(path: "/v1/audio/transcriptions")
+            request.httpMethod = "POST"
+            request.timeoutInterval = 1800
+            request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+            let (data, response) = try await URLSession.shared.upload(for: request, fromFile: bodyURL)
+            try validate(response, data: data)
+            return try JSONDecoder().decode(STTResponse.self, from: data)
+        }
     }
+
+    /// 단일 요청 한도를 넘는 오디오용 경로입니다.
+    /// 세션을 열고 서버가 정해 준 크기로 잘라 올린 뒤, 작업 id로 결과를 폴링합니다.
+    private func transcribeViaUploadSession(
+        audioURL: URL,
+        size: Int,
+        language: String?,
+        onProgress: @Sendable (String) -> Void
+    ) async throws -> STTResponse {
+        var body: [String: Any] = [
+            "filename": audioURL.lastPathComponent,
+            "size": size,
+            "response_format": "verbose_json",
+            "timestamp_granularities": "segment"
+        ]
+        if let language, !language.isEmpty { body["language"] = language }
+        let session = try await postJSON(path: "/v1/audio/uploads", body: body)
+        guard let uploadID = session["upload_id"] as? String else { throw RemoteWorkerClientError.invalidResponse }
+        // 청크 크기는 서버가 정합니다. 값을 코드에 박아 두면 서버 설정 변경과 어긋납니다.
+        let chunkSize = (session["chunk_size"] as? NSNumber)?.intValue ?? 100 * 1024 * 1024
+
+        let handle = try FileHandle(forReadingFrom: audioURL)
+        defer { try? handle.close() }
+        var offset = (session["next_offset"] as? NSNumber)?.intValue ?? 0
+        while offset < size {
+            try handle.seek(toOffset: UInt64(offset))
+            guard let data = try handle.read(upToCount: chunkSize), !data.isEmpty else { break }
+            let state = try await uploadChunk(uploadID: uploadID, offset: offset, data: data)
+            offset = (state["next_offset"] as? NSNumber)?.intValue ?? (offset + data.count)
+            let progress = (state["progress"] as? NSNumber)?.doubleValue ?? 0
+            onProgress(String(localized: "업로드 \(Int(progress * 100))%"))
+        }
+
+        let job = try await postJSON(path: "/v1/audio/uploads/\(uploadID)/transcribe", body: nil)
+        guard let jobID = job["job_id"] as? String else { throw RemoteWorkerClientError.invalidResponse }
+
+        while true {
+            try Task.checkCancellation()
+            try await Task.sleep(for: .seconds(5))
+            var request = authenticatedRequest(path: "/v1/audio/jobs/\(jobID)")
+            request.timeoutInterval = 60
+            let (data, response) = try await URLSession.shared.data(for: request)
+            try validate(response, data: data)
+            guard let status = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let state = status["state"] as? String else { throw RemoteWorkerClientError.invalidResponse }
+            switch state {
+            case "completed":
+                guard let result = status["result"],
+                      let resultData = try? JSONSerialization.data(withJSONObject: result) else {
+                    throw RemoteWorkerClientError.invalidResponse
+                }
+                return try JSONDecoder().decode(STTResponse.self, from: resultData)
+            case "failed", "cancelled":
+                throw RemoteWorkerClientError.failed(
+                    (status["error"] as? String) ?? String(localized: "원격 전사가 실패했습니다.")
+                )
+            default:
+                let elapsed = (status["elapsed_seconds"] as? NSNumber)?.doubleValue ?? 0
+                onProgress(String(localized: "원격 전사 중 \(Int(elapsed))초"))
+            }
+        }
+    }
+
+    private func postJSON(path: String, body: [String: Any]?) async throws -> [String: Any] {
+        try await withRetry {
+            var request = authenticatedRequest(path: path)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 120
+            if let body {
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            }
+            let (data, response) = try await URLSession.shared.data(for: request)
+            try validate(response, data: data)
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw RemoteWorkerClientError.invalidResponse
+            }
+            return object
+        }
+    }
+
+    private func uploadChunk(uploadID: String, offset: Int, data: Data) async throws -> [String: Any] {
+        try await withRetry {
+            let boundary = "videolingo-\(UUID().uuidString)"
+            var payload = Data()
+            func append(_ text: String) { payload.append(Data(text.utf8)) }
+            append("--\(boundary)\r\nContent-Disposition: form-data; name=\"offset\"\r\n\r\n\(offset)\r\n")
+            append("--\(boundary)\r\nContent-Disposition: form-data; name=\"chunk\"; filename=\"part\"\r\n")
+            append("Content-Type: application/octet-stream\r\n\r\n")
+            payload.append(data)
+            append("\r\n--\(boundary)--\r\n")
+            var request = authenticatedRequest(path: "/v1/audio/uploads/\(uploadID)/chunk")
+            request.httpMethod = "POST"
+            request.timeoutInterval = 1800
+            request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+            let (responseData, response) = try await URLSession.shared.upload(for: request, from: payload)
+            try validate(response, data: responseData)
+            guard let object = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+                throw RemoteWorkerClientError.invalidResponse
+            }
+            return object
+        }
+    }
+
+    /// 단일 요청 업로드 한도입니다. 서버 기본값과 같은 200MB에 여유를 둡니다.
+    private static let singleRequestLimit = 190 * 1024 * 1024
 
     /// 이미 만들어 둔 STT 결과만 원격 서버에서 번역합니다.
     /// 영상 원본을 올리지 않으므로 서버의 업로드 용량 한도와 무관합니다.
