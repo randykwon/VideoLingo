@@ -437,3 +437,16 @@
 "원격 전사가 실패했습니다." = "Remote transcription failed.";
 "원격 서버가 자막 세그먼트를 반환하지 않았습니다." = "The remote server returned no subtitle segments.";
 "저장된 STT 사용 · 번역 대기 중" = "Using saved STT · waiting for translation";
+"같은 내용 찾기 (파일명 무관)…" = "Find identical content (any filename)…";
+"같은 내용 중복 정리" = "Clean up identical videos";
+"크기가 같은 영상을 추리는 중…" = "Narrowing down videos with matching size…";
+"내용이 같은 영상을 찾지 못했습니다." = "No videos with identical content were found.";
+"중복 %lld묶음 · 정리 가능 %lld개" = "%lld duplicate groups · %lld can be cleaned up";
+"아직 검사하지 않았습니다" = "Not scanned yet";
+"중복 없음" = "No duplicates";
+"검사 시작" = "Start scan";
+"휴지통으로 이동" = "Move to Trash";
+"목록에서 제거" = "Remove from list";
+"원본 파일도 휴지통으로 이동" = "Also move the video files to Trash";
+"유지" = "Keep";
+"정리" = "Clean up";
