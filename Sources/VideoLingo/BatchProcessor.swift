@@ -3203,6 +3203,127 @@ private struct DuplicateFilenameReviewView: View {
     }
 }
 
+/// 파일명이 달라도 내용이 같은 영상을 찾아 정리합니다.
+private struct ContentDuplicateReviewView: View {
+    @Environment(BatchProcessor.self) private var processor
+    @Environment(\.dismiss) private var dismiss
+    @State private var moveToTrash = false
+    @State private var isCleaning = false
+    @State private var statusMessage = ""
+
+    private var reclaimable: String {
+        ByteCountFormatter.string(fromByteCount: processor.contentDuplicateReclaimableBytes, countStyle: .file)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("같은 내용 중복 정리", systemImage: "doc.viewfinder")
+                    .font(.title2.weight(.semibold))
+                Text("파일 크기와 앞뒤 4MB를 비교해 이름이 달라도 같은 영상을 찾습니다. 묶음마다 첫 번째 하나만 남깁니다.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            if processor.isScanningContentDuplicates {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(processor.contentDuplicateMessage)
+                        .font(.callout)
+                }
+            } else if processor.contentDuplicateGroups.isEmpty {
+                ContentUnavailableView(
+                    processor.contentDuplicateMessage.isEmpty ? "아직 검사하지 않았습니다" : "중복 없음",
+                    systemImage: "checkmark.circle",
+                    description: Text(processor.contentDuplicateMessage.isEmpty
+                        ? "‘검사 시작’을 누르면 목록의 영상을 비교합니다."
+                        : processor.contentDuplicateMessage)
+                )
+                .frame(maxHeight: 180)
+            } else {
+                Text("\(processor.contentDuplicateGroups.count)묶음 · 정리 시 \(reclaimable) 확보")
+                    .font(.callout.weight(.medium))
+                List {
+                    ForEach(processor.contentDuplicateGroups) { group in
+                        Section(ByteCountFormatter.string(fromByteCount: group.byteCount, countStyle: .file)) {
+                            ForEach(Array(group.items.enumerated()), id: \.element.id) { index, item in
+                                HStack(spacing: 8) {
+                                    Image(systemName: index == 0 ? "checkmark.circle.fill" : "minus.circle")
+                                        .foregroundStyle(index == 0 ? Color.green : Color.orange)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(item.url.lastPathComponent).font(.callout)
+                                        Text(item.url.deletingLastPathComponent().path(percentEncoded: false))
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                    }
+                                    Spacer()
+                                    Text(index == 0 ? "유지" : "정리")
+                                        .font(.caption2)
+                                        .foregroundStyle(index == 0 ? .green : .orange)
+                                }
+                            }
+                        }
+                    }
+                }
+                .frame(minHeight: 220, maxHeight: 320)
+
+                Toggle(isOn: $moveToTrash) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("원본 파일도 휴지통으로 이동")
+                        Text(moveToTrash
+                            ? "디스크의 실제 영상 파일이 휴지통으로 이동합니다. 휴지통에서 되돌릴 수 있습니다."
+                            : "목록에서만 제거하고 파일은 그대로 둡니다.")
+                            .font(.caption)
+                            .foregroundStyle(moveToTrash ? Color.orange : Color.secondary)
+                    }
+                }
+            }
+
+            if !statusMessage.isEmpty {
+                Text(statusMessage).font(.caption).textSelection(.enabled)
+            }
+
+            HStack {
+                Button("검사 시작", systemImage: "magnifyingglass") {
+                    Task { await processor.scanContentDuplicates() }
+                }
+                .disabled(processor.isScanningContentDuplicates || isCleaning)
+                Spacer()
+                Button("닫기") { dismiss() }
+                Button(moveToTrash ? "휴지통으로 이동" : "목록에서 제거", role: .destructive) {
+                    cleanUp()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(processor.contentDuplicateGroups.isEmpty || isCleaning)
+                if isCleaning { ProgressView().controlSize(.small) }
+            }
+        }
+        .padding(24)
+        .frame(width: 620)
+        .task { if processor.contentDuplicateGroups.isEmpty { await processor.scanContentDuplicates() } }
+    }
+
+    private func cleanUp() {
+        let ids = processor.contentDuplicateRemovalIDs
+        guard !ids.isEmpty else { return }
+        isCleaning = true
+        Task {
+            defer { isCleaning = false }
+            if moveToTrash {
+                let result = await processor.moveVideosToTrash(ids: ids)
+                statusMessage = result.failureMessage
+                    ?? String(localized: "\(result.movedCount)개를 휴지통으로 옮겼습니다.")
+            } else {
+                processor.remove(ids: ids)
+                statusMessage = String(localized: "\(ids.count)개를 목록에서 제거했습니다.")
+            }
+            await processor.scanContentDuplicates()
+        }
+    }
+}
+
 private struct DuplicateBatchCleanupView: View {
     @Environment(BatchProcessor.self) private var processor
     @Environment(\.dismiss) private var dismiss
