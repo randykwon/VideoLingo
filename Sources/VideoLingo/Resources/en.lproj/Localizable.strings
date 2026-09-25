@@ -452,3 +452,5 @@
 "정리" = "Clean up";
 "STT %lld · 번역 %lld · 사용 %lld" = "STT %lld · translate %lld · in use %lld";
 "서버 %lld대 합계 · STT %lld자리 · 번역 %lld자리 — 가장 한가한 서버로 자동 분산됩니다." = "%lld servers · %lld STT slots · %lld translation slots — requests go to the least busy server.";
+"%@ 원격 %@ 실패 · 다른 서버 확인 중" = "%@ remote %@ failed · trying another server";
+"원격 %@ 실패 · 내장 서버로 전환: %@" = "Remote %@ failed · falling back to the built-in server: %@";
