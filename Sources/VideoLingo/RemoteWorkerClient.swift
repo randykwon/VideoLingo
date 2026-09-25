@@ -126,6 +126,51 @@ struct RemoteWorkerClient: Sendable {
         return try JSONDecoder().decode(STTResponse.self, from: data)
     }
 
+    /// 이미 만들어 둔 STT 결과만 원격 서버에서 번역합니다.
+    /// 영상 원본을 올리지 않으므로 서버의 업로드 용량 한도와 무관합니다.
+    func translateOnly(
+        texts: [String], sourceLanguage: String?, targetLanguage: String, options: ProcessingOptions
+    ) async throws -> [String] {
+        // 서버의 번역 모델이 `[화자 2]` 같은 라벨을 번역해 버립니다(실측).
+        // 보내기 전에 치환해 보호하고 받은 뒤 되돌립니다.
+        var labels: [String: String] = [:]
+        let masked = texts.map { Self.maskSpeakerLabels(in: $0, into: &labels) }
+        let translated = try await translate(
+            texts: masked,
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage,
+            options: options
+        )
+        return translated.map { Self.restoreSpeakerLabels(in: $0, using: labels) }
+    }
+
+    /// 화자 라벨을 번역되지 않는 자리표시자로 바꿉니다.
+    private static func maskSpeakerLabels(in text: String, into labels: inout [String: String]) -> String {
+        let pattern = #"\[([^\[\]\n]{1,40})\]"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return text }
+        var result = text
+        let matches = expression.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        for match in matches.reversed() {
+            guard let range = Range(match.range, in: text),
+                  let inner = Range(match.range(at: 1), in: text) else { continue }
+            let original = String(text[inner])
+            let token = labels.first(where: { $0.value == original })?.key
+                ?? "⟦S\(labels.count)⟧"
+            labels[token] = original
+            result = result.replacingCharacters(
+                in: Range(range, in: result) ?? result.startIndex..<result.startIndex,
+                with: token
+            )
+        }
+        return result
+    }
+
+    private static func restoreSpeakerLabels(in text: String, using labels: [String: String]) -> String {
+        labels.reduce(text) { partial, entry in
+            partial.replacingOccurrences(of: entry.key, with: "[\(entry.value)]")
+        }
+    }
+
     private func translate(
         texts: [String], sourceLanguage: String?, targetLanguage: String, options: ProcessingOptions
     ) async throws -> [String] {
