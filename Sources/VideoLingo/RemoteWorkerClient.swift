@@ -16,7 +16,7 @@ enum RemoteWorkerClientError: LocalizedError {
 
 /// https://github.com/randykwon/STTLMMServer 의 공개 API를 사용하는 클라이언트입니다.
 struct RemoteWorkerClient: Sendable {
-    private struct STTSegment: Decodable, Sendable {
+    struct STTSegment: Decodable, Sendable {
         let start: Double
         let end: Double
         let text: String
@@ -28,7 +28,7 @@ struct RemoteWorkerClient: Sendable {
         }
     }
 
-    private struct STTResponse: Decodable, Sendable {
+    struct STTResponse: Decodable, Sendable {
         let language: String?
         let segments: [STTSegment]?
     }
@@ -120,6 +120,22 @@ struct RemoteWorkerClient: Sendable {
         var request = authenticatedRequest(path: "/v1/audio/transcriptions")
         request.httpMethod = "POST"
         request.timeoutInterval = 60 * 60
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        let (data, response) = try await URLSession.shared.upload(for: request, fromFile: bodyURL)
+        try validate(response, data: data)
+        return try JSONDecoder().decode(STTResponse.self, from: data)
+    }
+
+    /// 오디오 청크 하나만 원격 서버에서 인식합니다.
+    /// 60초 청크는 0.5MB 안팎이라 서버 업로드 한도(기본 200MB)와 무관합니다.
+    func transcribeChunk(audioURL: URL, language: String?) async throws -> STTResponse {
+        var fields = ["response_format": "verbose_json", "timestamp_granularities": "segment"]
+        if let language, !language.isEmpty { fields["language"] = language }
+        let (bodyURL, boundary) = try multipartBody(fileURL: audioURL, fields: fields)
+        defer { try? FileManager.default.removeItem(at: bodyURL) }
+        var request = authenticatedRequest(path: "/v1/audio/transcriptions")
+        request.httpMethod = "POST"
+        request.timeoutInterval = 600
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         let (data, response) = try await URLSession.shared.upload(for: request, fromFile: bodyURL)
         try validate(response, data: data)
