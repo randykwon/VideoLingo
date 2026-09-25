@@ -1062,8 +1062,9 @@ final class BatchProcessor {
 
             // STT는 오디오 청크만, 번역은 텍스트만 보내므로 두 레인 모두 원격을 쓸 수 있습니다.
             // 자리가 없거나 실패하면 기존 내장 서버 흐름으로 자동 전환합니다.
-            if let worker = RemoteWorkerPool.shared.acquire() {
-                defer { RemoteWorkerPool.shared.release(worker.id) }
+            let leasePurpose: RemoteWorkerPool.Purpose = phase == .stt ? .stt : .translation
+            if let worker = RemoteWorkerPool.shared.acquire(for: leasePurpose) {
+                defer { RemoteWorkerPool.shared.release(worker.id, purpose: leasePurpose) }
                 do {
                     switch phase {
                     case .stt: try await transcribeRemotely(itemID: itemID, jobID: jobID, mediaURL: url, worker: worker)
