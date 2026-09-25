@@ -1857,6 +1857,9 @@ struct BatchTranslationView: View {
             }
             .environment(processor)
         }
+        .sheet(isPresented: $showingContentDuplicateReview) {
+            ContentDuplicateReviewView()
+        }
         .sheet(isPresented: $showingDuplicateReview) {
             DuplicateFilenameReviewView()
                 .environment(processor)
