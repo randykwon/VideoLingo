@@ -228,11 +228,42 @@ struct RemoteWorkerClient: Sendable {
         guard let http = response as? HTTPURLResponse else { throw RemoteWorkerClientError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
             let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+            let error = detail?["error"] as? [String: Any]
             let message = detail?["message"] as? String
-                ?? (detail?["error"] as? [String: Any])?["message"] as? String
+                ?? error?["message"] as? String
                 ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
-            throw RemoteWorkerClientError.rejected("STTLMMServer \(http.statusCode): \(message)")
+            // 서버 가이드: 메시지가 아니라 code 로 분기하고, 503/502만 Retry-After 만큼 기다려 재시도합니다.
+            let code = error?["code"] as? String
+            let retryAfter = (http.value(forHTTPHeaderField: "Retry-After")).flatMap(Double.init)
+            throw RemoteWorkerClientError.server(
+                status: http.statusCode,
+                code: code,
+                message: message,
+                retryAfter: retryAfter
+            )
         }
+    }
+
+    /// 재시도할 가치가 있는 오류만 지정한 지연만큼 기다렸다가 다시 시도합니다.
+    /// 4xx는 요청 자체가 잘못된 것이라 재시도하지 않습니다(가이드 권장).
+    private func withRetry<T: Sendable>(
+        attempts: Int = 3,
+        _ operation: @Sendable () async throws -> T
+    ) async throws -> T {
+        var lastError: Error?
+        for attempt in 0..<attempts {
+            do {
+                return try await operation()
+            } catch let error as RemoteWorkerClientError {
+                guard case let .server(status, code, _, retryAfter) = error else { throw error }
+                let retryable = status == 503 || status == 502 || code == "model_busy"
+                guard retryable, attempt < attempts - 1 else { throw error }
+                let delay = retryAfter ?? min(30, pow(2, Double(attempt)))
+                lastError = error
+                try await Task.sleep(for: .seconds(delay))
+            }
+        }
+        throw lastError ?? RemoteWorkerClientError.invalidResponse
     }
 
     private func multipartBody(fileURL: URL, fields: [String: String]) throws -> (URL, String) {
