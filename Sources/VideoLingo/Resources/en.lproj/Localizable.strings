@@ -450,3 +450,5 @@
 "원본 파일도 휴지통으로 이동" = "Also move the video files to Trash";
 "유지" = "Keep";
 "정리" = "Clean up";
+"STT %lld · 번역 %lld · 사용 %lld" = "STT %lld · translate %lld · in use %lld";
+"서버 %lld대 합계 · STT %lld자리 · 번역 %lld자리 — 가장 한가한 서버로 자동 분산됩니다." = "%lld servers · %lld STT slots · %lld translation slots — requests go to the least busy server.";
