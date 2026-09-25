@@ -243,6 +243,26 @@ final class BatchProcessor {
     var reviewOptions: ProcessingOptions { options }
     var alternateResultDirectoryDisplayPath: String? { alternateResultDirectoryURL?.path(percentEncoded: false) }
 
+    /// 원본 옆에도, 지정한 폴더에도 쓸 수 없을 때 결과가 저장되는 앱 관리 폴더입니다.
+    var managedResultsDisplayPath: String {
+        MediaSidecarStore.managedResultsRootURL().path(percentEncoded: false)
+    }
+
+    /// 앱 관리 결과 폴더를 Finder에서 엽니다.
+    func revealManagedResultsFolder() {
+        let url = MediaSidecarStore.managedResultsRootURL()
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    /// 결과가 원본 옆이 아닌 곳에 저장될 때 항목에 덧붙일 안내 문구입니다.
+    private func resultLocationNote(for mediaURL: URL) -> String? {
+        guard needsAlternateResultDirectory(mediaURL) else { return nil }
+        return alternateResultDirectoryURL == nil
+            ? String(localized: "앱 폴더에 저장됨")
+            : String(localized: "지정한 결과 폴더에 저장됨")
+    }
+
     func readOnlyItemCount(in ids: Set<UUID>? = nil) -> Int {
         items.filter { item in
             (ids == nil || ids?.contains(item.id) == true) && needsAlternateResultDirectory(item.url)
@@ -739,7 +759,8 @@ final class BatchProcessor {
 
     func start(ids: Set<UUID>) {
         guard !isCheckingExistingResults, !ids.isEmpty else { return }
-        guard readOnlyItemCount(in: ids) == 0 || alternateResultDirectoryURL != nil else { return }
+        // 읽기 전용 위치라도 막지 않습니다. 결과는 지정한 폴더나 앱 관리 폴더에 자동으로 저장됩니다.
+        // 예전에는 여기서 조용히 반환해, 시작 버튼을 눌러도 아무 일도 일어나지 않았습니다.
         var eligible: Set<UUID> = []
         for id in ids {
             guard let index = items.firstIndex(where: { $0.id == id }), items[index].status != .completed else { continue }
@@ -1067,12 +1088,18 @@ final class BatchProcessor {
                     // 품질 개선 단계는 결과가 이미 나온 상태이므로 배치에서는 완료로 간주하고 다음 파일로 넘어갑니다.
                     items[index].status = .completed
                     items[index].progress = 1
-                    items[index].message = String(localized: "STT·번역 완료 · 품질 개선은 백그라운드에서 계속됩니다.")
+                    items[index].message = [
+                        String(localized: "STT·번역 완료 · 품질 개선은 백그라운드에서 계속됩니다."),
+                        resultLocationNote(for: url)
+                    ].compactMap { $0 }.joined(separator: " · ")
                     items[index].existingResult = .complete(languages: options.targetLanguages)
                     break
                 }
                 if snapshot.status == .completed {
                     items[index].existingResult = .complete(languages: options.targetLanguages)
+                    if let note = resultLocationNote(for: url) {
+                        items[index].message = "\(snapshot.message) · \(note)"
+                    }
                 }
                 if [.completed, .failed, .cancelled].contains(snapshot.status) { break }
             }
@@ -1144,7 +1171,10 @@ final class BatchProcessor {
         items[completed].translationProgress = 1
         items[completed].progress = 1
         items[completed].status = .completed
-        items[completed].message = String(localized: "\(worker.name)에서 STT·번역 완료")
+        items[completed].message = [
+            String(localized: "\(worker.name)에서 STT·번역 완료"),
+            resultLocationNote(for: mediaURL)
+        ].compactMap { $0 }.joined(separator: " · ")
         items[completed].existingResult = .complete(languages: options.targetLanguages)
     }
 
@@ -1726,22 +1756,26 @@ private struct BatchStartConfirmationView: View {
             if readOnlyCount > 0 {
                 GroupBox {
                     HStack(spacing: 12) {
-                        Image(systemName: processor.alternateResultDirectoryURL == nil
-                            ? "exclamationmark.triangle.fill"
-                            : "checkmark.circle.fill")
-                            .foregroundStyle(processor.alternateResultDirectoryURL == nil ? .orange : .green)
+                        // 쓸 수 없어도 결과는 자동으로 다른 곳에 저장되므로 경고가 아니라 안내입니다.
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("읽기 전용 위치의 영상 \(readOnlyCount)개")
                                 .font(.callout.weight(.semibold))
-                            Text(processor.alternateResultDirectoryDisplayPath
-                                ?? "STT·번역 결과를 저장할 쓰기 가능한 폴더가 필요합니다.")
+                            Text(processor.alternateResultDirectoryURL == nil
+                                ? String(localized: "원본 옆에 쓸 수 없어 앱 폴더에 저장합니다: \(processor.managedResultsDisplayPath)")
+                                : String(localized: "지정한 폴더에 저장합니다: \(processor.alternateResultDirectoryDisplayPath ?? "")"))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
                                 .truncationMode(.middle)
+                                .textSelection(.enabled)
                         }
                         Spacer()
-                        Button(processor.alternateResultDirectoryURL == nil ? "폴더 지정…" : "변경…") {
+                        if processor.alternateResultDirectoryURL == nil {
+                            Button("앱 폴더 열기") { processor.revealManagedResultsFolder() }
+                        }
+                        Button(processor.alternateResultDirectoryURL == nil ? "다른 폴더 지정…" : "변경…") {
                             processor.chooseAlternateResultDirectory()
                         }
                     }
@@ -1779,8 +1813,7 @@ private struct BatchStartConfirmationView: View {
                 .disabled(processor.isCheckingExistingResults
                     || !languagesConfirmed
                     || processor.batchTargetLanguages.isEmpty
-                    || startableCount == 0
-                    || (readOnlyCount > 0 && processor.alternateResultDirectoryURL == nil))
+                    || startableCount == 0)
                 .help(processor.isCheckingExistingResults ? "기존 결과 확인이 끝나면 시작할 수 있습니다" : "확인한 설정으로 대량 번역 시작")
             }
         }
