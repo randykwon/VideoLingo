@@ -1128,6 +1128,119 @@ final class BatchProcessor {
         }
     }
 
+    /// 영상에서 오디오 청크를 뽑아 하나씩 원격 서버에서 인식합니다.
+    /// 원본을 통째로 올리지 않으므로 서버 업로드 한도와 무관하고, 이미 저장된 청크는 건너뜁니다.
+    private func transcribeRemotely(itemID: UUID, jobID: UUID, mediaURL: URL, worker: RemoteWorkerConfiguration) async throws {
+        let paths = try AppPaths()
+        let store = try JobStore(url: paths.database)
+        try store.createJob(id: jobID, mediaURL: mediaURL, options: options)
+        guard var snapshot = try store.snapshot(jobID: jobID) else { return }
+
+        let asset = AVURLAsset(url: mediaURL)
+        let duration = try await asset.load(.duration).seconds
+        guard duration.isFinite, duration > 0 else { throw VideoLingoError.mediaHasNoAudio }
+        guard try await !asset.loadTracks(withMediaType: .audio).isEmpty else {
+            throw VideoLingoError.mediaHasNoAudio
+        }
+        let chunkDuration = max(10, options.chunkDuration)
+        let total = max(1, Int(ceil(duration / chunkDuration)))
+
+        // 이미 저장된 청크는 다시 인식하지 않습니다.
+        var produced = Dictionary(
+            uniqueKeysWithValues: try store.transcript(jobID: jobID).map { ($0.chunkIndex, $0) }
+        )
+        let sidecar = try MediaSidecarStore(
+            mediaURL: mediaURL,
+            jobID: jobID,
+            sttModel: options.sttModel,
+            sourceLanguage: options.sourceLanguage,
+            alternateRootURL: needsAlternateResultDirectory(mediaURL) ? alternateResultDirectoryURL : nil
+        )
+        let client = RemoteWorkerClient(worker: worker)
+        let workspace = paths.workspace(for: jobID).appending(path: "RemoteChunks", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        for index in 0..<total {
+            try Task.checkCancellation()
+            if let index = items.firstIndex(where: { $0.id == itemID }) {
+                items[index].status = .transcribing
+                items[index].currentChunk = index + 1
+                items[index].totalChunks = total
+            }
+            if produced[index] != nil { continue }
+
+            let start = Double(index) * chunkDuration
+            let length = min(chunkDuration, duration - start)
+            guard length > 0.2 else { continue }
+            let chunkURL = workspace.appending(path: "chunk-\(index).m4a")
+            try? FileManager.default.removeItem(at: chunkURL)
+            guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
+                throw VideoLingoError.mediaHasNoAudio
+            }
+            exporter.timeRange = CMTimeRange(
+                start: CMTime(seconds: start, preferredTimescale: 600),
+                duration: CMTime(seconds: length, preferredTimescale: 600)
+            )
+            try await exporter.export(to: chunkURL, as: .m4a)
+
+            let response = try await client.transcribeChunk(
+                audioURL: chunkURL,
+                language: options.sourceLanguage
+            )
+            try? FileManager.default.removeItem(at: chunkURL)
+
+            // 서버 타임스탬프는 청크 기준이라 청크 시작 시각을 더해 영상 전체 기준으로 맞춥니다.
+            let segments = response.segments ?? []
+            let cues = segments.map {
+                TranscriptCue(
+                    startTime: start + $0.start,
+                    endTime: start + $0.end,
+                    text: $0.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
+            let text = cues.map(\.text).filter { !$0.isEmpty }.joined(separator: "\n")
+            let confidences = segments.compactMap(\.avgLogprob).map { min(1, max(0, exp($0))) }
+            let transcript = TranscriptSegment(
+                jobID: jobID,
+                chunkIndex: index,
+                startTime: start,
+                endTime: start + length,
+                text: text,
+                language: response.language ?? options.sourceLanguage,
+                confidence: confidences.isEmpty ? nil : confidences.reduce(0, +) / Double(confidences.count),
+                cues: cues,
+                qualityStatus: .good,
+                retryCount: 0,
+                qualityNotes: []
+            )
+            try store.saveTranscript(transcript, snapshot: snapshot)
+            produced[index] = transcript
+            try sidecar.saveTranscripts(produced.values.sorted { $0.chunkIndex < $1.chunkIndex })
+
+            if let current = items.firstIndex(where: { $0.id == itemID }) {
+                items[current].sttProgress = Double(produced.count) / Double(total)
+                items[current].progress = items[current].sttProgress / 2
+                items[current].lastTranscriptText = text
+                items[current].message = String(localized: "\(worker.name) STT \(produced.count)/\(total)")
+            }
+        }
+
+        snapshot.status = .transcribing
+        snapshot.sttProgress = 1
+        snapshot.totalChunks = total
+        snapshot.currentChunk = total
+        snapshot.error = nil
+        snapshot.updatedAt = .now
+        try store.save(snapshot: snapshot)
+
+        guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
+        items[index].sttCompleted = true
+        items[index].sttProgress = 1
+        items[index].status = .queued
+        items[index].message = String(localized: "\(worker.name) STT 완료 · 번역 대기 중")
+    }
+
     /// STT는 로컬에서 끝내고 번역만 원격 서버에 맡깁니다.
     /// 텍스트만 주고받으므로 서버의 업로드 용량 한도(기본 200MB)와 무관합니다.
     private func translateRemotely(itemID: UUID, jobID: UUID, mediaURL: URL, worker: RemoteWorkerConfiguration) async throws {
