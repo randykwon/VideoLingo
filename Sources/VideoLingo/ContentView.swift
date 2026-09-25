@@ -2055,6 +2055,9 @@ private struct ServerSettingsView: View {
     @State private var workerToRemove: RemoteWorkerConfiguration?
     @State private var isAddingWorker = false
     @State private var confirmsClearingServerKey = false
+    @State private var bulkWorkerAddresses = ""
+    @State private var bulkWorkerMessage = ""
+    @State private var bulkUsesAuthentication = false
     @FocusState private var workerAddressIsFocused: Bool
 
     var body: some View {
@@ -2209,6 +2212,47 @@ private struct ServerSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section("여러 대 한 번에 등록") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("한 줄에 하나씩 주소를 넣으세요. `이름=주소` 형식으로 이름을 함께 지정할 수 있습니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextEditor(text: $bulkWorkerAddresses)
+                        .font(.body.monospaced())
+                        .frame(minHeight: 88)
+                        .overlay(alignment: .topLeading) {
+                            if bulkWorkerAddresses.isEmpty {
+                                Text("10.0.1.19\n작업실 GPU=10.0.1.32:8848\nhttp://mac-studio.local:8848")
+                                    .font(.body.monospaced())
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 8)
+                                    .padding(.leading, 5)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                        .border(.separator)
+                    HStack(spacing: 8) {
+                        Toggle("API 키 사용", isOn: $bulkUsesAuthentication)
+                        Spacer()
+                        Button("\(bulkAddressCount)대 연결 후 추가", systemImage: "square.stack.3d.up.badge.a") {
+                            connectAndAddRemoteWorkersInBulk()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(bulkAddressCount == 0 || isAddingWorker)
+                        if isAddingWorker { ProgressView().controlSize(.small) }
+                    }
+                    if !bulkWorkerMessage.isEmpty {
+                        Text(bulkWorkerMessage)
+                            .font(.caption)
+                            .textSelection(.enabled)
+                    }
+                    Text("각 주소를 차례로 연결해 보고, 실패한 주소만 사유와 함께 남깁니다. 공통 키를 저장해 두었다면 키 없이도 인증됩니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             SettingsMessageView()
         }
         .formStyle(.grouped)
