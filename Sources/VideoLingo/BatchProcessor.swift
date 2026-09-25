@@ -1127,6 +1127,95 @@ final class BatchProcessor {
         }
     }
 
+    /// STT는 로컬에서 끝내고 번역만 원격 서버에 맡깁니다.
+    /// 텍스트만 주고받으므로 서버의 업로드 용량 한도(기본 200MB)와 무관합니다.
+    private func translateRemotely(itemID: UUID, jobID: UUID, mediaURL: URL, worker: RemoteWorkerConfiguration) async throws {
+        let paths = try AppPaths()
+        let store = try JobStore(url: paths.database)
+        let transcripts = try store.transcript(jobID: jobID).sorted { $0.chunkIndex < $1.chunkIndex }
+        guard !transcripts.isEmpty else {
+            throw NSError(
+                domain: "VideoLingo.BatchProcessor",
+                code: 4,
+                userInfo: [NSLocalizedDescriptionKey: String(localized: "원격 번역에 사용할 STT 결과가 없습니다.")]
+            )
+        }
+        guard var snapshot = try store.snapshot(jobID: jobID) else { return }
+        if let index = items.firstIndex(where: { $0.id == itemID }) {
+            items[index].status = .translating
+            items[index].sttProgress = 1
+            items[index].message = String(localized: "\(worker.name)에서 번역 중")
+        }
+
+        let client = RemoteWorkerClient(worker: worker)
+        let sidecar = try MediaSidecarStore(
+            mediaURL: mediaURL,
+            jobID: jobID,
+            sttModel: options.sttModel,
+            sourceLanguage: options.sourceLanguage,
+            alternateRootURL: needsAlternateResultDirectory(mediaURL) ? alternateResultDirectoryURL : nil
+        )
+        let languages = options.targetLanguages
+        for (languageIndex, language) in languages.enumerated() {
+            let translatedTexts = try await client.translateOnly(
+                texts: transcripts.map(\.text),
+                sourceLanguage: options.sourceLanguage,
+                targetLanguage: language,
+                options: options
+            )
+            guard translatedTexts.count == transcripts.count else {
+                throw RemoteWorkerClientError.failed(
+                    String(localized: "원격 서버가 \(transcripts.count)개 중 \(translatedTexts.count)개만 번역했습니다.")
+                )
+            }
+            let segments = zip(transcripts, translatedTexts).map { transcript, text in
+                TranslationSegment(
+                    transcriptID: transcript.id,
+                    jobID: jobID,
+                    targetLanguage: language,
+                    modelID: options.translationModel,
+                    text: text.trimmingCharacters(in: .whitespacesAndNewlines),
+                    qualityStatus: .good,
+                    qualityNotes: []
+                )
+            }
+            // 앱이 DB를 먼저 읽으므로 사이드카와 DB 양쪽에 저장해야 화면에 나타납니다.
+            for segment in segments {
+                try store.saveTranslation(segment, snapshot: snapshot)
+            }
+            try sidecar.saveTranslations(
+                segments,
+                language: language,
+                modelID: options.translationModel,
+                transcripts: transcripts
+            )
+            if let index = items.firstIndex(where: { $0.id == itemID }) {
+                items[index].translationProgress = Double(languageIndex + 1) / Double(max(1, languages.count))
+                items[index].progress = (1 + items[index].translationProgress) / 2
+            }
+        }
+
+        snapshot.status = .completed
+        snapshot.progress = 1
+        snapshot.sttProgress = 1
+        snapshot.translationProgress = 1
+        snapshot.error = nil
+        snapshot.message = String(localized: "STT와 번역 완료")
+        snapshot.updatedAt = .now
+        try store.save(snapshot: snapshot)
+
+        guard let completed = items.firstIndex(where: { $0.id == itemID }) else { return }
+        items[completed].sttProgress = 1
+        items[completed].translationProgress = 1
+        items[completed].progress = 1
+        items[completed].status = .completed
+        items[completed].existingResult = .complete(languages: languages)
+        items[completed].message = [
+            String(localized: "\(worker.name)에서 번역 완료"),
+            resultLocationNote(for: mediaURL)
+        ].compactMap { $0 }.joined(separator: " · ")
+    }
+
     private func processRemotely(itemID: UUID, jobID: UUID, mediaURL: URL, worker: RemoteWorkerConfiguration) async throws {
         guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
         let attributes = try FileManager.default.attributesOfItem(atPath: mediaURL.path)
