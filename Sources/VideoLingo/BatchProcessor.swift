@@ -152,7 +152,9 @@ final class BatchProcessor {
     }
 
     var effectiveConcurrentJobs: Int {
-        automaticallyAdjustConcurrentJobs ? recommendedConcurrentJobs : maximumConcurrentJobs
+        // 원격 서버를 추가한 만큼 번역도 함께 늘어나야 여러 서버로 분산됩니다.
+        (automaticallyAdjustConcurrentJobs ? recommendedConcurrentJobs : maximumConcurrentJobs)
+            + RemoteWorkerPool.shared.totalTranslationSlots
     }
 
     var automaticConcurrencySummary: String {
