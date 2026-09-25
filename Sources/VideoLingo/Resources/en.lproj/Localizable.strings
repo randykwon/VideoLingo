@@ -425,3 +425,6 @@
 "지정한 폴더에 저장합니다: %@" = "Results go to the chosen folder: %@";
 "앱 폴더 열기" = "Open app folder";
 "다른 폴더 지정…" = "Choose another folder…";
+"원격 번역에 사용할 STT 결과가 없습니다." = "No STT results available for remote translation.";
+"%@에서 번역 중" = "Translating on %@";
+"%@에서 번역 완료" = "Translation completed on %@";
