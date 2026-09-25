@@ -5,12 +5,21 @@ enum RemoteWorkerClientError: LocalizedError {
     case invalidResponse
     case rejected(String)
     case failed(String)
+    /// 서버가 표준 형식으로 돌려준 오류입니다. 분기는 code 로 합니다.
+    case server(status: Int, code: String?, message: String, retryAfter: Double?)
 
     var errorDescription: String? {
         switch self {
         case .invalidResponse: "STTLMMServer 응답 형식이 올바르지 않습니다."
         case let .rejected(message), let .failed(message): message
+        case let .server(status, code, message, _):
+            code.map { "STTLMMServer \(status) [\($0)]: \(message)" } ?? "STTLMMServer \(status): \(message)"
         }
+    }
+
+    var serverCode: String? {
+        if case let .server(_, code, _, _) = self { return code }
+        return nil
     }
 }
 
