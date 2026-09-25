@@ -1065,7 +1065,12 @@ final class BatchProcessor {
             // STT는 오디오 청크만, 번역은 텍스트만 보내므로 두 레인 모두 원격을 쓸 수 있습니다.
             // 자리가 없거나 실패하면 기존 내장 서버 흐름으로 자동 전환합니다.
             let leasePurpose: RemoteWorkerPool.Purpose = phase == .stt ? .stt : .translation
-            if let worker = RemoteWorkerPool.shared.acquire(for: leasePurpose) {
+            let stage = phase == .stt ? String(localized: "STT") : String(localized: "번역")
+            // 한 서버가 실패하면 남은 서버로 넘어가고, 모두 실패했을 때만 내장 서버로 돌아갑니다.
+            var triedWorkers: Set<UUID> = []
+            var lastRemoteFailure: String?
+            while let worker = RemoteWorkerPool.shared.acquire(for: leasePurpose, excluding: triedWorkers) {
+                triedWorkers.insert(worker.id)
                 defer { RemoteWorkerPool.shared.release(worker.id, purpose: leasePurpose) }
                 do {
                     switch phase {
@@ -1076,11 +1081,15 @@ final class BatchProcessor {
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
+                    lastRemoteFailure = "\(worker.name): \(error.localizedDescription)"
                     if let index = items.firstIndex(where: { $0.id == itemID }) {
-                        let stage = phase == .stt ? String(localized: "STT") : String(localized: "번역")
-                        items[index].message = String(localized: "\(worker.name) 원격 \(stage) 실패 · 내장 서버로 전환: \(error.localizedDescription)")
+                        items[index].message = String(localized: "\(worker.name) 원격 \(stage) 실패 · 다른 서버 확인 중")
                     }
                 }
+            }
+            if let lastRemoteFailure, let index = items.firstIndex(where: { $0.id == itemID }) {
+                items[index].message = String(localized: "원격 \(stage) 실패 · 내장 서버로 전환: \(lastRemoteFailure)")
+            }
             }
 
             guard service() != nil else {
