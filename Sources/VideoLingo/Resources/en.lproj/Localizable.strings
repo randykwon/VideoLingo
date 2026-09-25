@@ -454,3 +454,10 @@
 "서버 %lld대 합계 · STT %lld자리 · 번역 %lld자리 — 가장 한가한 서버로 자동 분산됩니다." = "%lld servers · %lld STT slots · %lld translation slots — requests go to the least busy server.";
 "%@ 원격 %@ 실패 · 다른 서버 확인 중" = "%@ remote %@ failed · trying another server";
 "원격 %@ 실패 · 내장 서버로 전환: %@" = "Remote %@ failed · falling back to the built-in server: %@";
+"여러 대 한 번에 등록" = "Register several at once";
+"%lld대 연결 후 추가" = "Connect and add %lld";
+"%lld대를 차례로 확인하는 중…" = "Checking %lld servers one by one…";
+"추가 %lld대: " = "Added %lld: ";
+"실패 %lld대: " = "Failed %lld: ";
+"각 주소를 차례로 연결해 보고, 실패한 주소만 사유와 함께 남깁니다. 공통 키를 저장해 두었다면 키 없이도 인증됩니다." = "Each address is checked in turn; only failures are kept, with the reason. A saved shared key is used automatically.";
+"한 줄에 하나씩 주소를 넣으세요. `이름=주소` 형식으로 이름을 함께 지정할 수 있습니다." = "One address per line. Use `name=address` to also set a name.";
