@@ -1090,7 +1090,6 @@ final class BatchProcessor {
             if let lastRemoteFailure, let index = items.firstIndex(where: { $0.id == itemID }) {
                 items[index].message = String(localized: "원격 \(stage) 실패 · 내장 서버로 전환: \(lastRemoteFailure)")
             }
-            }
 
             guard service() != nil else {
                 throw NSError(domain: "VideoLingo.BatchProcessor", code: 3, userInfo: [NSLocalizedDescriptionKey: String(localized: "내장 AI 서버와 원격 Worker 모두 사용할 수 없습니다.")])
