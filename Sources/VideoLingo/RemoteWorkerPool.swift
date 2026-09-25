@@ -52,7 +52,7 @@ final class RemoteWorkerPool {
     private(set) var states: [UUID: RemoteWorkerConnectionState] = [:]
     private let defaultsKey = "remoteWorkerConfigurations.v1"
     private let credentialStore = RemoteServerCredentialStore()
-    private var activeLeases: [UUID: Int] = [:]
+    private var activeLeases: [Lease: Int] = [:]
     private(set) var hasDefaultAuthenticationToken = false
 
     private init() {
@@ -72,19 +72,49 @@ final class RemoteWorkerPool {
     var totalSTTSlots: Int { availableWorkers.reduce(0) { $0 + $1.1.capabilities.sttSlots } }
     var totalTranslationSlots: Int { availableWorkers.reduce(0) { $0 + $1.1.capabilities.translationSlots } }
 
-    func acquire() -> RemoteWorkerConfiguration? {
-        let candidates = availableWorkers.filter { worker, status in
-            activeLeases[worker.id, default: 0] < max(1, min(status.capabilities.sttSlots, status.capabilities.translationSlots))
+    /// 임대 용도입니다. STT와 번역은 서버에서 쓰는 자원과 동시 처리 수가 다르므로 따로 셉니다.
+    enum Purpose: Hashable {
+        case stt, translation
+
+        func slots(in capabilities: RemoteWorkerCapabilities) -> Int {
+            switch self {
+            case .stt: capabilities.sttSlots
+            case .translation: capabilities.translationSlots
+            }
         }
-        guard let selected = candidates.min(by: {
-            activeLeases[$0.0.id, default: 0] < activeLeases[$1.0.id, default: 0]
-        })?.0 else { return nil }
-        activeLeases[selected.id, default: 0] += 1
+    }
+
+    /// 여러 서버에 고르게 분산합니다. 용도별 빈 자리가 있는 서버 중 가장 한가한 곳을 고릅니다.
+    /// 예전에는 STT·번역 중 작은 쪽으로 용량을 잡아 서버의 절반만 쓰기도 했습니다.
+    func acquire(for purpose: Purpose) -> RemoteWorkerConfiguration? {
+        let candidates = availableWorkers.filter { worker, status in
+            let limit = max(1, purpose.slots(in: status.capabilities))
+            return activeLeases[Lease(worker: worker.id, purpose: purpose), default: 0] < limit
+        }
+        // 같은 서버에 몰리지 않도록 전체 임대 수가 가장 적은 서버를 우선합니다.
+        guard let selected = candidates.min(by: { totalLeases(for: $0.0.id) < totalLeases(for: $1.0.id) })?.0 else {
+            return nil
+        }
+        activeLeases[Lease(worker: selected.id, purpose: purpose), default: 0] += 1
         return workerUsingDefaultTokenIfNeeded(selected)
     }
 
-    func release(_ id: UUID) {
-        activeLeases[id] = max(0, activeLeases[id, default: 0] - 1)
+    func release(_ id: UUID, purpose: Purpose) {
+        let key = Lease(worker: id, purpose: purpose)
+        activeLeases[key] = max(0, activeLeases[key, default: 0] - 1)
+    }
+
+    /// 화면에 서버별 현재 부하를 보여 주기 위한 값입니다.
+    func activeLeaseCount(for id: UUID) -> Int { totalLeases(for: id) }
+
+    private func totalLeases(for id: UUID) -> Int {
+        activeLeases[Lease(worker: id, purpose: .stt), default: 0]
+            + activeLeases[Lease(worker: id, purpose: .translation), default: 0]
+    }
+
+    struct Lease: Hashable {
+        let worker: UUID
+        let purpose: Purpose
     }
 
     func saveDefaultAuthenticationToken(_ token: String) throws {
