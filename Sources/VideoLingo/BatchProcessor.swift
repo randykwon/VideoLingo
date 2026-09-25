@@ -172,6 +172,10 @@ final class BatchProcessor {
     private var options = ProcessingOptions()
     /// 다음 실행에서 화자 분석을 다시 수행할 항목입니다. 요청을 보낼 때 소비합니다.
     private var speakerReanalysisItemIDs: Set<UUID> = []
+    /// 파일명과 무관하게 내용이 같은 영상 묶음입니다.
+    private(set) var contentDuplicateGroups: [ContentDuplicateGroup] = []
+    private(set) var isScanningContentDuplicates = false
+    private(set) var contentDuplicateMessage = ""
     private var connection: NSXPCConnection?
     private var runTask: Task<Void, Never>?
     private var folderScanTask: Task<Void, Never>?
@@ -520,6 +524,83 @@ final class BatchProcessor {
         let movedSet = Set(outcome.0)
         items.removeAll { movedSet.contains($0.id) }
         return BatchTrashResult(movedCount: movedSet.count, failureMessage: outcome.1)
+    }
+
+    /// 파일명이 달라도 내용이 같은 영상 묶음입니다.
+    struct ContentDuplicateGroup: Identifiable {
+        let id: String
+        let byteCount: Int64
+        let items: [Item]
+    }
+
+    /// 내용이 같은 영상을 찾습니다. 크기가 같은 것만 추려 앞뒤 일부만 해시하므로
+    /// 수 GB 파일도 전체를 읽지 않고 빠르게 판별합니다.
+    func scanContentDuplicates() async {
+        guard !isRunning, !isScanningContentDuplicates else { return }
+        isScanningContentDuplicates = true
+        contentDuplicateMessage = String(localized: "크기가 같은 영상을 추리는 중…")
+        defer { isScanningContentDuplicates = false }
+
+        let candidates = items.map { (id: $0.id, url: $0.url.standardizedFileURL) }
+        let fingerprints = await Task.detached(priority: .userInitiated) { () -> [UUID: String] in
+            let fileManager = FileManager.default
+            // 1단계: 크기로 후보를 좁힙니다. 크기가 다르면 내용도 다릅니다.
+            var sizes: [UUID: Int64] = [:]
+            for candidate in candidates {
+                guard let values = try? candidate.url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+                      values.isRegularFile == true, let size = values.fileSize, size > 0 else { continue }
+                sizes[candidate.id] = Int64(size)
+            }
+            let sharedSizes = Set(
+                Dictionary(grouping: sizes, by: { $0.value }).filter { $0.value.count > 1 }.keys
+            )
+            guard !sharedSizes.isEmpty else { return [:] }
+
+            // 2단계: 앞뒤 4MB만 해시해 같은 크기 안에서 내용을 비교합니다.
+            let sampleLength = 4 * 1024 * 1024
+            var result: [UUID: String] = [:]
+            for candidate in candidates {
+                guard let size = sizes[candidate.id], sharedSizes.contains(size) else { continue }
+                guard let handle = try? FileHandle(forReadingFrom: candidate.url) else { continue }
+                defer { try? handle.close() }
+                var hasher = Hasher()
+                hasher.combine(size)
+                if let head = try? handle.read(upToCount: sampleLength) { hasher.combine(head) }
+                if size > Int64(sampleLength) * 2 {
+                    try? handle.seek(toOffset: UInt64(size - Int64(sampleLength)))
+                    if let tail = try? handle.read(upToCount: sampleLength) { hasher.combine(tail) }
+                }
+                result[candidate.id] = "\(size)-\(hasher.finalize())"
+                _ = fileManager
+            }
+            return result
+        }.value
+
+        let grouped = Dictionary(grouping: items.filter { fingerprints[$0.id] != nil }) { fingerprints[$0.id]! }
+        contentDuplicateGroups = grouped.compactMap { key, groupedItems in
+            guard groupedItems.count > 1 else { return nil }
+            let size = (try? groupedItems[0].url.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { Int64($0) } ?? 0
+            return ContentDuplicateGroup(
+                id: key,
+                byteCount: size,
+                items: groupedItems.sorted { $0.url.path < $1.url.path }
+            )
+        }
+        .sorted { $0.byteCount > $1.byteCount }
+
+        let removable = contentDuplicateRemovalIDs.count
+        contentDuplicateMessage = contentDuplicateGroups.isEmpty
+            ? String(localized: "내용이 같은 영상을 찾지 못했습니다.")
+            : String(localized: "중복 \(contentDuplicateGroups.count)묶음 · 정리 가능 \(removable)개")
+    }
+
+    /// 묶음마다 첫 항목만 남기고 나머지를 정리 대상으로 봅니다.
+    var contentDuplicateRemovalIDs: Set<UUID> {
+        Set(contentDuplicateGroups.flatMap { $0.items.dropFirst().map(\.id) })
+    }
+
+    var contentDuplicateReclaimableBytes: Int64 {
+        contentDuplicateGroups.reduce(0) { $0 + $1.byteCount * Int64($1.items.count - 1) }
     }
 
     func duplicateNameCount(for itemID: UUID) -> Int {
