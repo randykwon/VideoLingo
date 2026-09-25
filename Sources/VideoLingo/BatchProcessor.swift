@@ -2757,6 +2757,12 @@ private struct BatchRemoteServerSection: View {
                                     .truncationMode(.middle)
                             }
                             Spacer()
+                            if case let .available(status) = pool.states[worker.id] {
+                                // 서버마다 자리 수가 달라, 여유가 많은 쪽으로 더 많이 배분됩니다.
+                                Text("STT \(status.capabilities.sttSlots) · 번역 \(status.capabilities.translationSlots) · 사용 \(pool.activeLeaseCount(for: worker.id))")
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
                             Button(worker.isEnabled ? "사용 중지" : "사용") {
                                 pool.setEnabled(!worker.isEnabled, for: worker.id)
                             }
@@ -2801,7 +2807,12 @@ private struct BatchRemoteServerSection: View {
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
-                Text("IP만 입력하면 http와 기본 포트 8848을 적용합니다. 원격 서버는 STT와 번역을 함께 처리하며, 연결이 안 되면 자동으로 내장 서버로 넘어갑니다.")
+                if !pool.workers.isEmpty {
+                    Text("서버 \(pool.workers.count)대 합계 · STT \(pool.totalSTTSlots)자리 · 번역 \(pool.totalTranslationSlots)자리 — 가장 한가한 서버로 자동 분산됩니다.")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+                Text("IP만 입력하면 http와 기본 포트 8848을 적용합니다. 서버를 여러 대 추가하면 요청이 나뉘어 나가고, 연결이 안 되면 자동으로 내장 서버로 넘어갑니다.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
