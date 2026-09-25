@@ -148,21 +148,22 @@ struct RemoteWorkerClient: Sendable {
     private static func maskSpeakerLabels(in text: String, into labels: inout [String: String]) -> String {
         let pattern = #"\[([^\[\]\n]{1,40})\]"#
         guard let expression = try? NSRegularExpression(pattern: pattern) else { return text }
-        var result = text
         let matches = expression.matches(in: text, range: NSRange(text.startIndex..., in: text))
-        for match in matches.reversed() {
-            guard let range = Range(match.range, in: text),
+        guard !matches.isEmpty else { return text }
+        var output = ""
+        var cursor = text.startIndex
+        for match in matches {
+            guard let full = Range(match.range, in: text),
                   let inner = Range(match.range(at: 1), in: text) else { continue }
+            output += text[cursor..<full.lowerBound]
             let original = String(text[inner])
-            let token = labels.first(where: { $0.value == original })?.key
-                ?? "⟦S\(labels.count)⟧"
+            let token = labels.first(where: { $0.value == original })?.key ?? "⟦S\(labels.count)⟧"
             labels[token] = original
-            result = result.replacingCharacters(
-                in: Range(range, in: result) ?? result.startIndex..<result.startIndex,
-                with: token
-            )
+            output += token
+            cursor = full.upperBound
         }
-        return result
+        output += text[cursor...]
+        return output
     }
 
     private static func restoreSpeakerLabels(in text: String, using labels: [String: String]) -> String {
