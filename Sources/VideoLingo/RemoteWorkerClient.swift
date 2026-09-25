@@ -225,25 +225,28 @@ struct RemoteWorkerClient: Sendable {
     }
 
     private func postJSON(path: String, body: [String: Any]?) async throws -> [String: Any] {
-        try await withRetry {
+        // Swift 6에서 [String: Any]는 Sendable이 아니라 재시도 클로저 밖에서 직렬화합니다.
+        let payload = try body.map { try JSONSerialization.data(withJSONObject: $0) }
+        let data: Data = try await withRetry {
             var request = authenticatedRequest(path: path)
             request.httpMethod = "POST"
             request.timeoutInterval = 120
-            if let body {
+            if let payload {
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+                request.httpBody = payload
             }
             let (data, response) = try await URLSession.shared.data(for: request)
             try validate(response, data: data)
-            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw RemoteWorkerClientError.invalidResponse
-            }
-            return object
+            return data
         }
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw RemoteWorkerClientError.invalidResponse
+        }
+        return object
     }
 
     private func uploadChunk(uploadID: String, offset: Int, data: Data) async throws -> [String: Any] {
-        try await withRetry {
+        let responseData: Data = try await withRetry {
             let boundary = "videolingo-\(UUID().uuidString)"
             var payload = Data()
             func append(_ text: String) { payload.append(Data(text.utf8)) }
@@ -258,11 +261,12 @@ struct RemoteWorkerClient: Sendable {
             request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
             let (responseData, response) = try await URLSession.shared.upload(for: request, from: payload)
             try validate(response, data: responseData)
-            guard let object = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
-                throw RemoteWorkerClientError.invalidResponse
-            }
-            return object
+            return responseData
         }
+        guard let object = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            throw RemoteWorkerClientError.invalidResponse
+        }
+        return object
     }
 
     /// 단일 요청 업로드 한도입니다. 서버 기본값과 같은 200MB에 여유를 둡니다.
