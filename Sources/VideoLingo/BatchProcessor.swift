@@ -1572,6 +1572,7 @@ struct BatchTranslationView: View {
     @State private var pendingRemovalIDs: Set<UUID> = []
     @State private var showingDuplicateReview = false
     @State private var showingDuplicateCleanupConfirmation = false
+    @State private var showingContentDuplicateReview = false
     @State private var showingStartConfirmation = false
     @State private var pendingStartIDs: Set<UUID> = []
     @AppStorage("batchListFilter") private var listFilter: BatchListFilter = .active
@@ -1907,8 +1908,13 @@ struct BatchTranslationView: View {
                     Button("경로별로 검토…", systemImage: "list.bullet.rectangle") {
                         showingDuplicateReview = true
                     }
+                    Divider()
+                    Button("같은 내용 찾기 (파일명 무관)…", systemImage: "doc.viewfinder") {
+                        showingContentDuplicateReview = true
+                    }
+                    .help("크기와 앞뒤 내용을 비교해 이름이 다른 중복 영상을 찾습니다")
                 }
-                .disabled(processor.isRunning || processor.duplicateFilenameGroups.isEmpty)
+                .disabled(processor.isRunning)
                 .help(processor.duplicateFilenameGroups.isEmpty
                     ? "동일한 파일명의 영상이 없습니다"
                     : "\(processor.duplicateFilenameGroups.count)개 중복 그룹에서 \(processor.duplicateFilenameRemovalCount)개를 정리")
