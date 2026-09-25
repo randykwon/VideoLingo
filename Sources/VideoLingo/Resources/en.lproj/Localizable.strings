@@ -430,3 +430,10 @@
 "%@에서 번역 완료" = "Translation completed on %@";
 "%@ STT %lld/%lld" = "%@ STT %lld/%lld";
 "%@ STT 완료 · 번역 대기 중" = "%@ STT done · waiting for translation";
+"오디오 추출 중" = "Extracting audio";
+"%@에 오디오 전송 중" = "Uploading audio to %@";
+"업로드 %lld%%" = "Uploading %lld%%";
+"원격 전사 중 %lld초" = "Transcribing remotely, %llds";
+"원격 전사가 실패했습니다." = "Remote transcription failed.";
+"원격 서버가 자막 세그먼트를 반환하지 않았습니다." = "The remote server returned no subtitle segments.";
+"저장된 STT 사용 · 번역 대기 중" = "Using saved STT · waiting for translation";
