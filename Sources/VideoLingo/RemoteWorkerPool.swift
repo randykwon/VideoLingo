@@ -86,8 +86,9 @@ final class RemoteWorkerPool {
 
     /// 여러 서버에 고르게 분산합니다. 용도별 빈 자리가 있는 서버 중 가장 한가한 곳을 고릅니다.
     /// 예전에는 STT·번역 중 작은 쪽으로 용량을 잡아 서버의 절반만 쓰기도 했습니다.
-    func acquire(for purpose: Purpose) -> RemoteWorkerConfiguration? {
+    func acquire(for purpose: Purpose, excluding excluded: Set<UUID> = []) -> RemoteWorkerConfiguration? {
         let candidates = availableWorkers.filter { worker, status in
+            guard !excluded.contains(worker.id) else { return false }
             let limit = max(1, purpose.slots(in: status.capabilities))
             return activeLeases[Lease(worker: worker.id, purpose: purpose), default: 0] < limit
         }
