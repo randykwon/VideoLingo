@@ -1159,57 +1159,80 @@ final class BatchProcessor {
             sourceLanguage: options.sourceLanguage,
             alternateRootURL: needsAlternateResultDirectory(mediaURL) ? alternateResultDirectoryURL : nil
         )
+        // 이미 전부 저장돼 있으면 다시 보내지 않습니다.
+        guard produced.count < total else {
+            if let index = items.firstIndex(where: { $0.id == itemID }) {
+                items[index].sttCompleted = true
+                items[index].sttProgress = 1
+                items[index].status = .queued
+                items[index].message = String(localized: "저장된 STT 사용 · 번역 대기 중")
+            }
+            return
+        }
+
         let client = RemoteWorkerClient(worker: worker)
-        let workspace = paths.workspace(for: jobID).appending(path: "RemoteChunks", directoryHint: .isDirectory)
+        let workspace = paths.workspace(for: jobID).appending(path: "RemoteAudio", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: workspace) }
 
-        for index in 0..<total {
-            try Task.checkCancellation()
-            if let index = items.firstIndex(where: { $0.id == itemID }) {
-                items[index].status = .transcribing
-                items[index].currentChunk = index + 1
-                items[index].totalChunks = total
-            }
-            if produced[index] != nil { continue }
+        // 서버는 파일 하나를 통으로 처리할 때 가장 빠릅니다(실측 65배속).
+        // 구간을 나눠 수십 번 왕복하는 대신 오디오 트랙 전체를 한 번 보냅니다.
+        if let index = items.firstIndex(where: { $0.id == itemID }) {
+            items[index].status = .extracting
+            items[index].totalChunks = total
+            items[index].message = String(localized: "오디오 추출 중")
+        }
+        let audioURL = workspace.appending(path: "audio.m4a")
+        guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
+            throw VideoLingoError.mediaHasNoAudio
+        }
+        try await exporter.export(to: audioURL, as: .m4a)
 
+        if let index = items.firstIndex(where: { $0.id == itemID }) {
+            items[index].status = .transcribing
+            items[index].message = String(localized: "\(worker.name)에 오디오 전송 중")
+        }
+        let response = try await client.transcribeAudio(
+            audioURL: audioURL,
+            language: options.sourceLanguage
+        ) { [weak self] note in
+            Task { @MainActor in
+                guard let self, let index = self.items.firstIndex(where: { $0.id == itemID }) else { return }
+                self.items[index].message = "\(worker.name) · \(note)"
+            }
+        }
+        try? FileManager.default.removeItem(at: audioURL)
+
+        // 서버는 영상 전체 기준 타임스탬프를 주므로, 앱의 청크 모델에 맞게 시간대로 나눠 담습니다.
+        let serverSegments = (response.segments ?? []).sorted { $0.start < $1.start }
+        guard !serverSegments.isEmpty else {
+            throw RemoteWorkerClientError.failed(String(localized: "원격 서버가 자막 세그먼트를 반환하지 않았습니다."))
+        }
+        var cuesByChunk: [Int: [TranscriptCue]] = [:]
+        var confidencesByChunk: [Int: [Double]] = [:]
+        for segment in serverSegments {
+            let index = min(total - 1, max(0, Int(segment.start / chunkDuration)))
+            let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+            cuesByChunk[index, default: []].append(
+                TranscriptCue(startTime: segment.start, endTime: segment.end, text: text)
+            )
+            if let logprob = segment.avgLogprob {
+                confidencesByChunk[index, default: []].append(min(1, max(0, exp(logprob))))
+            }
+        }
+
+        for index in 0..<total where produced[index] == nil {
+            let cues = cuesByChunk[index] ?? []
+            guard !cues.isEmpty else { continue }
             let start = Double(index) * chunkDuration
-            let length = min(chunkDuration, duration - start)
-            guard length > 0.2 else { continue }
-            let chunkURL = workspace.appending(path: "chunk-\(index).m4a")
-            try? FileManager.default.removeItem(at: chunkURL)
-            guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
-                throw VideoLingoError.mediaHasNoAudio
-            }
-            exporter.timeRange = CMTimeRange(
-                start: CMTime(seconds: start, preferredTimescale: 600),
-                duration: CMTime(seconds: length, preferredTimescale: 600)
-            )
-            try await exporter.export(to: chunkURL, as: .m4a)
-
-            let response = try await client.transcribeChunk(
-                audioURL: chunkURL,
-                language: options.sourceLanguage
-            )
-            try? FileManager.default.removeItem(at: chunkURL)
-
-            // 서버 타임스탬프는 청크 기준이라 청크 시작 시각을 더해 영상 전체 기준으로 맞춥니다.
-            let segments = response.segments ?? []
-            let cues = segments.map {
-                TranscriptCue(
-                    startTime: start + $0.start,
-                    endTime: start + $0.end,
-                    text: $0.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                )
-            }
-            let text = cues.map(\.text).filter { !$0.isEmpty }.joined(separator: "\n")
-            let confidences = segments.compactMap(\.avgLogprob).map { min(1, max(0, exp($0))) }
+            let confidences = confidencesByChunk[index] ?? []
             let transcript = TranscriptSegment(
                 jobID: jobID,
                 chunkIndex: index,
                 startTime: start,
-                endTime: start + length,
-                text: text,
+                endTime: min(duration, start + chunkDuration),
+                text: cues.map(\.text).joined(separator: "\n"),
                 language: response.language ?? options.sourceLanguage,
                 confidence: confidences.isEmpty ? nil : confidences.reduce(0, +) / Double(confidences.count),
                 cues: cues,
@@ -1219,14 +1242,12 @@ final class BatchProcessor {
             )
             try store.saveTranscript(transcript, snapshot: snapshot)
             produced[index] = transcript
-            try sidecar.saveTranscripts(produced.values.sorted { $0.chunkIndex < $1.chunkIndex })
+        }
+        try sidecar.saveTranscripts(produced.values.sorted { $0.chunkIndex < $1.chunkIndex })
 
-            if let current = items.firstIndex(where: { $0.id == itemID }) {
-                items[current].sttProgress = Double(produced.count) / Double(total)
-                items[current].progress = items[current].sttProgress / 2
-                items[current].lastTranscriptText = text
-                items[current].message = String(localized: "\(worker.name) STT \(produced.count)/\(total)")
-            }
+        if let index = items.firstIndex(where: { $0.id == itemID }) {
+            items[index].currentChunk = total
+            items[index].lastTranscriptText = produced[produced.keys.max() ?? 0]?.text
         }
 
         snapshot.status = .transcribing
