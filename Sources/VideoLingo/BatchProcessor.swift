@@ -979,18 +979,19 @@ final class BatchProcessor {
                 itemOptions.continuousImprovement = false
             }
 
-            // 원격 Worker는 STT와 번역을 한 번에 수행합니다. STT 레인에서만 임대하고,
-            // 자리가 없거나 실패하면 기존 내장 서버 흐름을 그대로 사용합니다.
-            if phase == .stt, let worker = RemoteWorkerPool.shared.acquire() {
+            // 번역 레인에서만 원격 서버를 씁니다. STT는 영상 원본을 올려야 해서
+            // 서버의 업로드 한도(기본 200MB)에 걸리므로 로컬에서 처리합니다.
+            // 자리가 없거나 실패하면 기존 내장 서버 흐름으로 자동 전환합니다.
+            if phase == .translation, let worker = RemoteWorkerPool.shared.acquire() {
                 defer { RemoteWorkerPool.shared.release(worker.id) }
                 do {
-                    try await processRemotely(itemID: itemID, jobID: jobID, mediaURL: url, worker: worker)
+                    try await translateRemotely(itemID: itemID, jobID: jobID, mediaURL: url, worker: worker)
                     return
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
                     if let index = items.firstIndex(where: { $0.id == itemID }) {
-                        items[index].message = String(localized: "\(worker.name) 연결 실패 · 내장 서버로 자동 전환")
+                        items[index].message = String(localized: "\(worker.name) 원격 번역 실패 · 내장 서버로 전환: \(error.localizedDescription)")
                     }
                 }
             }
