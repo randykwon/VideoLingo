@@ -2302,6 +2302,56 @@ private struct ServerSettingsView: View {
         }
     }
 
+    /// 입력한 줄을 `(이름, 주소)`로 해석합니다. 빈 줄과 주석(#)은 건너뜁니다.
+    private var bulkWorkerEntries: [(name: String, address: String)] {
+        bulkWorkerAddresses.split(whereSeparator: \.isNewline).compactMap { rawLine in
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty, !line.hasPrefix("#") else { return nil }
+            guard let separator = line.firstIndex(of: "="), !line.hasPrefix("http") else {
+                return (name: "", address: line)
+            }
+            let name = line[line.startIndex..<separator].trimmingCharacters(in: .whitespaces)
+            let address = line[line.index(after: separator)...].trimmingCharacters(in: .whitespaces)
+            return address.isEmpty ? nil : (name: name, address: address)
+        }
+    }
+
+    private var bulkAddressCount: Int { bulkWorkerEntries.count }
+
+    /// 여러 서버를 차례로 연결 확인하며 등록합니다. 하나가 실패해도 나머지는 계속 진행합니다.
+    private func connectAndAddRemoteWorkersInBulk() {
+        let entries = bulkWorkerEntries
+        guard !isAddingWorker, !entries.isEmpty else { return }
+        isAddingWorker = true
+        bulkWorkerMessage = String(localized: "\(entries.count)대를 차례로 확인하는 중…")
+        Task {
+            defer { isAddingWorker = false }
+            var added: [String] = []
+            var failed: [String] = []
+            var remaining: [String] = []
+            for entry in entries {
+                do {
+                    let status = try await remotePool.connectAndAdd(
+                        name: entry.name,
+                        address: entry.address,
+                        token: "",
+                        usesAuthentication: bulkUsesAuthentication
+                    )
+                    added.append("\(status.name) · STT \(status.capabilities.sttSlots) · 번역 \(status.capabilities.translationSlots)")
+                } catch {
+                    failed.append("\(entry.address): \(error.localizedDescription)")
+                    // 실패한 줄만 남겨 두어 고쳐서 다시 시도할 수 있게 합니다.
+                    remaining.append(entry.name.isEmpty ? entry.address : "\(entry.name)=\(entry.address)")
+                }
+            }
+            bulkWorkerAddresses = remaining.joined(separator: "\n")
+            var lines: [String] = []
+            if !added.isEmpty { lines.append(String(localized: "추가 \(added.count)대: ") + added.joined(separator: ", ")) }
+            if !failed.isEmpty { lines.append(String(localized: "실패 \(failed.count)대: ") + failed.joined(separator: " / ")) }
+            bulkWorkerMessage = lines.joined(separator: "\n")
+        }
+    }
+
     private func connectAndAddRemoteWorker() {
         guard !isAddingWorker, !workerAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         isAddingWorker = true
