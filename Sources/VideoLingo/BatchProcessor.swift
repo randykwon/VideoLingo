@@ -1974,6 +1974,19 @@ struct BatchTranslationView: View {
         }
     }
 
+    /// 이름이 같은 영상마다 첫 번째만 남기고 나머지 파일을 휴지통으로 옮깁니다.
+    private func trashSameNameDuplicates() {
+        let ids = processor.recommendedDuplicateRemovalIDs
+        guard !ids.isEmpty else { return }
+        isTrashingSameNameDuplicates = true
+        Task {
+            defer { isTrashingSameNameDuplicates = false }
+            let result = await processor.moveVideosToTrash(ids: ids)
+            sameNameTrashResult = result.failureMessage
+                ?? String(localized: "\(result.movedCount)개를 휴지통으로 옮겼습니다.")
+        }
+    }
+
     private var selectedItems: [BatchProcessor.Item] {
         processor.items.filter { selection.contains($0.id) }
     }
