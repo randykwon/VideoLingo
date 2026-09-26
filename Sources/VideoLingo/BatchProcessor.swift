@@ -1584,6 +1584,9 @@ struct BatchTranslationView: View {
     @State private var showingDuplicateReview = false
     @State private var showingDuplicateCleanupConfirmation = false
     @State private var showingContentDuplicateReview = false
+    @State private var showingSameNameTrashConfirmation = false
+    @State private var isTrashingSameNameDuplicates = false
+    @State private var sameNameTrashResult = ""
     @State private var showingStartConfirmation = false
     @State private var pendingStartIDs: Set<UUID> = []
     @AppStorage("batchListFilter") private var listFilter: BatchListFilter = .active
@@ -1915,6 +1918,15 @@ struct BatchTranslationView: View {
                 }
                 .disabled(processor.isRunning || processor.isCheckingExistingResults || processor.items.isEmpty)
                 .help("현재 모델과 언어 기준으로 저장된 STT·번역 다시 확인")
+                // 같은 이름이 여러 개면 한 번 눌러 바로 정리할 수 있게 메뉴 밖으로 꺼냈습니다.
+                if processor.duplicateFilenameRemovalCount > 0 {
+                    Button("중복 \(processor.duplicateFilenameRemovalCount)개 삭제", systemImage: "trash") {
+                        showingSameNameTrashConfirmation = true
+                    }
+                    .disabled(processor.isRunning || isTrashingSameNameDuplicates)
+                    .help("이름이 같은 영상마다 첫 번째 하나만 남기고 나머지 파일을 휴지통으로 옮깁니다")
+                    if isTrashingSameNameDuplicates { ProgressView().controlSize(.small) }
+                }
                 Menu("중복 파일 정리", systemImage: "doc.on.doc") {
                     Button("중복 전체 일괄 제거", systemImage: "rectangle.stack.badge.minus") {
                         showingDuplicateCleanupConfirmation = true
