@@ -461,3 +461,10 @@
 "실패 %lld대: " = "Failed %lld: ";
 "각 주소를 차례로 연결해 보고, 실패한 주소만 사유와 함께 남깁니다. 공통 키를 저장해 두었다면 키 없이도 인증됩니다." = "Each address is checked in turn; only failures are kept, with the reason. A saved shared key is used automatically.";
 "한 줄에 하나씩 주소를 넣으세요. `이름=주소` 형식으로 이름을 함께 지정할 수 있습니다." = "One address per line. Use `name=address` to also set a name.";
+"중복 %lld개 삭제" = "Delete %lld duplicates";
+"이름이 같은 영상 %lld개를 삭제할까요?" = "Delete %lld videos with duplicate names?";
+"같은 이름마다 첫 번째 영상 하나만 남깁니다. 휴지통으로 옮기면 Finder에서 되돌릴 수 있습니다." = "Keeps the first video for each name. Items moved to Trash can be restored from Finder.";
+"목록에서만 제거" = "Remove from list only";
+"이름이 같은 영상마다 첫 번째 하나만 남기고 나머지 파일을 휴지통으로 옮깁니다" = "Keeps the first video for each duplicate name and moves the rest to Trash";
+"중복 정리" = "Duplicate cleanup";
+"%lld개를 휴지통으로 옮겼습니다." = "Moved %lld to Trash.";
