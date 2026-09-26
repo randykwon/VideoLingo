@@ -1874,6 +1874,27 @@ struct BatchTranslationView: View {
         .sheet(isPresented: $showingContentDuplicateReview) {
             ContentDuplicateReviewView()
         }
+        .confirmationDialog(
+            "이름이 같은 영상 \(processor.duplicateFilenameRemovalCount)개를 삭제할까요?",
+            isPresented: $showingSameNameTrashConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("휴지통으로 이동", role: .destructive) { trashSameNameDuplicates() }
+            Button("목록에서만 제거") {
+                processor.remove(ids: processor.recommendedDuplicateRemovalIDs)
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("같은 이름마다 첫 번째 영상 하나만 남깁니다. 휴지통으로 옮기면 Finder에서 되돌릴 수 있습니다.")
+        }
+        .alert("중복 정리", isPresented: Binding(
+            get: { !sameNameTrashResult.isEmpty },
+            set: { if !$0 { sameNameTrashResult = "" } }
+        )) {
+            Button("확인") { sameNameTrashResult = "" }
+        } message: {
+            Text(sameNameTrashResult)
+        }
         .sheet(isPresented: $showingDuplicateReview) {
             DuplicateFilenameReviewView()
                 .environment(processor)
