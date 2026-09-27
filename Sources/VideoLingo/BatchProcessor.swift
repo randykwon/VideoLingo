@@ -1652,6 +1652,25 @@ final class BatchProcessor {
     }
 }
 
+private enum BatchWorkspaceTab: String, CaseIterable, Identifiable {
+    case files
+    case monitoring
+
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .files: String(localized: "파일 목록")
+        case .monitoring: String(localized: "모니터링")
+        }
+    }
+    var systemImage: String {
+        switch self {
+        case .files: "list.bullet.rectangle"
+        case .monitoring: "chart.xyaxis.line"
+        }
+    }
+}
+
 struct BatchTranslationView: View {
     @Environment(BatchProcessor.self) private var processor
     @Environment(\.openWindow) private var openWindow
@@ -1667,12 +1686,28 @@ struct BatchTranslationView: View {
     @State private var sameNameTrashResult = ""
     @State private var showingStartConfirmation = false
     @State private var pendingStartIDs: Set<UUID> = []
+    @State private var workspaceTab: BatchWorkspaceTab = .files
     @AppStorage("batchListFilter") private var listFilter: BatchListFilter = .active
 
     var body: some View {
         @Bindable var processor = processor
         VStack(spacing: 0) {
-            if processor.items.isEmpty {
+            Picker("대량 번역 화면", selection: $workspaceTab) {
+                ForEach(BatchWorkspaceTab.allCases) { tab in
+                    Label(tab.title, systemImage: tab.systemImage).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 420)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            Divider()
+
+            if workspaceTab == .monitoring {
+                BatchMonitoringWorkspace()
+            } else if processor.items.isEmpty {
                 ContentUnavailableView {
                     Label("대량 번역할 영상을 추가하세요", systemImage: "rectangle.stack.badge.plus")
                 } description: {
@@ -1744,64 +1779,66 @@ struct BatchTranslationView: View {
 
             Divider()
             VStack(spacing: 12) {
-                BatchLanguageSettingsView()
+                if workspaceTab == .files {
+                    BatchLanguageSettingsView()
 
-                HStack(spacing: 12) {
-                    Image(systemName: "externaldrive.badge.plus")
-                        .foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("읽기 전용 영상 결과")
-                            .font(.headline)
-                        Text(processor.alternateResultDirectoryDisplayPath
-                            ?? "읽기 전용 디스크의 STT·번역 파일을 저장할 폴더를 지정하세요.")
-                            .font(.caption)
+                    HStack(spacing: 12) {
+                        Image(systemName: "externaldrive.badge.plus")
                             .foregroundStyle(processor.readOnlyItemCount() > 0 && processor.alternateResultDirectoryURL == nil ? .red : .secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Spacer()
-                    if processor.alternateResultDirectoryURL != nil {
-                        Button("해제") { processor.clearAlternateResultDirectory() }
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("읽기 전용 영상 결과")
+                                .font(.headline)
+                            Text(processor.alternateResultDirectoryDisplayPath
+                                ?? "읽기 전용 디스크의 STT·번역 파일을 저장할 폴더를 지정하세요.")
+                                .font(.caption)
+                                .foregroundStyle(processor.readOnlyItemCount() > 0 && processor.alternateResultDirectoryURL == nil ? .red : .secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        Spacer()
+                        if processor.alternateResultDirectoryURL != nil {
+                            Button("해제") { processor.clearAlternateResultDirectory() }
+                                .disabled(processor.isRunning)
+                        }
+                        Button(processor.alternateResultDirectoryURL == nil ? "폴더 지정…" : "변경…") {
+                            processor.chooseAlternateResultDirectory()
+                        }
                             .disabled(processor.isRunning)
                     }
-                    Button(processor.alternateResultDirectoryURL == nil ? "폴더 지정…" : "변경…") {
-                        processor.chooseAlternateResultDirectory()
-                    }
-                    .disabled(processor.isRunning)
-                }
 
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("처리 설정")
-                            .font(.headline)
-                        Text(processor.optionsSummary)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Toggle("Mac 성능에 맞게 자동 조정", isOn: $processor.automaticallyAdjustConcurrentJobs)
-                            .disabled(processor.isRunning)
-                        Stepper(value: $processor.maximumConcurrentJobs, in: 1...10) {
-                            Text(processor.automaticallyAdjustConcurrentJobs
-                                ? "자동 번역 \(processor.effectiveConcurrentJobs)개"
-                                : "수동 번역 \(processor.maximumConcurrentJobs)개")
-                                .monospacedDigit()
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("처리 설정")
+                                .font(.headline)
+                            Text(processor.optionsSummary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
                         }
-                        .disabled(processor.isRunning || processor.automaticallyAdjustConcurrentJobs)
-                        Stepper(value: $processor.maximumConcurrentSTTJobs, in: 1...10) {
-                            Text(processor.automaticallyAdjustConcurrentJobs
-                                ? "자동 STT \(processor.effectiveSTTConcurrentJobs)개"
-                                : "수동 STT \(processor.maximumConcurrentSTTJobs)개")
-                                .monospacedDigit()
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Toggle("Mac 성능에 맞게 자동 조정", isOn: $processor.automaticallyAdjustConcurrentJobs)
+                                .disabled(processor.isRunning)
+                            Stepper(value: $processor.maximumConcurrentJobs, in: 1...10) {
+                                Text(processor.automaticallyAdjustConcurrentJobs
+                                    ? "자동 번역 \(processor.effectiveConcurrentJobs)개"
+                                    : "수동 번역 \(processor.maximumConcurrentJobs)개")
+                                    .monospacedDigit()
+                            }
+                            .disabled(processor.isRunning || processor.automaticallyAdjustConcurrentJobs)
+                            Stepper(value: $processor.maximumConcurrentSTTJobs, in: 1...10) {
+                                Text(processor.automaticallyAdjustConcurrentJobs
+                                    ? "자동 STT \(processor.effectiveSTTConcurrentJobs)개"
+                                    : "수동 STT \(processor.maximumConcurrentSTTJobs)개")
+                                    .monospacedDigit()
+                            }
+                            .disabled(processor.isRunning || processor.automaticallyAdjustConcurrentJobs)
+                            Text(processor.automaticConcurrencySummary)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                         }
-                        .disabled(processor.isRunning || processor.automaticallyAdjustConcurrentJobs)
-                        Text(processor.automaticConcurrencySummary)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                        .help("메모리·CPU·열 상태를 기준으로 안전한 동시 처리 수를 정합니다")
                     }
-                    .help("메모리·CPU·열 상태를 기준으로 안전한 동시 처리 수를 정합니다")
                 }
 
                 if processor.isRunning || processor.completedCount > 0 {
@@ -1816,18 +1853,7 @@ struct BatchTranslationView: View {
                     }
                 }
 
-                // 처리 중이거나 결과가 쌓였을 때 실시간 그래프를 보여 줍니다.
-                if processor.isRunning || processor.completedCount > 0 {
-                    BatchLiveMonitorView()
-                }
-
-                // 원격 서버를 쓰는 동안에만 성능 패널을 보여 줍니다.
-                if !RemoteWorkerPool.shared.workers.isEmpty {
-                    RemoteServerMonitorView()
-                        .remoteServerHealthAlert()
-                }
-
-                if processor.isCheckingExistingResults || !processor.resultCheckMessage.isEmpty {
+                if workspaceTab == .files && (processor.isCheckingExistingResults || !processor.resultCheckMessage.isEmpty) {
                     HStack(spacing: 8) {
                         if processor.isCheckingExistingResults { ProgressView().controlSize(.small) }
                         Text(processor.resultCheckMessage)
@@ -1845,7 +1871,7 @@ struct BatchTranslationView: View {
                     }
                 }
 
-                if processor.isScanningFolders || !processor.folderScanMessage.isEmpty {
+                if workspaceTab == .files && (processor.isScanningFolders || !processor.folderScanMessage.isEmpty) {
                     HStack(spacing: 8) {
                         if processor.isScanningFolders { ProgressView().controlSize(.small) }
                         Text(processor.folderScanMessage)
@@ -1860,7 +1886,7 @@ struct BatchTranslationView: View {
                     }
                 }
 
-                if !selection.isEmpty {
+                if workspaceTab == .files && !selection.isEmpty {
                     HStack(spacing: 8) {
                         Text("\(selection.count)개 선택")
                             .font(.caption.weight(.semibold))
@@ -1957,6 +1983,7 @@ struct BatchTranslationView: View {
                 let ids = pendingStartIDs
                 pendingStartIDs.removeAll()
                 processor.start(ids: ids)
+                workspaceTab = .monitoring
             }
             .environment(processor)
         }
@@ -1990,6 +2017,7 @@ struct BatchTranslationView: View {
         }
         .dropDestination(for: URL.self) { urls, _ in
             processor.addDroppedURLs(urls)
+            workspaceTab = .files
         } isTargeted: { targeted in
             withAnimation(.snappy) { isDropTargeted = targeted }
         }
@@ -2018,16 +2046,12 @@ struct BatchTranslationView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                Button("멀티 화면 모니터", systemImage: "rectangle.grid.2x2") {
-                    openWindow(id: "batch-monitor")
-                }
-                .disabled(processor.items.isEmpty)
-                .help("여러 영상과 STT·번역 진행 상황을 한 화면에서 확인")
-                Button("기존 번역 확인", systemImage: "checkmark.magnifyingglass") {
-                    processor.refreshExistingResults()
-                }
-                .disabled(processor.isRunning || processor.isCheckingExistingResults || processor.items.isEmpty)
-                .help("현재 모델과 언어 기준으로 저장된 STT·번역 다시 확인")
+                if workspaceTab == .files {
+                    Button("기존 번역 확인", systemImage: "checkmark.magnifyingglass") {
+                        processor.refreshExistingResults()
+                    }
+                    .disabled(processor.isRunning || processor.isCheckingExistingResults || processor.items.isEmpty)
+                    .help("현재 모델과 언어 기준으로 저장된 STT·번역 다시 확인")
                 // 같은 이름이 여러 개면 한 번 눌러 바로 정리할 수 있게 메뉴 밖으로 꺼냈습니다.
                 if processor.duplicateFilenameRemovalCount > 0 {
                     Button("중복 \(processor.duplicateFilenameRemovalCount)개 삭제", systemImage: "trash") {
@@ -2054,11 +2078,18 @@ struct BatchTranslationView: View {
                 .help(processor.duplicateFilenameGroups.isEmpty
                     ? "동일한 파일명의 영상이 없습니다"
                     : "\(processor.duplicateFilenameGroups.count)개 중복 그룹에서 \(processor.duplicateFilenameRemovalCount)개를 정리")
-                Button("폴더 추가…", systemImage: "folder.badge.plus") { processor.addFolders() }
-                    .disabled(processor.isScanningFolders)
-                    .help("폴더와 하위 폴더에서 영상 검색")
-                Button("영상 추가…", systemImage: "plus") { processor.addFiles() }
-                    .help("여러 영상 추가")
+                    Button("폴더 추가…", systemImage: "folder.badge.plus") { processor.addFolders() }
+                        .disabled(processor.isScanningFolders)
+                        .help("폴더와 하위 폴더에서 영상 검색")
+                    Button("영상 추가…", systemImage: "plus") { processor.addFiles() }
+                        .help("여러 영상 추가")
+                } else {
+                    Button("모니터링 별도 창", systemImage: "macwindow.on.rectangle") {
+                        openWindow(id: "batch-monitor")
+                    }
+                    .disabled(processor.items.isEmpty)
+                    .help("현재 모니터링 화면을 별도 창으로 열기")
+                }
             }
         }
     }
