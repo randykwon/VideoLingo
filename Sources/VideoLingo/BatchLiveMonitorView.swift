@@ -261,6 +261,8 @@ struct BatchLiveMonitorView: View {
         .task {
             // 5초마다 표본을 남겨 추이를 만듭니다.
             while !Task.isCancelled {
+                // 서버별 표본을 먼저 남겨야 lastSampledAt이 갱신되기 전 값을 쓸 수 있습니다.
+                recorder.recordPerServer(items: processor.items, chunkDuration: processor.reviewOptions.chunkDuration)
                 recorder.record(items: processor.items)
                 try? await Task.sleep(for: .seconds(5))
             }
@@ -359,6 +361,62 @@ struct BatchLiveMonitorView: View {
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
+        }
+    }
+
+    /// 서버마다 선을 따로 그려 어느 쪽이 빠른지, 실제로 일하고 있는지 비교합니다.
+    private var perServerChart: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Picker("지표", selection: $perServerMetric) {
+                    Text("STT 배속").tag(PerServerMetric.stt)
+                    Text("번역 구간/분").tag(PerServerMetric.translation)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 230)
+                Spacer()
+                Text(perServerMetric == .stt
+                    ? String(localized: "실제 1분당 전사한 오디오 분량")
+                    : String(localized: "실제 1분당 완성한 번역 구간"))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Chart(recorder.serverSamples) { sample in
+                LineMark(
+                    x: .value("시각", sample.time),
+                    y: .value(
+                        perServerMetric.title,
+                        perServerMetric == .stt ? sample.sttMinutesPerMinute : sample.translationRate
+                    ),
+                    series: .value("서버", sample.server)
+                )
+                .foregroundStyle(by: .value("서버", sample.server))
+                .interpolationMethod(.monotone)
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading, values: .automatic(desiredCount: 3))
+            }
+            .chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: 4)) {
+                    AxisValueLabel(format: .dateTime.hour().minute())
+                }
+            }
+            .chartLegend(position: .bottom, spacing: 6)
+            .frame(height: 110)
+
+            // 숫자로도 비교할 수 있게 최근 평균을 함께 보여 줍니다.
+            ForEach(recorder.trackedServers, id: \.self) { server in
+                HStack(spacing: 10) {
+                    Text(server).frame(minWidth: 130, alignment: .leading)
+                    Text(String(format: "%.1f배속", recorder.recentRate(for: server, stt: true)))
+                        .foregroundStyle(.blue)
+                    Text(String(format: "번역 %.1f/분", recorder.recentRate(for: server, stt: false)))
+                        .foregroundStyle(.purple)
+                    Spacer()
+                }
+                .font(.caption2.monospacedDigit())
+            }
         }
     }
 
