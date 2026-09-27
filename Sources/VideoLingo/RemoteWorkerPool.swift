@@ -69,6 +69,9 @@ final class RemoteWorkerPool {
         }
     }
 
+    /// 지금 연결이 확인된 서버가 하나라도 있는지. 추출 전에 원격 경로를 택할지 판단할 때 씁니다.
+    var hasUsableWorker: Bool { !availableWorkers.isEmpty }
+
     var totalSTTSlots: Int { availableWorkers.reduce(0) { $0 + $1.1.capabilities.sttSlots } }
     var totalTranslationSlots: Int { availableWorkers.reduce(0) { $0 + $1.1.capabilities.translationSlots } }
 
