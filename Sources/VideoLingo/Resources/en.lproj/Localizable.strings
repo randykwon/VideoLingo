@@ -502,3 +502,4 @@
 "%@ 전사 실패 · 다른 서버 확인 중" = "%@ transcription failed · trying another server";
 "사용 가능한 원격 서버가 없습니다." = "No remote server is available.";
 "이전 작업이 남긴 오디오 %@를 정리했습니다." = "Cleaned up %@ of audio left by earlier runs.";
+"원격 STT 완료 · 번역 대기 중" = "Remote STT done · waiting for translation";
