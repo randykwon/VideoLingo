@@ -498,3 +498,7 @@
 "번역 요청 시간의 %lld%%가 전송·대기에 쓰이고 있습니다." = "%lld%% of translation request time is spent on transfer and queueing.";
 "%@ 서버가 정상 응답하지 않습니다." = "%@ is not responding normally.";
 "%@ 서버에 연결할 수 없습니다: %@" = "Cannot reach %@: %@";
+"오디오 추출 대기 중" = "Waiting to extract audio";
+"%@ 전사 실패 · 다른 서버 확인 중" = "%@ transcription failed · trying another server";
+"사용 가능한 원격 서버가 없습니다." = "No remote server is available.";
+"이전 작업이 남긴 오디오 %@를 정리했습니다." = "Cleaned up %@ of audio left by earlier runs.";
