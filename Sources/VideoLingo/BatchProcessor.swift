@@ -871,6 +871,7 @@ final class BatchProcessor {
         runTask = Task { [weak self] in
             // 앱이 강제 종료되면 추출 파일 정리가 실행되지 않아 수백 MB가 남습니다. 시작할 때 걷어냅니다.
             let reclaimed = RemoteAudioWorkspaceCleaner.removeOrphans()
+                + RemoteAudioWorkspaceCleaner.removeStagedCopies()
             if reclaimed > 0 {
                 await MainActor.run {
                     self?.folderScanMessage = String(
@@ -1081,8 +1082,10 @@ final class BatchProcessor {
             var lastRemoteFailure: String?
             switch phase {
             case .stt:
-                // STT는 추출을 슬롯 밖에서 하므로 여기서 자리를 잡지 않고, 내부에서 직접 임대합니다.
-                if RemoteWorkerPool.shared.hasUsableWorker {
+                // 원격 자리만큼만 예약하고, 초과분은 내장 서버로 보내 두 쪽을 함께 씁니다.
+                // 예전에는 원격이 가능하면 전부 원격 경로로 가서 내장 Whisper가 놀았습니다.
+                if RemoteWorkerPool.shared.reserveRemoteSTT() {
+                    defer { RemoteWorkerPool.shared.releaseRemoteSTTReservation() }
                     do {
                         try await transcribeRemotely(itemID: itemID, jobID: jobID, mediaURL: url)
                         return
