@@ -219,7 +219,18 @@ struct BatchLiveMonitorView: View {
                 }
 
                 if recorder.samples.count >= 2 {
-                    throughputChart
+                    Picker("보기", selection: $breakdown) {
+                        Text("합계").tag(Breakdown.combined)
+                        Text("서버별").tag(Breakdown.perServer)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 200)
+
+                    switch breakdown {
+                    case .combined: throughputChart
+                    case .perServer: perServerChart
+                    }
                 } else {
                     Text("처리량 그래프는 잠시 뒤부터 표시됩니다.")
                         .font(.caption)
