@@ -1738,6 +1738,11 @@ struct BatchTranslationView: View {
                     }
                 }
 
+                // 원격 서버를 쓰는 동안에만 성능 패널을 보여 줍니다.
+                if !RemoteWorkerPool.shared.workers.isEmpty {
+                    RemoteServerMonitorView()
+                }
+
                 if processor.isCheckingExistingResults || !processor.resultCheckMessage.isEmpty {
                     HStack(spacing: 8) {
                         if processor.isCheckingExistingResults { ProgressView().controlSize(.small) }
