@@ -62,6 +62,48 @@ final class BatchThroughputRecorder {
         return window.reduce(0) { $0 + $1[keyPath: key] } / Double(window.count)
     }
 
+    /// 서버별 누적값을 표본화합니다. 원격은 측정값을 그대로 쓰고,
+    /// 내장 서버는 전체에서 원격 몫을 뺀 값으로 추정합니다.
+    func recordPerServer(items: [BatchProcessor.Item], chunkDuration: TimeInterval) {
+        let now = Date.now
+        let metrics = RemoteServerMetrics.shared
+        var cumulativeAudio: [String: Double] = [:]
+        var cumulativeTexts: [String: Double] = [:]
+        for entry in metrics.orderedStats {
+            cumulativeAudio[entry.name] = entry.audioSeconds
+            cumulativeTexts[entry.name] = Double(entry.translatedTexts)
+        }
+        // 전체 처리량에서 원격 몫을 빼 내장 서버 몫을 구합니다. 단위를 같게 맞춥니다.
+        let totalAudio = items.reduce(0.0) { $0 + $1.sttProgress * Double(max($1.totalChunks, 0)) * chunkDuration }
+        let totalTexts = items.reduce(0.0) { $0 + $1.translationProgress * Double(max($1.totalChunks, 0)) }
+        cumulativeAudio[Self.localServerName] = max(0, totalAudio - cumulativeAudio.values.reduce(0, +))
+        cumulativeTexts[Self.localServerName] = max(0, totalTexts - cumulativeTexts.values.reduce(0, +))
+
+        defer {
+            lastServerAudioSeconds = cumulativeAudio
+            lastServerTexts = cumulativeTexts
+        }
+        guard let lastSampledAt else { return }
+        let minutes = now.timeIntervalSince(lastSampledAt) / 60
+        guard minutes > 0.01 else { return }
+        for (server, audio) in cumulativeAudio {
+            let previousAudio = lastServerAudioSeconds[server] ?? audio
+            let previousTexts = lastServerTexts[server] ?? (cumulativeTexts[server] ?? 0)
+            let audioMinutes = max(0, (audio - previousAudio) / 60) / minutes
+            let texts = max(0, ((cumulativeTexts[server] ?? 0) - previousTexts)) / minutes
+            serverSamples.append(
+                ServerSample(
+                    time: now,
+                    server: server,
+                    sttMinutesPerMinute: audioMinutes,
+                    translationRate: texts
+                )
+            )
+        }
+        // 서버 수에 비례해 늘어나므로 넉넉히 두되 무한정 쌓이지 않게 자릅니다.
+        if serverSamples.count > 1200 { serverSamples.removeFirst(serverSamples.count - 1200) }
+    }
+
     func record(items: [BatchProcessor.Item]) {
         // 진행률 × 청크 수로 지금까지 처리한 양을 추정합니다.
         let sttUnits = items.reduce(0.0) { $0 + $1.sttProgress * Double(max($1.totalChunks, 0)) }
@@ -88,9 +130,12 @@ final class BatchThroughputRecorder {
 
     func reset() {
         samples.removeAll()
+        serverSamples.removeAll()
         lastSTTUnits = nil
         lastTranslationUnits = nil
         lastSampledAt = nil
+        lastServerAudioSeconds.removeAll()
+        lastServerTexts.removeAll()
     }
 }
 
