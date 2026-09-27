@@ -72,6 +72,26 @@ final class RemoteWorkerPool {
     /// 지금 연결이 확인된 서버가 하나라도 있는지. 추출 전에 원격 경로를 택할지 판단할 때 씁니다.
     var hasUsableWorker: Bool { !availableWorkers.isEmpty }
 
+    /// 원격 STT 경로로 보내기로 예약한 건수입니다. 추출이 끝나기 전에도 세어야
+    /// 원격 자리를 초과해 몰리지 않고, 남는 항목이 내장 서버로 흘러갑니다.
+    private var sttReservations = 0
+
+    /// 원격 경로 자리를 예약합니다. 실패하면 호출자는 내장 서버로 처리해야 합니다.
+    /// 추출이 진행되는 동안 서버가 굶지 않도록 자리 수보다 약간 넉넉하게 받습니다.
+    func reserveRemoteSTT() -> Bool {
+        let slots = totalSTTSlots
+        guard slots > 0 else { return false }
+        guard sttReservations < slots + 2 else { return false }
+        sttReservations += 1
+        return true
+    }
+
+    func releaseRemoteSTTReservation() {
+        sttReservations = max(0, sttReservations - 1)
+    }
+
+    var remoteSTTReservationCount: Int { sttReservations }
+
     var totalSTTSlots: Int { availableWorkers.reduce(0) { $0 + $1.1.capabilities.sttSlots } }
     var totalTranslationSlots: Int { availableWorkers.reduce(0) { $0 + $1.1.capabilities.translationSlots } }
 
