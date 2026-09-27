@@ -17,10 +17,40 @@ final class BatchThroughputRecorder {
         let translationRate: Double
     }
 
+    /// 서버 한 대의 표본입니다. 내장 서버도 같은 단위로 넣어 나란히 비교합니다.
+    struct ServerSample: Identifiable {
+        let id = UUID()
+        let time: Date
+        let server: String
+        /// 실제 시간 1분당 전사한 오디오 분량입니다. 값이 곧 체감 배속입니다.
+        let sttMinutesPerMinute: Double
+        /// 분당 완성한 번역 구간 수입니다.
+        let translationRate: Double
+    }
+
+    static let localServerName = String(localized: "내장 서버")
+
     private(set) var samples: [Sample] = []
+    private(set) var serverSamples: [ServerSample] = []
     private var lastSTTUnits: Double?
     private var lastTranslationUnits: Double?
     private var lastSampledAt: Date?
+    private var lastServerAudioSeconds: [String: Double] = [:]
+    private var lastServerTexts: [String: Double] = [:]
+
+    /// 그래프에 나타난 서버 이름입니다. 범례와 요약에 씁니다.
+    var trackedServers: [String] {
+        var seen: [String] = []
+        for sample in serverSamples where !seen.contains(sample.server) { seen.append(sample.server) }
+        return seen
+    }
+
+    func recentRate(for server: String, stt: Bool) -> Double {
+        let window = serverSamples.filter { $0.server == server }.suffix(6)
+        guard !window.isEmpty else { return 0 }
+        let total = window.reduce(0.0) { $0 + (stt ? $1.sttMinutesPerMinute : $1.translationRate) }
+        return total / Double(window.count)
+    }
 
     /// 최근 표본에서 계산한 평균 처리량입니다. 숫자 요약에 씁니다.
     var recentSTTRate: Double { average(\.sttRate) }
