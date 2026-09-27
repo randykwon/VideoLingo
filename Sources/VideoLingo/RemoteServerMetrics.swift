@@ -37,6 +37,10 @@ final class RemoteServerMetrics {
         var lastRealtimeFactor: Double?
         var lastError: String?
         var lastFinishedAt: Date?
+        /// 연속 실패 횟수입니다. 성공하면 0으로 돌아갑니다.
+        var consecutiveFailures = 0
+        /// 현재 진행 중인 요청이 시작된 시각입니다. 응답이 오지 않는 상황을 잡는 데 씁니다.
+        var inFlightSince: [Kind: Date] = [:]
 
         var totalRequests: Int { Kind.allCases.reduce(0) { $0 + (requests[$1] ?? 0) } }
         var totalFailures: Int { Kind.allCases.reduce(0) { $0 + (failures[$1] ?? 0) } }
@@ -79,7 +83,9 @@ final class RemoteServerMetrics {
         var entry = stats[worker.id] ?? ServerStats(id: worker.id, name: worker.name)
         entry.name = worker.name.isEmpty ? (worker.baseURL.host() ?? "STTLMMServer") : worker.name
         entry.inFlight[kind, default: 0] += 1
+        if entry.inFlightSince[kind] == nil { entry.inFlightSince[kind] = .now }
         stats[worker.id] = entry
+        evaluateHealth()
     }
 
     func requestFinished(
