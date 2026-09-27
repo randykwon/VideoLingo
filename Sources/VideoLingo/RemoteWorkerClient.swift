@@ -162,6 +162,9 @@ struct RemoteWorkerClient: Sendable {
         onProgress: @Sendable (String) -> Void = { _ in }
     ) async throws -> STTResponse {
         let size = (try? FileManager.default.attributesOfItem(atPath: audioURL.path)[.size] as? NSNumber)??.intValue ?? 0
+        // 서버가 꺼져 있으면 TCP 연결만으로 수십 초~수 분이 걸립니다(실측).
+        // 큰 파일을 올리기 전에 가볍게 확인해, 죽은 서버는 몇 초 안에 건너뛰도록 합니다.
+        try await preflight()
         // 성능 모니터링: 왕복 시간과 전송량을 여기서 재고, 서버가 보고한 처리 시간과 비교합니다.
         let started = Date.now
         let worker = self.worker
@@ -414,6 +417,26 @@ struct RemoteWorkerClient: Sendable {
             }
         }
         return results
+    }
+
+    /// 무거운 요청 전에 서버가 실제로 살아 있는지 짧게 확인합니다. `/health`는 인증이 필요 없습니다.
+    private func preflight() async throws {
+        var request = URLRequest(url: worker.baseURL.appending(path: "/health"))
+        request.timeoutInterval = 6
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                throw RemoteWorkerClientError.failed(
+                    String(localized: "\(worker.name) 서버가 정상 응답하지 않습니다.")
+                )
+            }
+        } catch let error as RemoteWorkerClientError {
+            throw error
+        } catch {
+            throw RemoteWorkerClientError.failed(
+                String(localized: "\(worker.name) 서버에 연결할 수 없습니다: \(error.localizedDescription)")
+            )
+        }
     }
 
     private func authenticatedRequest(path: String) -> URLRequest {
