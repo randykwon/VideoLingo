@@ -158,3 +158,123 @@ enum NormalizedAudioExporter {
         }
     }
 }
+
+/// 외장 디스크에서 읽는 스트림을 제한하고, 나머지 파일은 내장 SSD로 옮겨 처리합니다.
+///
+/// 실측: USB ExFAT 외장에서 순차 읽기는 113MB/s인데, 디코딩은 랜덤 액세스가 섞여
+/// 5.4GB 파일 추출에 3~5분이 걸립니다(CPU는 6%만 사용 — I/O 대기). 같은 볼륨에서
+/// 여러 개를 동시에 추출하면 버스를 나눠 쓰며 전부 느려집니다.
+/// 그래서 직접 추출은 한 번에 하나만 허용하고, 나머지는 순차 복사(빠름)로 SSD에 옮겨
+/// 거기서 병렬 추출합니다.
+actor ExternalMediaStager {
+    static let shared = ExternalMediaStager()
+
+    struct Prepared: Sendable {
+        /// 실제로 읽을 위치입니다. 복사했다면 SSD 경로입니다.
+        let url: URL
+        let stagedCopy: URL?
+        let holdsDirectSlot: Bool
+        var didCopy: Bool { stagedCopy != nil }
+    }
+
+    private var directSlotBusy = false
+    private var copyBusy = false
+    private var copyWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// 외장 볼륨 파일인지 판단합니다. 내장 SSD 파일은 제한 없이 그대로 처리합니다.
+    private func isOnExternalVolume(_ url: URL) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [.volumeIsInternalKey]) else { return false }
+        return values.volumeIsInternal == false
+    }
+
+    func prepare(
+        mediaURL: URL,
+        stagingDirectory: URL,
+        onCopyStart: @Sendable () -> Void = {}
+    ) async throws -> Prepared {
+        guard isOnExternalVolume(mediaURL) else {
+            return Prepared(url: mediaURL, stagedCopy: nil, holdsDirectSlot: false)
+        }
+        // 직접 추출 자리가 비어 있으면 복사 없이 바로 처리합니다.
+        if !directSlotBusy {
+            directSlotBusy = true
+            return Prepared(url: mediaURL, stagedCopy: nil, holdsDirectSlot: true)
+        }
+
+        let fileManager = FileManager.default
+        let size = Int64((try? mediaURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        let free = (try? stagingDirectory.deletingLastPathComponent()
+            .resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+            .volumeAvailableCapacityForImportantUsage) ?? 0
+        // 여유가 없으면 복사 대신 직접 추출 자리를 기다립니다.
+        guard size > 0, free > size * 2 else {
+            await waitForDirectSlot()
+            return Prepared(url: mediaURL, stagedCopy: nil, holdsDirectSlot: true)
+        }
+
+        // 복사는 한 번에 하나씩. 순차 읽기라 디코딩보다 훨씬 빠릅니다.
+        await acquireCopySlot()
+        defer { releaseCopySlot() }
+        onCopyStart()
+        try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+        let destination = stagingDirectory.appending(path: mediaURL.lastPathComponent)
+        try? fileManager.removeItem(at: destination)
+        try fileManager.copyItem(at: mediaURL, to: destination)
+        return Prepared(url: destination, stagedCopy: destination, holdsDirectSlot: false)
+    }
+
+    func finish(_ prepared: Prepared) {
+        if prepared.holdsDirectSlot {
+            directSlotBusy = false
+        }
+        if let staged = prepared.stagedCopy {
+            try? FileManager.default.removeItem(at: staged)
+        }
+    }
+
+    private func acquireCopySlot() async {
+        if !copyBusy {
+            copyBusy = true
+            return
+        }
+        await withCheckedContinuation { copyWaiters.append($0) }
+        copyBusy = true
+    }
+
+    private func releaseCopySlot() {
+        copyBusy = false
+        guard !copyWaiters.isEmpty else { return }
+        copyWaiters.removeFirst().resume()
+    }
+
+    private func waitForDirectSlot() async {
+        while directSlotBusy {
+            try? await Task.sleep(for: .seconds(2))
+        }
+        directSlotBusy = true
+    }
+}
+
+/// 중단된 작업이 남긴 SSD 복사본을 정리합니다.
+extension RemoteAudioWorkspaceCleaner {
+    @discardableResult
+    static func removeStagedCopies() -> Int64 {
+        guard let paths = try? AppPaths() else { return 0 }
+        let fileManager = FileManager.default
+        guard let jobs = try? fileManager.contentsOfDirectory(at: paths.jobs, includingPropertiesForKeys: nil) else {
+            return 0
+        }
+        var reclaimed: Int64 = 0
+        for job in jobs {
+            let folder = job.appending(path: "Staging", directoryHint: .isDirectory)
+            guard fileManager.fileExists(atPath: folder.path) else { continue }
+            if let files = try? fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.fileSizeKey]) {
+                for file in files {
+                    reclaimed += Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+                }
+            }
+            try? fileManager.removeItem(at: folder)
+        }
+        return reclaimed
+    }
+}
