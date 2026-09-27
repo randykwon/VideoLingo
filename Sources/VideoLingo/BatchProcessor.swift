@@ -3277,6 +3277,57 @@ private struct DuplicateFilenameReviewView: View {
     }
 }
 
+/// 원격 서버 이상을 경고창으로 알립니다. 같은 상황에서는 한 번만 띄우고,
+/// 응답이 없는 경우는 완료 시점이 없으므로 주기적으로 다시 판정합니다.
+private struct RemoteServerHealthAlert: ViewModifier {
+    @State private var metrics = RemoteServerMetrics.shared
+    @State private var pool = RemoteWorkerPool.shared
+    @State private var showing = false
+    @State private var current: RemoteServerMetrics.HealthWarning?
+
+    func body(content: Content) -> some View {
+        content
+            .task {
+                while !Task.isCancelled {
+                    metrics.evaluateHealth()
+                    if !showing, let warning = metrics.pendingWarning {
+                        current = warning
+                        showing = true
+                    }
+                    try? await Task.sleep(for: .seconds(15))
+                }
+            }
+            .alert(alertTitle, isPresented: $showing, presenting: current) { warning in
+                Button("이 서버 사용 중지", role: .destructive) {
+                    pool.setEnabled(false, for: warning.id)
+                    metrics.acknowledge(warning)
+                }
+                Button("상태 확인") {
+                    metrics.acknowledge(warning)
+                    Task { await pool.refresh(warning.id) }
+                }
+                Button("계속 사용", role: .cancel) { metrics.acknowledge(warning) }
+            } message: { warning in
+                Text(warning.reasons.joined(separator: "\n"))
+            }
+    }
+
+    private var alertTitle: LocalizedStringKey {
+        switch current?.severity {
+        case .failing: "\(current?.serverName ?? "") 서버 요청이 계속 실패합니다"
+        case .stalled: "\(current?.serverName ?? "") 서버가 응답하지 않습니다"
+        case .slow: "\(current?.serverName ?? "") 서버가 느립니다"
+        case nil: "원격 서버 확인"
+        }
+    }
+}
+
+extension View {
+    func remoteServerHealthAlert() -> some View {
+        modifier(RemoteServerHealthAlert())
+    }
+}
+
 /// 외부 STTLMMServer와 오가는 요청의 성능을 서버별로 보여 줍니다.
 /// 어느 서버가 느린지, 전송·대기에 얼마를 쓰는지, 실제로 분산되고 있는지 확인하는 용도입니다.
 struct RemoteServerMonitorView: View {
