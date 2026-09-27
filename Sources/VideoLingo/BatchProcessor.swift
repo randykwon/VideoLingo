@@ -2339,6 +2339,39 @@ private struct BatchStartConfirmationView: View {
     }
 }
 
+/// 대량 번역 창 안에서 멀티 미리보기와 처리량/서버 상태를 함께 보는 화면입니다.
+private struct BatchMonitoringWorkspace: View {
+    @Environment(BatchProcessor.self) private var processor
+
+    var body: some View {
+        HSplitView {
+            BatchMultiMonitorView(isEmbedded: true)
+                .frame(minWidth: 560)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if processor.isRunning || processor.completedCount > 0 {
+                        BatchLiveMonitorView()
+                    } else {
+                        ContentUnavailableView(
+                            "아직 처리 기록이 없습니다",
+                            systemImage: "chart.xyaxis.line",
+                            description: Text("파일 목록 탭에서 영상을 추가하고 대량 번역을 시작하세요.")
+                        )
+                    }
+
+                    if !RemoteWorkerPool.shared.workers.isEmpty {
+                        RemoteServerMonitorView()
+                            .remoteServerHealthAlert()
+                    }
+                }
+                .padding(16)
+            }
+            .frame(minWidth: 360, idealWidth: 440)
+        }
+    }
+}
+
 private enum BatchMonitorFilter: String, CaseIterable, Identifiable {
     case active
     case attention
@@ -2363,6 +2396,11 @@ struct BatchMultiMonitorView: View {
     @AppStorage("batchMonitorColumnCount") private var columnCount = 2
     @State private var filter: BatchMonitorFilter = .active
     @State private var playbackSelection: Set<UUID> = []
+    let isEmbedded: Bool
+
+    init(isEmbedded: Bool = false) {
+        self.isEmbedded = isEmbedded
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2397,8 +2435,8 @@ struct BatchMultiMonitorView: View {
                 }
             }
         }
-        .navigationTitle("STT·번역 멀티 화면")
-        .frame(minWidth: 880, minHeight: 600)
+        .navigationTitle(isEmbedded ? "대량 번역" : "STT·번역 멀티 화면")
+        .frame(minWidth: isEmbedded ? 0 : 880, minHeight: isEmbedded ? 0 : 600)
         .onChange(of: Set(processor.items.map(\.id))) { _, availableIDs in
             playbackSelection.formIntersection(availableIDs)
         }
