@@ -1307,10 +1307,9 @@ final class BatchProcessor {
                     self.items[index].message = String(localized: "오디오 추출 중")
                 }
             }
-            guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
-                throw VideoLingoError.mediaHasNoAudio
-            }
-            try await exporter.export(to: audioURL, as: .m4a)
+            // 원본 오디오를 그대로 옮기지 않고 16kHz 모노로 다시 인코딩합니다.
+            // 손상된 AAC 프레임이 서버 디코딩을 깨뜨리는 것을 막고 전송량도 크게 줄입니다.
+            try await NormalizedAudioExporter.export(asset: asset, to: audioURL)
         }
 
         // 추출이 끝난 뒤에야 원격 자리를 잡습니다. 자리가 없거나 모두 실패하면 내장 서버로 넘어갑니다.

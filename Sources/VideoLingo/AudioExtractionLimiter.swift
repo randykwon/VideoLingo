@@ -1,3 +1,4 @@
+import AVFoundation
 import VideoLingoCore
 import Foundation
 
@@ -72,5 +73,88 @@ enum RemoteAudioWorkspaceCleaner {
             try? fileManager.removeItem(at: folder)
         }
         return reclaimed
+    }
+}
+
+/// 원격 전사용 오디오를 16kHz 모노 AAC로 정규화해 내보냅니다.
+///
+/// `AVAssetExportPresetAppleM4A`는 원본 채널·샘플레이트를 그대로 옮기는데, 손상된 AAC 프레임이
+/// 섞여 있으면 서버 ffmpeg가 `audio_decode_failed (channel element 0.0 duplicate)`로 거부합니다(실측).
+/// 여기서는 PCM으로 완전히 디코딩한 뒤 다시 인코딩하므로 깨진 프레임이 결과에 남지 않고,
+/// 서버가 어차피 16kHz 모노로 정규화하므로 전송량도 약 8분의 1로 줄어듭니다.
+enum NormalizedAudioExporter {
+    static func export(asset: AVURLAsset, to outputURL: URL) async throws {
+        guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
+            throw VideoLingoError.mediaHasNoAudio
+        }
+        try? FileManager.default.removeItem(at: outputURL)
+
+        let reader = try AVAssetReader(asset: asset)
+        let readerOutput = AVAssetReaderAudioMixOutput(
+            audioTracks: [track],
+            audioSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: 16_000,
+                AVNumberOfChannelsKey: 1,
+                AVLinearPCMBitDepthKey: 16,
+                AVLinearPCMIsFloatKey: false,
+                AVLinearPCMIsBigEndianKey: false,
+                AVLinearPCMIsNonInterleaved: false
+            ]
+        )
+        guard reader.canAdd(readerOutput) else { throw VideoLingoError.mediaHasNoAudio }
+        reader.add(readerOutput)
+
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .m4a)
+        let writerInput = AVAssetWriterInput(
+            mediaType: .audio,
+            outputSettings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: 16_000,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderBitRateKey: 32_000
+            ]
+        )
+        writerInput.expectsMediaDataInRealTime = false
+        guard writer.canAdd(writerInput) else { throw VideoLingoError.mediaHasNoAudio }
+        writer.add(writerInput)
+
+        guard reader.startReading() else {
+            throw reader.error ?? VideoLingoError.mediaHasNoAudio
+        }
+        guard writer.startWriting() else {
+            throw writer.error ?? VideoLingoError.mediaHasNoAudio
+        }
+        writer.startSession(atSourceTime: .zero)
+
+        let queue = DispatchQueue(label: "com.vvv.VideoLingo.audio-normalize")
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            writerInput.requestMediaDataWhenReady(on: queue) {
+                while writerInput.isReadyForMoreMediaData {
+                    guard let buffer = readerOutput.copyNextSampleBuffer() else {
+                        writerInput.markAsFinished()
+                        if reader.status == .failed {
+                            writer.cancelWriting()
+                            continuation.resume(throwing: reader.error ?? VideoLingoError.mediaHasNoAudio)
+                        } else {
+                            writer.finishWriting {
+                                if writer.status == .completed {
+                                    continuation.resume()
+                                } else {
+                                    continuation.resume(throwing: writer.error ?? VideoLingoError.mediaHasNoAudio)
+                                }
+                            }
+                        }
+                        return
+                    }
+                    if !writerInput.append(buffer) {
+                        writerInput.markAsFinished()
+                        writer.cancelWriting()
+                        continuation.resume(throwing: writer.error ?? VideoLingoError.mediaHasNoAudio)
+                        return
+                    }
+                }
+            }
+        }
     }
 }
