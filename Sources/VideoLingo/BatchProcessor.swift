@@ -3271,6 +3271,124 @@ private struct DuplicateFilenameReviewView: View {
     }
 }
 
+/// 외부 STTLMMServer와 오가는 요청의 성능을 서버별로 보여 줍니다.
+/// 어느 서버가 느린지, 전송·대기에 얼마를 쓰는지, 실제로 분산되고 있는지 확인하는 용도입니다.
+struct RemoteServerMonitorView: View {
+    @State private var metrics = RemoteServerMetrics.shared
+    @State private var pool = RemoteWorkerPool.shared
+
+    private func seconds(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return value < 1
+            ? String(format: "%.0fms", value * 1000)
+            : String(format: "%.1fs", value)
+    }
+
+    var body: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                if !metrics.hasRecords {
+                    Text("아직 원격 요청이 없습니다. 대량 번역을 시작하면 서버별 성능이 여기에 쌓입니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    // 합계 — 전체 흐름을 한 줄로 파악합니다.
+                    HStack(spacing: 14) {
+                        summary("요청", "\(metrics.totalRequests)")
+                        summary("진행 중", "\(metrics.totalInFlight)")
+                        summary("실패", "\(metrics.totalFailures)", tint: metrics.totalFailures > 0 ? .orange : nil)
+                        summary("전송량", ByteCountFormatter.string(fromByteCount: metrics.totalUploadedBytes, countStyle: .file))
+                        summary("전사 오디오", String(format: "%.0f분", metrics.totalAudioSeconds / 60))
+                        summary("번역 구간", "\(metrics.totalTranslatedTexts)")
+                    }
+                    .font(.caption.monospacedDigit())
+
+                    Divider()
+
+                    ForEach(metrics.orderedStats) { entry in
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 8) {
+                                Circle()
+                                    .fill(entry.totalInFlight > 0 ? Color.green : Color.secondary.opacity(0.5))
+                                    .frame(width: 7, height: 7)
+                                Text(entry.name).font(.callout.weight(.medium))
+                                if entry.totalInFlight > 0 {
+                                    Text("진행 \(entry.totalInFlight)")
+                                        .font(.caption2.monospacedDigit())
+                                        .foregroundStyle(.green)
+                                }
+                                Spacer()
+                                if let factor = entry.effectiveRealtimeFactor {
+                                    // 서버가 보고하는 배속과 달리 전송 시간까지 포함한 체감 속도입니다.
+                                    Text(String(format: "체감 %.0f배속", factor))
+                                        .font(.caption2.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                }
+                                if let reported = entry.lastRealtimeFactor {
+                                    Text(String(format: "서버 %.0f배속", reported))
+                                        .font(.caption2.monospacedDigit())
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                            ForEach(RemoteServerMetrics.Kind.allCases, id: \.self) { kind in
+                                let count = entry.requests[kind] ?? 0
+                                if count > 0 || (entry.inFlight[kind] ?? 0) > 0 {
+                                    HStack(spacing: 10) {
+                                        Text(kind.title).frame(width: 34, alignment: .leading)
+                                        Text("\(count)회")
+                                        Text("평균 \(seconds(entry.averageRoundTrip(kind)))")
+                                        if let overhead = entry.overheadRatio(kind) {
+                                            Text("전송·대기 \(Int(overhead * 100))%")
+                                                .foregroundStyle(overhead > 0.5 ? Color.orange : Color.secondary)
+                                        }
+                                        if let failures = entry.failures[kind], failures > 0 {
+                                            Text("실패 \(failures)").foregroundStyle(.orange)
+                                        }
+                                        Spacer()
+                                    }
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                                }
+                            }
+                            if let error = entry.lastError {
+                                Text(error)
+                                    .font(.caption2)
+                                    .foregroundStyle(.orange)
+                                    .lineLimit(2)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+
+                HStack {
+                    if !pool.workers.isEmpty {
+                        Text("등록 서버 \(pool.workers.count)대 · STT \(pool.totalSTTSlots)자리 · 번역 \(pool.totalTranslationSlots)자리")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("기록 지우기", systemImage: "arrow.counterclockwise") { metrics.reset() }
+                        .labelStyle(.titleOnly)
+                        .controlSize(.small)
+                        .disabled(!metrics.hasRecords)
+                }
+            }
+            .padding(4)
+        } label: {
+            Label("원격 서버 성능", systemImage: "gauge.with.dots.needle.33percent")
+        }
+    }
+
+    private func summary(_ title: String, _ value: String, tint: Color? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title).font(.caption2).foregroundStyle(.secondary)
+            Text(value).foregroundStyle(tint ?? .primary)
+        }
+    }
+}
+
 /// 파일명이 달라도 내용이 같은 영상을 찾아 정리합니다.
 private struct ContentDuplicateReviewView: View {
     @Environment(BatchProcessor.self) private var processor
