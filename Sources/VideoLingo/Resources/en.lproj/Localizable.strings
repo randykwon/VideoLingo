@@ -503,3 +503,14 @@
 "사용 가능한 원격 서버가 없습니다." = "No remote server is available.";
 "이전 작업이 남긴 오디오 %@를 정리했습니다." = "Cleaned up %@ of audio left by earlier runs.";
 "원격 STT 완료 · 번역 대기 중" = "Remote STT done · waiting for translation";
+"실시간 처리 현황" = "Live progress";
+"처리량 (최근 10분)" = "Throughput (last 10 min)";
+"처리량 그래프는 잠시 뒤부터 표시됩니다." = "The throughput chart appears shortly.";
+"처리 위치" = "Where work runs";
+"내장 서버" = "Built-in server";
+"STT 청크/분" = "STT chunks/min";
+"번역 구간/분" = "Segments/min";
+"원격 실패" = "Remote failures";
+"대기" = "Waiting";
+"추출" = "Extract";
+"개선" = "Refine";
