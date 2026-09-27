@@ -1249,7 +1249,7 @@ final class BatchProcessor {
 
     /// 영상에서 오디오 청크를 뽑아 하나씩 원격 서버에서 인식합니다.
     /// 원본을 통째로 올리지 않으므로 서버 업로드 한도와 무관하고, 이미 저장된 청크는 건너뜁니다.
-    private func transcribeRemotely(itemID: UUID, jobID: UUID, mediaURL: URL, worker: RemoteWorkerConfiguration) async throws {
+    private func transcribeRemotely(itemID: UUID, jobID: UUID, mediaURL: URL) async throws {
         let paths = try AppPaths()
         let store = try JobStore(url: paths.database)
         try store.createJob(id: jobID, mediaURL: mediaURL, options: options)
