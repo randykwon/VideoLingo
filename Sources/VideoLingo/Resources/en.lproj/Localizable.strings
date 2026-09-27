@@ -521,3 +521,5 @@
 "실제 1분당 완성한 번역 구간" = "Segments completed per real minute";
 "%.1f배속" = "%.1f×";
 "번역 %.1f/분" = "translate %.1f/min";
+"내장 SSD로 복사 중" = "Copying to internal SSD";
+"오디오 추출 중 (SSD)" = "Extracting audio (SSD)";
