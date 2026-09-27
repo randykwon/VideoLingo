@@ -1793,6 +1793,11 @@ struct BatchTranslationView: View {
                     }
                 }
 
+                // 처리 중이거나 결과가 쌓였을 때 실시간 그래프를 보여 줍니다.
+                if processor.isRunning || processor.completedCount > 0 {
+                    BatchLiveMonitorView()
+                }
+
                 // 원격 서버를 쓰는 동안에만 성능 패널을 보여 줍니다.
                 if !RemoteWorkerPool.shared.workers.isEmpty {
                     RemoteServerMonitorView()
