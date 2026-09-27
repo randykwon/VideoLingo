@@ -1410,7 +1410,7 @@ final class BatchProcessor {
         items[index].sttCompleted = true
         items[index].sttProgress = 1
         items[index].status = .queued
-        items[index].message = String(localized: "\(worker.name) STT 완료 · 번역 대기 중")
+        items[index].message = String(localized: "원격 STT 완료 · 번역 대기 중")
     }
 
     /// STT는 로컬에서 끝내고 번역만 원격 서버에 맡깁니다.
