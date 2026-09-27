@@ -211,7 +211,7 @@ final class BatchProcessor {
         let rememberedURLs = rememberedPaths
             .map { URL(filePath: $0).standardizedFileURL }
             .filter { FileManager.default.fileExists(atPath: $0.path) && Self.isSupportedVideoURL($0) }
-        items = Array(Set(rememberedURLs)).map(Item.init(url:)).sorted {
+        items = Array(Set(rememberedURLs)).map { Item(url: $0) }.sorted {
             $0.url.path.localizedStandardCompare($1.url.path) == .orderedAscending
         }
         rememberCurrentVideoList()
