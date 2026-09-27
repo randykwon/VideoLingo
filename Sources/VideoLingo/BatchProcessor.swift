@@ -869,6 +869,15 @@ final class BatchProcessor {
         isRunning = true
         isPaused = false
         runTask = Task { [weak self] in
+            // 앱이 강제 종료되면 추출 파일 정리가 실행되지 않아 수백 MB가 남습니다. 시작할 때 걷어냅니다.
+            let reclaimed = RemoteAudioWorkspaceCleaner.removeOrphans()
+            if reclaimed > 0 {
+                await MainActor.run {
+                    self?.folderScanMessage = String(
+                        localized: "이전 작업이 남긴 오디오 \(ByteCountFormatter.string(fromByteCount: reclaimed, countStyle: .file))를 정리했습니다."
+                    )
+                }
+            }
             await RemoteWorkerPool.shared.refreshAll()
             await self?.runQueue()
         }
