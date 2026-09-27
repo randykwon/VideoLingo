@@ -40,10 +40,28 @@ struct RemoteWorkerClient: Sendable {
     struct STTResponse: Decodable, Sendable {
         let language: String?
         let segments: [STTSegment]?
+        /// 아래 세 값은 성능 모니터링용입니다. 서버가 함께 돌려줍니다.
+        let duration: Double?
+        let processingSeconds: Double?
+        let realtimeFactor: Double?
+
+        enum CodingKeys: String, CodingKey {
+            case language, segments, duration
+            case processingSeconds = "processing_seconds"
+            case realtimeFactor = "realtime_factor"
+        }
     }
 
     private struct TranslateItem: Decodable, Sendable { let text: String }
-    private struct TranslateResponse: Decodable, Sendable { let translations: [TranslateItem] }
+    private struct TranslateResponse: Decodable, Sendable {
+        let translations: [TranslateItem]
+        let processingSeconds: Double?
+
+        enum CodingKeys: String, CodingKey {
+            case translations
+            case processingSeconds = "processing_seconds"
+        }
+    }
 
     let worker: RemoteWorkerConfiguration
 
