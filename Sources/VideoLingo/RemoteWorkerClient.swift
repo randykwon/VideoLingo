@@ -162,10 +162,39 @@ struct RemoteWorkerClient: Sendable {
         onProgress: @Sendable (String) -> Void = { _ in }
     ) async throws -> STTResponse {
         let size = (try? FileManager.default.attributesOfItem(atPath: audioURL.path)[.size] as? NSNumber)??.intValue ?? 0
-        if size > Self.singleRequestLimit {
-            return try await transcribeViaUploadSession(audioURL: audioURL, size: size, language: language, onProgress: onProgress)
+        // 성능 모니터링: 왕복 시간과 전송량을 여기서 재고, 서버가 보고한 처리 시간과 비교합니다.
+        let started = Date.now
+        let worker = self.worker
+        await RemoteServerMetrics.shared.requestStarted(worker: worker, kind: .stt)
+        do {
+            let response = size > Self.singleRequestLimit
+                ? try await transcribeViaUploadSession(audioURL: audioURL, size: size, language: language, onProgress: onProgress)
+                : try await transcribeSingleRequest(audioURL: audioURL, language: language)
+            await RemoteServerMetrics.shared.requestFinished(
+                worker: worker,
+                kind: .stt,
+                roundTrip: Date.now.timeIntervalSince(started),
+                serverSeconds: response.processingSeconds,
+                uploadedBytes: Int64(size),
+                audioSeconds: response.duration,
+                realtimeFactor: response.realtimeFactor
+            )
+            return response
+        } catch {
+            await RemoteServerMetrics.shared.requestFinished(
+                worker: worker,
+                kind: .stt,
+                roundTrip: Date.now.timeIntervalSince(started),
+                serverSeconds: nil,
+                uploadedBytes: Int64(size),
+                failure: error.localizedDescription
+            )
+            throw error
         }
-        return try await withRetry {
+    }
+
+    private func transcribeSingleRequest(audioURL: URL, language: String?) async throws -> STTResponse {
+        try await withRetry {
             var fields = ["response_format": "verbose_json", "timestamp_granularities": "segment"]
             if let language, !language.isEmpty { fields["language"] = language }
             let (bodyURL, boundary) = try multipartBody(fileURL: audioURL, fields: fields)
