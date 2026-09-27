@@ -45,6 +45,7 @@ final class BatchProcessor {
     private static let snapshotPollingInterval = Duration.seconds(2)
     private static let missingSnapshotRecoveryThreshold = 3
     private static let maximumServiceRecoveryAttempts = 3
+    private static let rememberedVideoPathsKey = "batchRememberedVideoPaths"
 
     struct DuplicateFilenameGroup: Identifiable {
         let id: String
@@ -193,16 +194,34 @@ final class BatchProcessor {
     var alternateResultDirectoryURL: URL?
 
     private init() {
-        guard let bookmark = UserDefaults.standard.data(forKey: "batchAlternateResultDirectoryBookmark") else { return }
-        var stale = false
-        if let url = try? URL(
-            resolvingBookmarkData: bookmark,
-            options: [.withSecurityScope],
-            relativeTo: nil,
-            bookmarkDataIsStale: &stale
-        ) {
-            alternateResultDirectoryBookmark = bookmark
-            alternateResultDirectoryURL = url
+        if let bookmark = UserDefaults.standard.data(forKey: "batchAlternateResultDirectoryBookmark") {
+            var stale = false
+            if let url = try? URL(
+                resolvingBookmarkData: bookmark,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            ) {
+                alternateResultDirectoryBookmark = bookmark
+                alternateResultDirectoryURL = url
+            }
+        }
+
+        let rememberedPaths = UserDefaults.standard.stringArray(forKey: Self.rememberedVideoPathsKey) ?? []
+        let rememberedURLs = rememberedPaths
+            .map { URL(filePath: $0).standardizedFileURL }
+            .filter { FileManager.default.fileExists(atPath: $0.path) && Self.isSupportedVideoURL($0) }
+        items = Array(Set(rememberedURLs)).map(Item.init(url:)).sorted {
+            $0.url.path.localizedStandardCompare($1.url.path) == .orderedAscending
+        }
+        rememberCurrentVideoList()
+
+        if !items.isEmpty {
+            folderScanMessage = String(localized: "지난 검색 결과 영상 \(items.count)개를 복원했습니다.")
+            Task { @MainActor [weak self] in
+                await Task.yield()
+                self?.refreshExistingResults()
+            }
         }
     }
 
@@ -397,8 +416,17 @@ final class BatchProcessor {
             items.append(Item(url: url))
             addedCount += 1
         }
-        if addedCount > 0 { refreshExistingResults() }
+        if addedCount > 0 {
+            rememberCurrentVideoList()
+            refreshExistingResults()
+        }
         return addedCount
+    }
+
+    /// 폴더 검색과 파일 추가로 만든 목록을 다음 앱 실행에서도 복원합니다.
+    private func rememberCurrentVideoList() {
+        let paths = items.map { $0.url.standardizedFileURL.path(percentEncoded: false) }
+        UserDefaults.standard.set(paths, forKey: Self.rememberedVideoPathsKey)
     }
 
     private func isSupportedVideo(_ url: URL) -> Bool {
@@ -483,12 +511,14 @@ final class BatchProcessor {
     func remove(at offsets: IndexSet) {
         guard !isRunning else { return }   // 실행 중에는 인덱스 무효화 방지를 위해 편집 금지
         items.remove(atOffsets: offsets)
+        rememberCurrentVideoList()
     }
 
     func remove(ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
         stop(ids: ids)
         items.removeAll { ids.contains($0.id) }
+        rememberCurrentVideoList()
     }
 
     func moveVideosToTrash(ids: Set<UUID>) async -> BatchTrashResult {
@@ -529,6 +559,7 @@ final class BatchProcessor {
 
         let movedSet = Set(outcome.0)
         items.removeAll { movedSet.contains($0.id) }
+        rememberCurrentVideoList()
         return BatchTrashResult(movedCount: movedSet.count, failureMessage: outcome.1)
     }
 
@@ -616,6 +647,7 @@ final class BatchProcessor {
     func clearFinished() {
         guard !isRunning else { return }
         items.removeAll { $0.isFinished }
+        rememberCurrentVideoList()
     }
 
     func retry(_ id: UUID) {
