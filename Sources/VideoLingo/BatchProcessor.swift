@@ -2016,8 +2016,9 @@ struct BatchTranslationView: View {
                 .environment(processor)
         }
         .dropDestination(for: URL.self) { urls, _ in
-            processor.addDroppedURLs(urls)
+            let didAddFiles = processor.addDroppedURLs(urls)
             workspaceTab = .files
+            return didAddFiles
         } isTargeted: { targeted in
             withAnimation(.snappy) { isDropTargeted = targeted }
         }
