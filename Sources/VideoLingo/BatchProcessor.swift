@@ -1262,36 +1262,68 @@ final class BatchProcessor {
             return
         }
 
-        let client = RemoteWorkerClient(worker: worker)
         let workspace = paths.workspace(for: jobID).appending(path: "RemoteAudio", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: workspace) }
 
         // 서버는 파일 하나를 통으로 처리할 때 가장 빠릅니다(실측 65배속).
         // 구간을 나눠 수십 번 왕복하는 대신 오디오 트랙 전체를 한 번 보냅니다.
+        //
+        // 추출은 로컬 CPU 작업이고 수 분이 걸립니다. 원격 슬롯을 잡은 채로 추출하면
+        // 그동안 서버가 유휴로 남고 Mac만 과부하가 되므로, 슬롯 밖에서 별도 제한으로 처리합니다.
         if let index = items.firstIndex(where: { $0.id == itemID }) {
             items[index].status = .extracting
             items[index].totalChunks = total
-            items[index].message = String(localized: "오디오 추출 중")
+            items[index].message = String(localized: "오디오 추출 대기 중")
         }
         let audioURL = workspace.appending(path: "audio.m4a")
-        guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
-            throw VideoLingoError.mediaHasNoAudio
-        }
-        try await exporter.export(to: audioURL, as: .m4a)
-
-        if let index = items.firstIndex(where: { $0.id == itemID }) {
-            items[index].status = .transcribing
-            items[index].message = String(localized: "\(worker.name)에 오디오 전송 중")
-        }
-        let response = try await client.transcribeAudio(
-            audioURL: audioURL,
-            language: options.sourceLanguage
-        ) { [weak self] note in
-            Task { @MainActor in
-                guard let self, let index = self.items.firstIndex(where: { $0.id == itemID }) else { return }
-                self.items[index].message = "\(worker.name) · \(note)"
+        try await AudioExtractionLimiter.shared.withSlot {
+            await MainActor.run {
+                if let index = self.items.firstIndex(where: { $0.id == itemID }) {
+                    self.items[index].message = String(localized: "오디오 추출 중")
+                }
             }
+            guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
+                throw VideoLingoError.mediaHasNoAudio
+            }
+            try await exporter.export(to: audioURL, as: .m4a)
+        }
+
+        // 추출이 끝난 뒤에야 원격 자리를 잡습니다. 자리가 없거나 모두 실패하면 내장 서버로 넘어갑니다.
+        var triedWorkers: Set<UUID> = []
+        var response: RemoteWorkerClient.STTResponse?
+        var lastFailure: Error?
+        while let worker = RemoteWorkerPool.shared.acquire(for: .stt, excluding: triedWorkers) {
+            triedWorkers.insert(worker.id)
+            defer { RemoteWorkerPool.shared.release(worker.id, purpose: .stt) }
+            if let index = items.firstIndex(where: { $0.id == itemID }) {
+                items[index].status = .transcribing
+                items[index].message = String(localized: "\(worker.name)에 오디오 전송 중")
+            }
+            do {
+                response = try await RemoteWorkerClient(worker: worker).transcribeAudio(
+                    audioURL: audioURL,
+                    language: options.sourceLanguage
+                ) { [weak self] note in
+                    Task { @MainActor in
+                        guard let self, let index = self.items.firstIndex(where: { $0.id == itemID }) else { return }
+                        self.items[index].message = "\(worker.name) · \(note)"
+                    }
+                }
+                break
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastFailure = error
+                if let index = items.firstIndex(where: { $0.id == itemID }) {
+                    items[index].message = String(localized: "\(worker.name) 전사 실패 · 다른 서버 확인 중")
+                }
+            }
+        }
+        guard let response else {
+            throw lastFailure ?? RemoteWorkerClientError.failed(
+                String(localized: "사용 가능한 원격 서버가 없습니다.")
+            )
         }
         try? FileManager.default.removeItem(at: audioURL)
 
