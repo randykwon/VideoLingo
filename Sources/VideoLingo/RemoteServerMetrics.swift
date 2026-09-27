@@ -182,7 +182,7 @@ final class RemoteServerMetrics {
             for kind in Kind.allCases {
                 guard (entry.inFlight[kind] ?? 0) > 0, let since = entry.inFlightSince[kind] else { continue }
                 let waited = now.timeIntervalSince(since)
-                let limit: TimeInterval = kind == .stt ? 1800 : 300
+                let limit: TimeInterval = kind == .stt ? 900 : 300
                 if waited > limit {
                     if severity == nil { severity = .stalled }
                     reasons.append(String(localized: "\(kind.title) 요청이 \(Int(waited / 60))분째 응답이 없습니다."))

@@ -496,3 +496,5 @@
 "%@ 요청이 %lld분째 응답이 없습니다." = "A %@ request has had no response for %lld minutes.";
 "체감 처리 속도가 실시간의 %@배로 느립니다." = "Effective throughput is only %@× realtime.";
 "번역 요청 시간의 %lld%%가 전송·대기에 쓰이고 있습니다." = "%lld%% of translation request time is spent on transfer and queueing.";
+"%@ 서버가 정상 응답하지 않습니다." = "%@ is not responding normally.";
+"%@ 서버에 연결할 수 없습니다: %@" = "Cannot reach %@: %@";
