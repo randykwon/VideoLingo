@@ -386,9 +386,32 @@ struct RemoteWorkerClient: Sendable {
             request.timeoutInterval = 60 * 60
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-            try validate(response, data: data)
-            results += try JSONDecoder().decode(TranslateResponse.self, from: data).translations.map(\.text)
+            // 배치 단위로 왕복 시간과 서버 처리 시간을 기록합니다.
+            let started = Date.now
+            await RemoteServerMetrics.shared.requestStarted(worker: worker, kind: .translation)
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                try validate(response, data: data)
+                let decoded = try JSONDecoder().decode(TranslateResponse.self, from: data)
+                await RemoteServerMetrics.shared.requestFinished(
+                    worker: worker,
+                    kind: .translation,
+                    roundTrip: Date.now.timeIntervalSince(started),
+                    serverSeconds: decoded.processingSeconds,
+                    uploadedBytes: Int64(request.httpBody?.count ?? 0),
+                    translatedTexts: decoded.translations.count
+                )
+                results += decoded.translations.map(\.text)
+            } catch {
+                await RemoteServerMetrics.shared.requestFinished(
+                    worker: worker,
+                    kind: .translation,
+                    roundTrip: Date.now.timeIntervalSince(started),
+                    serverSeconds: nil,
+                    failure: error.localizedDescription
+                )
+                throw error
+            }
         }
         return results
     }
