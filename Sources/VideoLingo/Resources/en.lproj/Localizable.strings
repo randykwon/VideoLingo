@@ -485,3 +485,14 @@
 "실패 %lld" = "%lld failed";
 "%lld회" = "%lld calls";
 "등록 서버 %lld대 · STT %lld자리 · 번역 %lld자리" = "%lld servers · %lld STT slots · %lld translation slots";
+"%@ 서버 요청이 계속 실패합니다" = "Requests to %@ keep failing";
+"%@ 서버가 응답하지 않습니다" = "%@ is not responding";
+"%@ 서버가 느립니다" = "%@ is slow";
+"원격 서버 확인" = "Check remote server";
+"이 서버 사용 중지" = "Disable this server";
+"상태 확인" = "Check status";
+"계속 사용" = "Keep using";
+"요청이 연속 %lld회 실패했습니다." = "%lld consecutive requests failed.";
+"%@ 요청이 %lld분째 응답이 없습니다." = "A %@ request has had no response for %lld minutes.";
+"체감 처리 속도가 실시간의 %@배로 느립니다." = "Effective throughput is only %@× realtime.";
+"번역 요청 시간의 %lld%%가 전송·대기에 쓰이고 있습니다." = "%lld%% of translation request time is spent on transfer and queueing.";
