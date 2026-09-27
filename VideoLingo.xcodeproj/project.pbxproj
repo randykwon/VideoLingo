@@ -35,6 +35,7 @@
 		8914F072CB83FEE3460D642F /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = F2540BFA03D82677F4CB2DD9 /* MLXLMCommon */; };
 		8BFEE98D0588EACC8EBE480B /* SegmentQualityComparator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D0E033737DF093CD2426172 /* SegmentQualityComparator.swift */; };
 		8D6CA2AE2A754C6BF84565DE /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4733F909A2286563C9BA2E3 /* ContentView.swift */; };
+		8EB88DBEF1D31FF157A67375 /* AudioExtractionLimiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C158E751A85A0B3C729BCF /* AudioExtractionLimiter.swift */; };
 		8EC7A0FACCE4BD10C4F7CA6E /* TranscriptTextSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2876CAD09B83DF7F2EBD6CC /* TranscriptTextSanitizer.swift */; };
 		90D2545110A5EC29AB25B524 /* MediaSidecarStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 646E49E8FB61BA60715DD692 /* MediaSidecarStore.swift */; };
 		931EC3EA68A19A0BA6A68811 /* ServiceDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77000A3238B525A3BBEB590 /* ServiceDelegate.swift */; };
@@ -169,6 +170,7 @@
 		79A156114B29D4BC57E93E1B /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
 		7A5043D4A8F25D593601FB90 /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
 		8622B216D379DB3EFB80BE0B /* TranscriptCoverage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptCoverage.swift; sourceTree = "<group>"; };
+		90C158E751A85A0B3C729BCF /* AudioExtractionLimiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioExtractionLimiter.swift; sourceTree = "<group>"; };
 		9DD89FEABFD63CD5DDE25032 /* VideoLingoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoLingoApp.swift; sourceTree = "<group>"; };
 		A349C763E7806063B6CC44B5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		A4C1EAFEF20CEC31F93495A2 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
@@ -249,6 +251,7 @@
 			children = (
 				A4C1EAFEF20CEC31F93495A2 /* AppModel.swift */,
 				C9DED6B67062A46FC6A28F0F /* Assets.xcassets */,
+				90C158E751A85A0B3C729BCF /* AudioExtractionLimiter.swift */,
 				709523048B431CBC0307F264 /* BatchProcessor.swift */,
 				D4733F909A2286563C9BA2E3 /* ContentView.swift */,
 				C57EADFA1E673C871BB0BC1E /* Info.plist */,
@@ -617,6 +620,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				FD76F04FE5F46E56BCE9CF22 /* AppModel.swift in Sources */,
+				8EB88DBEF1D31FF157A67375 /* AudioExtractionLimiter.swift in Sources */,
 				9ED15EC1D94252A1C51E13B0 /* BatchProcessor.swift in Sources */,
 				8D6CA2AE2A754C6BF84565DE /* ContentView.swift in Sources */,
 				FD622FF84922BCF6A0AF6D4F /* KeyboardShortcuts.swift in Sources */,
