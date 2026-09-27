@@ -144,6 +144,21 @@ struct BatchLiveMonitorView: View {
     @Environment(BatchProcessor.self) private var processor
     @State private var recorder = BatchThroughputRecorder.shared
     @State private var metrics = RemoteServerMetrics.shared
+    @State private var breakdown: Breakdown = .combined
+    @State private var perServerMetric: PerServerMetric = .stt
+
+    private enum Breakdown: Hashable { case combined, perServer }
+
+    private enum PerServerMetric: Hashable {
+        case stt, translation
+
+        var title: String {
+            switch self {
+            case .stt: String(localized: "STT 배속")
+            case .translation: String(localized: "번역 구간/분")
+            }
+        }
+    }
 
     /// 화면에 나눠 보여 줄 단계입니다. 순서가 곧 파이프라인 순서입니다.
     private enum Stage: String, CaseIterable, Plottable {
