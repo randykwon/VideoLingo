@@ -146,9 +146,13 @@ final class BatchProcessor {
     }
 
     var effectiveSTTConcurrentJobs: Int {
-        (automaticallyAdjustConcurrentJobs
+        let local = automaticallyAdjustConcurrentJobs
             ? min(4, max(2, recommendedConcurrentJobs + 1))
-            : maximumConcurrentSTTJobs) + RemoteWorkerPool.shared.totalSTTSlots
+            : maximumConcurrentSTTJobs
+        // 원격 자리를 그대로 더하면 오디오 추출까지 그만큼 로컬에서 동시에 돌아 Mac이 과부하가 됩니다.
+        // 추출은 AudioExtractionLimiter가 따로 막으므로, 여기서는 대기 줄만 완만하게 늘립니다.
+        let remote = RemoteWorkerPool.shared.totalSTTSlots
+        return local + min(remote, 3)
     }
 
     var effectiveConcurrentJobs: Int {
