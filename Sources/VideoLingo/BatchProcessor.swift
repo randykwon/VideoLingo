@@ -1064,26 +1064,37 @@ final class BatchProcessor {
 
             // STT는 오디오 청크만, 번역은 텍스트만 보내므로 두 레인 모두 원격을 쓸 수 있습니다.
             // 자리가 없거나 실패하면 기존 내장 서버 흐름으로 자동 전환합니다.
-            let leasePurpose: RemoteWorkerPool.Purpose = phase == .stt ? .stt : .translation
             let stage = phase == .stt ? String(localized: "STT") : String(localized: "번역")
-            // 한 서버가 실패하면 남은 서버로 넘어가고, 모두 실패했을 때만 내장 서버로 돌아갑니다.
-            var triedWorkers: Set<UUID> = []
             var lastRemoteFailure: String?
-            while let worker = RemoteWorkerPool.shared.acquire(for: leasePurpose, excluding: triedWorkers) {
-                triedWorkers.insert(worker.id)
-                defer { RemoteWorkerPool.shared.release(worker.id, purpose: leasePurpose) }
-                do {
-                    switch phase {
-                    case .stt: try await transcribeRemotely(itemID: itemID, jobID: jobID, mediaURL: url, worker: worker)
-                    case .translation: try await translateRemotely(itemID: itemID, jobID: jobID, mediaURL: url, worker: worker)
+            switch phase {
+            case .stt:
+                // STT는 추출을 슬롯 밖에서 하므로 여기서 자리를 잡지 않고, 내부에서 직접 임대합니다.
+                if RemoteWorkerPool.shared.hasUsableWorker {
+                    do {
+                        try await transcribeRemotely(itemID: itemID, jobID: jobID, mediaURL: url)
+                        return
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        lastRemoteFailure = error.localizedDescription
                     }
-                    return
-                } catch is CancellationError {
-                    throw CancellationError()
-                } catch {
-                    lastRemoteFailure = "\(worker.name): \(error.localizedDescription)"
-                    if let index = items.firstIndex(where: { $0.id == itemID }) {
-                        items[index].message = String(localized: "\(worker.name) 원격 \(stage) 실패 · 다른 서버 확인 중")
+                }
+            case .translation:
+                // 번역은 텍스트만 보내 금방 끝나므로 기존처럼 자리를 잡고 서버를 순회합니다.
+                var triedWorkers: Set<UUID> = []
+                while let worker = RemoteWorkerPool.shared.acquire(for: .translation, excluding: triedWorkers) {
+                    triedWorkers.insert(worker.id)
+                    defer { RemoteWorkerPool.shared.release(worker.id, purpose: .translation) }
+                    do {
+                        try await translateRemotely(itemID: itemID, jobID: jobID, mediaURL: url, worker: worker)
+                        return
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        lastRemoteFailure = "\(worker.name): \(error.localizedDescription)"
+                        if let index = items.firstIndex(where: { $0.id == itemID }) {
+                            items[index].message = String(localized: "\(worker.name) 원격 \(stage) 실패 · 다른 서버 확인 중")
+                        }
                     }
                 }
             }
