@@ -1301,15 +1301,35 @@ final class BatchProcessor {
             items[index].message = String(localized: "오디오 추출 대기 중")
         }
         let audioURL = workspace.appending(path: "audio.m4a")
+        // 외장 디스크에서는 동시에 하나만 직접 읽고, 나머지는 SSD로 순차 복사한 뒤 처리합니다.
+        // 디코딩 읽기는 랜덤 액세스가 섞여 느리지만 복사는 순차라 훨씬 빠릅니다(실측).
+        let staging = paths.workspace(for: jobID).appending(path: "Staging", directoryHint: .isDirectory)
+        let prepared = try await ExternalMediaStager.shared.prepare(
+            mediaURL: mediaURL,
+            stagingDirectory: staging
+        ) { [weak self] in
+            Task { @MainActor in
+                guard let self, let index = self.items.firstIndex(where: { $0.id == itemID }) else { return }
+                self.items[index].message = String(localized: "내장 SSD로 복사 중")
+            }
+        }
+        defer {
+            let finished = prepared
+            Task { await ExternalMediaStager.shared.finish(finished) }
+        }
+        let sourceAsset = prepared.didCopy ? AVURLAsset(url: prepared.url) : asset
+
         try await AudioExtractionLimiter.shared.withSlot {
             await MainActor.run {
                 if let index = self.items.firstIndex(where: { $0.id == itemID }) {
-                    self.items[index].message = String(localized: "오디오 추출 중")
+                    self.items[index].message = prepared.didCopy
+                        ? String(localized: "오디오 추출 중 (SSD)")
+                        : String(localized: "오디오 추출 중")
                 }
             }
             // 원본 오디오를 그대로 옮기지 않고 16kHz 모노로 다시 인코딩합니다.
             // 손상된 AAC 프레임이 서버 디코딩을 깨뜨리는 것을 막고 전송량도 크게 줄입니다.
-            try await NormalizedAudioExporter.export(asset: asset, to: audioURL)
+            try await NormalizedAudioExporter.export(asset: sourceAsset, to: audioURL)
         }
 
         // 추출이 끝난 뒤에야 원격 자리를 잡습니다. 자리가 없거나 모두 실패하면 내장 서버로 넘어갑니다.
