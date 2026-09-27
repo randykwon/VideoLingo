@@ -514,3 +514,10 @@
 "대기" = "Waiting";
 "추출" = "Extract";
 "개선" = "Refine";
+"합계" = "Combined";
+"서버별" = "Per server";
+"STT 배속" = "STT speed";
+"실제 1분당 전사한 오디오 분량" = "Audio minutes transcribed per real minute";
+"실제 1분당 완성한 번역 구간" = "Segments completed per real minute";
+"%.1f배속" = "%.1f×";
+"번역 %.1f/분" = "translate %.1f/min";
