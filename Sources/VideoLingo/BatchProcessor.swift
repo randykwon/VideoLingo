@@ -1055,7 +1055,7 @@ final class BatchProcessor {
             }
             if let index = items.firstIndex(where: { $0.id == itemID }) {
                 items[index].message = String(
-                    localized: "원격 서버 대기 · 내장 CPU \(Int(cpuUsage.rounded()))% (상한 \(localCPUUsageLimit)%)"
+                    localized: "내장 서버 시작 대기 · CPU \(Int(cpuUsage.rounded()))% (상한 \(localCPUUsageLimit)%)"
                 )
             }
             try await Task.sleep(for: .seconds(1))
