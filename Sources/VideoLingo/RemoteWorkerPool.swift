@@ -77,11 +77,12 @@ final class RemoteWorkerPool {
     private var sttReservations = 0
 
     /// 원격 경로 자리를 예약합니다. 실패하면 호출자는 내장 서버로 처리해야 합니다.
-    /// 추출이 진행되는 동안 서버가 굶지 않도록 자리 수보다 약간 넉넉하게 받습니다.
-    func reserveRemoteSTT() -> Bool {
+    /// 추출이 진행되는 동안 서버가 굶지 않도록 요청 배수만큼 대기열을 유지합니다.
+    func reserveRemoteSTT(queueMultiplier: Int = 1) -> Bool {
         let slots = totalSTTSlots
         guard slots > 0 else { return false }
-        guard sttReservations < slots + 2 else { return false }
+        let reservationLimit = slots * min(4, max(1, queueMultiplier))
+        guard sttReservations < reservationLimit else { return false }
         sttReservations += 1
         return true
     }
@@ -121,6 +122,26 @@ final class RemoteWorkerPool {
         }
         activeLeases[Lease(worker: selected.id, purpose: purpose), default: 0] += 1
         return workerUsingDefaultTokenIfNeeded(selected)
+    }
+
+    /// 서버가 잠시 가득 찼을 때 바로 내장 서버로 돌아가지 않고 빈 슬롯을 기다립니다.
+    /// 연결 가능한 후보가 사라졌거나 모든 서버가 이미 실패 후보로 제외되면 즉시 반환합니다.
+    func acquireWaiting(
+        for purpose: Purpose,
+        excluding excluded: Set<UUID> = [],
+        timeout: Duration = .seconds(20)
+    ) async -> RemoteWorkerConfiguration? {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !Task.isCancelled {
+            if let worker = acquire(for: purpose, excluding: excluded) { return worker }
+            let hasEligibleWorker = availableWorkers.contains { worker, status in
+                !excluded.contains(worker.id) && purpose.slots(in: status.capabilities) > 0
+            }
+            guard hasEligibleWorker, clock.now < deadline else { return nil }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        return nil
     }
 
     func release(_ id: UUID, purpose: Purpose) {
