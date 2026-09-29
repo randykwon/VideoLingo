@@ -215,6 +215,7 @@ final class BatchProcessor {
     private var activeJobIDsByItem: [UUID: UUID] = [:]
     private var activeLocalSTTJobs = 0
     private var activeLocalTranslationJobs = 0
+    private var localServiceCPUSample: (uptime: TimeInterval, cpuNanoseconds: UInt64)?
     private var scheduledItemIDs: Set<UUID> = []
     private var pausedItemIDs: Set<UUID> = []
     private var alternateResultDirectoryBookmark: Data?
@@ -1038,12 +1039,37 @@ final class BatchProcessor {
         scheduledItemIDs.contains(item.id) && !item.isFinished && !item.isProcessing && item.sttCompleted
     }
 
-    /// 시스템 전체 부하의 1분 평균을 논리 코어 수로 정규화한 값입니다.
-    /// 순간 측정값보다 안정적이라 새 내장 작업을 시작할지 판단하는 소프트 가드에 적합합니다.
-    private var estimatedSystemCPUUsage: Double {
-        var loads = [Double](repeating: 0, count: 3)
-        guard getloadavg(&loads, Int32(loads.count)) > 0 else { return 0 }
-        return min(100, max(0, loads[0] / Double(max(1, ProcessInfo.processInfo.activeProcessorCount)) * 100))
+    /// VideoLingoAIService 프로세스만 표본화해 다른 앱의 빌드나 렌더링 부하가
+    /// 대량 번역의 로컬 큐를 불필요하게 막지 않도록 합니다.
+    private func measuredLocalServiceCPUUsage() -> Double {
+        var pids = [pid_t](repeating: 0, count: 4_096)
+        let byteCount = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size))
+        guard byteCount > 0 else { return 0 }
+
+        var totalNanoseconds: UInt64 = 0
+        for pid in pids.prefix(Int(byteCount) / MemoryLayout<pid_t>.size) {
+            var name = [CChar](repeating: 0, count: 128)
+            guard proc_name(pid, &name, UInt32(name.count)) > 0,
+                  String(cString: name) == "VideoLingoAIService" else { continue }
+            var usage = rusage_info_v4()
+            let result = withUnsafeMutablePointer(to: &usage) { pointer in
+                pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
+                    proc_pid_rusage(pid, RUSAGE_INFO_V4, $0)
+                }
+            }
+            if result == 0 {
+                totalNanoseconds &+= usage.ri_user_time &+ usage.ri_system_time
+            }
+        }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        defer { localServiceCPUSample = (now, totalNanoseconds) }
+        guard let previous = localServiceCPUSample,
+              now > previous.uptime,
+              totalNanoseconds >= previous.cpuNanoseconds else { return 0 }
+        let elapsed = now - previous.uptime
+        let consumed = Double(totalNanoseconds - previous.cpuNanoseconds) / 1_000_000_000
+        return min(1_000, max(0, consumed / elapsed * 100))
     }
 
     private var localConcurrencyLimit: Int {
@@ -1057,7 +1083,7 @@ final class BatchProcessor {
     private func acquireLocalExecutionSlot(for phase: JobPhase, itemID: UUID) async throws {
         while !Task.isCancelled {
             let activeLocalJobs = activeLocalSTTJobs + activeLocalTranslationJobs
-            let cpuUsage = estimatedSystemCPUUsage
+            let cpuUsage = measuredLocalServiceCPUUsage()
             if activeLocalJobs < localConcurrencyLimit, cpuUsage < Double(localCPUUsageLimit) {
                 switch phase {
                 case .stt: activeLocalSTTJobs += 1
