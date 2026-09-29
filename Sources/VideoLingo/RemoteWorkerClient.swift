@@ -204,7 +204,8 @@ struct RemoteWorkerClient: Sendable {
             defer { try? FileManager.default.removeItem(at: bodyURL) }
             var request = authenticatedRequest(path: "/v1/audio/transcriptions")
             request.httpMethod = "POST"
-            request.timeoutInterval = 1800
+            // 장시간 무응답이면 호출자가 다른 원격 서버나 내장 서버로 자동 전환합니다.
+            request.timeoutInterval = 600
             request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
             let (data, response) = try await URLSession.shared.upload(for: request, fromFile: bodyURL)
             try validate(response, data: data)
@@ -247,8 +248,16 @@ struct RemoteWorkerClient: Sendable {
         let job = try await postJSON(path: "/v1/audio/uploads/\(uploadID)/transcribe", body: nil)
         guard let jobID = job["job_id"] as? String else { throw RemoteWorkerClientError.invalidResponse }
 
+        let pollingClock = ContinuousClock()
+        let pollingDeadline = pollingClock.now.advanced(by: .seconds(600))
+        var warnedAboutDelay = false
         while true {
             try Task.checkCancellation()
+            guard pollingClock.now < pollingDeadline else {
+                throw RemoteWorkerClientError.failed(
+                    String(localized: "원격 STT 진행이 10분 동안 완료되지 않아 다른 서버로 전환합니다.")
+                )
+            }
             try await Task.sleep(for: .seconds(5))
             var request = authenticatedRequest(path: "/v1/audio/jobs/\(jobID)")
             request.timeoutInterval = 60
@@ -269,7 +278,12 @@ struct RemoteWorkerClient: Sendable {
                 )
             default:
                 let elapsed = (status["elapsed_seconds"] as? NSNumber)?.doubleValue ?? 0
-                onProgress(String(localized: "원격 전사 중 \(Int(elapsed))초"))
+                if elapsed >= 180, !warnedAboutDelay {
+                    warnedAboutDelay = true
+                    onProgress(String(localized: "원격 전사가 느림 · 자동 전환 감시 중"))
+                } else {
+                    onProgress(String(localized: "원격 전사 중 \(Int(elapsed))초"))
+                }
             }
         }
     }
@@ -307,7 +321,8 @@ struct RemoteWorkerClient: Sendable {
             append("\r\n--\(boundary)--\r\n")
             var request = authenticatedRequest(path: "/v1/audio/uploads/\(uploadID)/chunk")
             request.httpMethod = "POST"
-            request.timeoutInterval = 1800
+            // 번역 요청이 멈추면 현재 서버를 실패 처리하고 다음 서버로 넘깁니다.
+            request.timeoutInterval = 600
             request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
             let (responseData, response) = try await URLSession.shared.upload(for: request, from: payload)
             try validate(response, data: responseData)
@@ -386,7 +401,7 @@ struct RemoteWorkerClient: Sendable {
             if let sourceLanguage, !sourceLanguage.isEmpty { body["source_lang"] = sourceLanguage }
             var request = authenticatedRequest(path: "/v1/translate")
             request.httpMethod = "POST"
-            request.timeoutInterval = 60 * 60
+            request.timeoutInterval = 600
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
             // 배치 단위로 왕복 시간과 서버 처리 시간을 기록합니다.
