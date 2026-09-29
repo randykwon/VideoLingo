@@ -694,6 +694,18 @@ final class BatchProcessor {
         items[index].jobID = nil
     }
 
+    /// 원격 서버를 다시 확인하고, 유휴 상태라면 내장 XPC 연결도 다음 요청에서 새로 만들도록 정리합니다.
+    /// 실행 중인 로컬 추론 연결은 끊지 않아 진행 중인 결과를 보호합니다.
+    @discardableResult
+    func reconnectServers() async -> Int {
+        await RemoteWorkerPool.shared.refreshAll()
+        if !isRunning {
+            connection?.invalidate()
+            connection = nil
+        }
+        return RemoteWorkerPool.shared.availableWorkers.count
+    }
+
     /// 완료된 항목의 화자 이름을 다시 분석합니다.
     /// 저장된 STT·번역은 그대로 두고 화자 분석 단계만 다시 실행하므로 빠릅니다.
     func reanalyzeSpeakers(ids: [UUID]) {
@@ -2559,6 +2571,8 @@ struct BatchMultiMonitorView: View {
     @AppStorage("batchMonitorColumnCount") private var columnCount = 2
     @State private var filter: BatchMonitorFilter = .active
     @State private var playbackSelection: Set<UUID> = []
+    @State private var isReconnectingServers = false
+    @State private var reconnectStatusMessage = ""
     let isEmbedded: Bool
     let maximumDisplayedItems: Int?
 
@@ -2651,6 +2665,30 @@ struct BatchMultiMonitorView: View {
             .accessibilityLabel("모니터링 표시 항목")
 
             HStack(spacing: 16) {
+                Button {
+                    reconnectServersAndRetryFailures()
+                } label: {
+                    if isReconnectingServers {
+                        Label("서버 연결 확인 중…", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
+                    } else if failedCount > 0 {
+                        Label("서버 재연결 · 실패 \(failedCount)개 재시도", systemImage: "bolt.horizontal.circle")
+                    } else {
+                        Label("서버 다시 연결", systemImage: "bolt.horizontal.circle")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isReconnectingServers)
+                .help(failedCount > 0
+                      ? "서버 연결을 다시 확인하고 실패한 작업을 저장된 결과부터 재시도"
+                      : "원격 서버와 내장 서버 연결을 다시 확인")
+
+                if !reconnectStatusMessage.isEmpty {
+                    Text(reconnectStatusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
                 Spacer()
 
                 Text("재생 선택 \(visiblePlaybackSelectionCount)개")
@@ -2824,6 +2862,33 @@ struct BatchMultiMonitorView: View {
 
     private var attentionCount: Int {
         processor.items.filter { [.failed, .cancelled, .paused].contains($0.status) }.count
+    }
+
+    private var failedCount: Int {
+        processor.items.filter { $0.status == .failed }.count
+    }
+
+    private func reconnectServersAndRetryFailures() {
+        guard !isReconnectingServers else { return }
+        isReconnectingServers = true
+        reconnectStatusMessage = String(localized: "서버 연결을 확인하는 중…")
+
+        Task {
+            let remoteServerCount = await processor.reconnectServers()
+            let failedIDs = Set(processor.items.filter { $0.status == .failed }.map(\.id))
+            if failedIDs.isEmpty {
+                reconnectStatusMessage = remoteServerCount > 0
+                    ? String(localized: "원격 서버 \(remoteServerCount)대 연결됨")
+                    : String(localized: "내장 서버로 다시 연결합니다")
+            } else {
+                processor.start(ids: failedIDs)
+                filter = .active
+                reconnectStatusMessage = remoteServerCount > 0
+                    ? String(localized: "원격 서버 \(remoteServerCount)대 연결 · 실패 \(failedIDs.count)개 재시도")
+                    : String(localized: "내장 서버로 실패 \(failedIDs.count)개 재시도")
+            }
+            isReconnectingServers = false
+        }
     }
 }
 
