@@ -124,8 +124,7 @@ final class BatchProcessor {
         return stored == 0 ? 2 : min(4, max(1, stored))
     }() {
         didSet {
-            remoteRequestMultiplier = min(4, max(1, remoteRequestMultiplier))
-            UserDefaults.standard.set(remoteRequestMultiplier, forKey: "batchRemoteRequestMultiplier")
+            UserDefaults.standard.set(min(4, max(1, remoteRequestMultiplier)), forKey: "batchRemoteRequestMultiplier")
         }
     }
     var localCPUUsageLimit: Int = {
@@ -133,8 +132,7 @@ final class BatchProcessor {
         return stored == 0 ? 50 : min(90, max(20, stored))
     }() {
         didSet {
-            localCPUUsageLimit = min(90, max(20, localCPUUsageLimit))
-            UserDefaults.standard.set(localCPUUsageLimit, forKey: "batchLocalCPUUsageLimit")
+            UserDefaults.standard.set(min(90, max(20, localCPUUsageLimit)), forKey: "batchLocalCPUUsageLimit")
         }
     }
 
@@ -1964,8 +1962,21 @@ struct BatchTranslationView: View {
                             Text(processor.automaticConcurrencySummary)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
+                            Toggle("원격 서버 우선 사용", isOn: $processor.prefersRemoteWorkers)
+                            Stepper(value: $processor.remoteRequestMultiplier, in: 1...4) {
+                                Text("원격 요청 \(processor.remoteRequestMultiplier)배")
+                                    .monospacedDigit()
+                            }
+                            .disabled(!processor.prefersRemoteWorkers)
+                            Stepper(value: $processor.localCPUUsageLimit, in: 20...90, step: 5) {
+                                Text("내장 CPU 상한 \(processor.localCPUUsageLimit)%")
+                                    .monospacedDigit()
+                            }
+                            Text(processor.workloadRoutingSummary)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                         }
-                        .help("메모리·CPU·열 상태를 기준으로 안전한 동시 처리 수를 정합니다")
+                        .help("원격 서버에 대기 요청을 더 보내고, 내장 서버는 CPU 상한을 넘으면 새 작업 시작을 늦춥니다")
                     }
                 }
 
@@ -2374,6 +2385,19 @@ private struct BatchStartConfirmationView: View {
                             }
                             .disabled(processor.automaticallyAdjustConcurrentJobs)
                             Text(processor.automaticConcurrencySummary)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Toggle("원격 서버 우선 사용", isOn: $processor.prefersRemoteWorkers)
+                            Stepper(value: $processor.remoteRequestMultiplier, in: 1...4) {
+                                Text("원격 요청 \(processor.remoteRequestMultiplier)배")
+                                    .monospacedDigit()
+                            }
+                            .disabled(!processor.prefersRemoteWorkers)
+                            Stepper(value: $processor.localCPUUsageLimit, in: 20...90, step: 5) {
+                                Text("내장 CPU 상한 \(processor.localCPUUsageLimit)%")
+                                    .monospacedDigit()
+                            }
+                            Text(processor.workloadRoutingSummary)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
