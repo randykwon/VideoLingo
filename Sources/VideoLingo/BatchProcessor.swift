@@ -1458,7 +1458,7 @@ final class BatchProcessor {
         var triedWorkers: Set<UUID> = []
         var response: RemoteWorkerClient.STTResponse?
         var lastFailure: Error?
-        while let worker = RemoteWorkerPool.shared.acquire(for: .stt, excluding: triedWorkers) {
+        while let worker = await acquireRemoteWorker(for: .stt, excluding: triedWorkers) {
             triedWorkers.insert(worker.id)
             defer { RemoteWorkerPool.shared.release(worker.id, purpose: .stt) }
             if let index = items.firstIndex(where: { $0.id == itemID }) {
