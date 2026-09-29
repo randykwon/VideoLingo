@@ -1,5 +1,6 @@
 import AppKit
 import AVKit
+import Darwin
 import Foundation
 import Observation
 import SwiftUI
@@ -115,6 +116,27 @@ final class BatchProcessor {
     var automaticallyAdjustConcurrentJobs: Bool = UserDefaults.standard.object(forKey: "batchAutomaticallyAdjustConcurrentJobs") as? Bool ?? true {
         didSet { UserDefaults.standard.set(automaticallyAdjustConcurrentJobs, forKey: "batchAutomaticallyAdjustConcurrentJobs") }
     }
+    var prefersRemoteWorkers: Bool = UserDefaults.standard.object(forKey: "batchPrefersRemoteWorkers") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(prefersRemoteWorkers, forKey: "batchPrefersRemoteWorkers") }
+    }
+    var remoteRequestMultiplier: Int = {
+        let stored = UserDefaults.standard.integer(forKey: "batchRemoteRequestMultiplier")
+        return stored == 0 ? 2 : min(4, max(1, stored))
+    }() {
+        didSet {
+            remoteRequestMultiplier = min(4, max(1, remoteRequestMultiplier))
+            UserDefaults.standard.set(remoteRequestMultiplier, forKey: "batchRemoteRequestMultiplier")
+        }
+    }
+    var localCPUUsageLimit: Int = {
+        let stored = UserDefaults.standard.integer(forKey: "batchLocalCPUUsageLimit")
+        return stored == 0 ? 50 : min(90, max(20, stored))
+    }() {
+        didSet {
+            localCPUUsageLimit = min(90, max(20, localCPUUsageLimit))
+            UserDefaults.standard.set(localCPUUsageLimit, forKey: "batchLocalCPUUsageLimit")
+        }
+    }
 
     var recommendedConcurrentJobs: Int {
         let process = ProcessInfo.processInfo
@@ -150,16 +172,14 @@ final class BatchProcessor {
         let local = automaticallyAdjustConcurrentJobs
             ? min(4, max(2, recommendedConcurrentJobs + 1))
             : maximumConcurrentSTTJobs
-        // 원격 자리를 그대로 더하면 오디오 추출까지 그만큼 로컬에서 동시에 돌아 Mac이 과부하가 됩니다.
-        // 추출은 AudioExtractionLimiter가 따로 막으므로, 여기서는 대기 줄만 완만하게 늘립니다.
         let remote = RemoteWorkerPool.shared.totalSTTSlots
-        return local + min(remote, 3)
+        return local + remote * (prefersRemoteWorkers ? remoteRequestMultiplier : 1)
     }
 
     var effectiveConcurrentJobs: Int {
-        // 원격 서버를 추가한 만큼 번역도 함께 늘어나야 여러 서버로 분산됩니다.
-        (automaticallyAdjustConcurrentJobs ? recommendedConcurrentJobs : maximumConcurrentJobs)
-            + RemoteWorkerPool.shared.totalTranslationSlots
+        let local = automaticallyAdjustConcurrentJobs ? recommendedConcurrentJobs : maximumConcurrentJobs
+        let remote = RemoteWorkerPool.shared.totalTranslationSlots
+        return local + remote * (prefersRemoteWorkers ? remoteRequestMultiplier : 1)
     }
 
     var automaticConcurrencySummary: String {
@@ -176,6 +196,13 @@ final class BatchProcessor {
         return String(localized: "메모리 \(memoryGB)GB · CPU \(process.activeProcessorCount)코어 · 열 상태 \(thermal)")
     }
 
+    var workloadRoutingSummary: String {
+        let remote = RemoteWorkerPool.shared.hasUsableWorker
+            ? String(localized: "원격 요청 \(remoteRequestMultiplier)배 우선")
+            : String(localized: "사용 가능한 원격 서버 없음")
+        return String(localized: "\(remote) · 내장 서버 CPU \(localCPUUsageLimit)% 소프트 상한")
+    }
+
     private var options = ProcessingOptions()
     /// 다음 실행에서 화자 분석을 다시 수행할 항목입니다. 요청을 보낼 때 소비합니다.
     private var speakerReanalysisItemIDs: Set<UUID> = []
@@ -188,6 +215,8 @@ final class BatchProcessor {
     private var folderScanTask: Task<Void, Never>?
     private var resultCheckTask: Task<Void, Never>?
     private var activeJobIDsByItem: [UUID: UUID] = [:]
+    private var activeLocalSTTJobs = 0
+    private var activeLocalTranslationJobs = 0
     private var scheduledItemIDs: Set<UUID> = []
     private var pausedItemIDs: Set<UUID> = []
     private var alternateResultDirectoryBookmark: Data?
