@@ -2590,6 +2590,28 @@ private enum BatchMonitorFilter: String, CaseIterable, Identifiable {
     }
 }
 
+private struct BatchMonitorSnapshot {
+    let allItems: [BatchProcessor.Item]
+    let visibleItems: [BatchProcessor.Item]
+    let displayedItems: [BatchProcessor.Item]
+    let activeCount: Int
+    let queuedCount: Int
+    let runningCount: Int
+    let completedCount: Int
+    let attentionCount: Int
+    let failedCount: Int
+    let overallProgress: Double
+
+    func count(for filter: BatchMonitorFilter) -> Int {
+        switch filter {
+        case .active: activeCount
+        case .attention: attentionCount
+        case .all: allItems.count
+        case .completed: completedCount
+        }
+    }
+}
+
 /// 여러 영상 화면과 실시간 STT·번역 결과를 한 창에서 동시에 관찰하는 대시보드입니다.
 struct BatchMultiMonitorView: View {
     @Environment(BatchProcessor.self) private var processor
@@ -2599,6 +2621,7 @@ struct BatchMultiMonitorView: View {
     @State private var playbackSelection: Set<UUID> = []
     @State private var isReconnectingServers = false
     @State private var reconnectStatusMessage = ""
+    @State private var monitorItems: [BatchProcessor.Item] = []
     let isEmbedded: Bool
     let maximumDisplayedItems: Int?
 
@@ -2608,17 +2631,18 @@ struct BatchMultiMonitorView: View {
     }
 
     var body: some View {
+        let snapshot = makeSnapshot()
         VStack(spacing: 0) {
-            monitorHeader
+            monitorHeader(snapshot)
             Divider()
 
-            if processor.items.isEmpty {
+            if snapshot.allItems.isEmpty {
                 ContentUnavailableView(
                     "모니터링할 영상이 없습니다",
                     systemImage: "rectangle.grid.2x2",
                     description: Text("대량 번역 창에서 영상을 추가하면 각 영상과 STT·번역 진행 상황을 함께 볼 수 있습니다.")
                 )
-            } else if visibleItems.isEmpty {
+            } else if snapshot.visibleItems.isEmpty {
                 ContentUnavailableView(
                     emptyStateTitle,
                     systemImage: emptyStateSymbol,
@@ -2627,7 +2651,7 @@ struct BatchMultiMonitorView: View {
             } else {
                 ScrollView {
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-                        ForEach(displayedItems) { item in
+                        ForEach(snapshot.displayedItems) { item in
                             BatchMonitorTile(
                                 item: item,
                                 playsVideo: playbackBinding(for: item.id),
@@ -2642,49 +2666,54 @@ struct BatchMultiMonitorView: View {
         }
         .navigationTitle(isEmbedded ? "대량 번역" : "STT·번역 멀티 화면")
         .frame(minWidth: isEmbedded ? 0 : 880, minHeight: isEmbedded ? 0 : 600)
-        .onChange(of: Set(processor.items.map(\.id))) { _, availableIDs in
-            playbackSelection.formIntersection(availableIDs)
+        .task {
+            while !Task.isCancelled {
+                let latestItems = processor.items
+                monitorItems = latestItems
+                playbackSelection.formIntersection(Set(latestItems.map(\.id)))
+                try? await Task.sleep(for: .seconds(1))
+            }
         }
     }
 
-    private var monitorHeader: some View {
+    private func monitorHeader(_ snapshot: BatchMonitorSnapshot) -> some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
                 BatchMonitorMetric(
                     title: "전체 진행",
-                    value: processor.overallProgress.formatted(.percent.precision(.fractionLength(0))),
+                    value: snapshot.overallProgress.formatted(.percent.precision(.fractionLength(0))),
                     systemImage: "chart.bar.fill",
                     color: .accentColor
                 )
                 BatchMonitorMetric(
                     title: "처리 중",
-                    value: "\(processor.runningCount)",
+                    value: "\(snapshot.runningCount)",
                     systemImage: "dot.radiowaves.left.and.right",
                     color: .blue
                 )
                 BatchMonitorMetric(
                     title: "대기",
-                    value: "\(queuedCount)",
+                    value: "\(snapshot.queuedCount)",
                     systemImage: "clock.fill",
                     color: .secondary
                 )
                 BatchMonitorMetric(
                     title: "완료",
-                    value: "\(processor.completedCount)",
+                    value: "\(snapshot.completedCount)",
                     systemImage: "checkmark.circle.fill",
                     color: .green
                 )
                 BatchMonitorMetric(
                     title: "주의 필요",
-                    value: "\(attentionCount)",
-                    systemImage: attentionCount == 0 ? "checkmark.shield.fill" : "exclamationmark.triangle.fill",
-                    color: attentionCount == 0 ? .green : .orange
+                    value: "\(snapshot.attentionCount)",
+                    systemImage: snapshot.attentionCount == 0 ? "checkmark.shield.fill" : "exclamationmark.triangle.fill",
+                    color: snapshot.attentionCount == 0 ? .green : .orange
                 )
             }
 
             HStack(spacing: 8) {
                 ForEach(BatchMonitorFilter.allCases) { option in
-                    monitorFilterButton(option)
+                    monitorFilterButton(option, count: snapshot.count(for: option))
                 }
             }
             .accessibilityElement(children: .contain)
@@ -2696,15 +2725,15 @@ struct BatchMultiMonitorView: View {
                 } label: {
                     if isReconnectingServers {
                         Label("서버 연결 확인 중…", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
-                    } else if failedCount > 0 {
-                        Label("서버 재연결 · 실패 \(failedCount)개 재시도", systemImage: "bolt.horizontal.circle")
+                    } else if snapshot.failedCount > 0 {
+                        Label("서버 재연결 · 실패 \(snapshot.failedCount)개 재시도", systemImage: "bolt.horizontal.circle")
                     } else {
                         Label("서버 다시 연결", systemImage: "bolt.horizontal.circle")
                     }
                 }
                 .buttonStyle(.bordered)
                 .disabled(isReconnectingServers)
-                .help(failedCount > 0
+                .help(snapshot.failedCount > 0
                       ? "서버 연결을 다시 확인하고 실패한 작업을 저장된 결과부터 재시도"
                       : "원격 서버와 내장 서버 연결을 다시 확인")
 
@@ -2717,24 +2746,24 @@ struct BatchMultiMonitorView: View {
 
                 Spacer()
 
-                Text("재생 선택 \(visiblePlaybackSelectionCount)개")
+                Text("재생 선택 \(visiblePlaybackSelectionCount(in: snapshot.displayedItems))개")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
 
-                Button(allVisibleItemsSelected ? "표시 영상 선택 해제" : "표시 영상 전체 선택",
-                       systemImage: allVisibleItemsSelected ? "checkmark.square.fill" : "square.stack") {
-                    if allVisibleItemsSelected {
-                        playbackSelection.subtract(displayedItems.map(\.id))
+                Button(allVisibleItemsSelected(in: snapshot.displayedItems) ? "표시 영상 선택 해제" : "표시 영상 전체 선택",
+                       systemImage: allVisibleItemsSelected(in: snapshot.displayedItems) ? "checkmark.square.fill" : "square.stack") {
+                    if allVisibleItemsSelected(in: snapshot.displayedItems) {
+                        playbackSelection.subtract(snapshot.displayedItems.map(\.id))
                     } else {
-                        playbackSelection.formUnion(displayedItems.map(\.id))
+                        playbackSelection.formUnion(snapshot.displayedItems.map(\.id))
                     }
                 }
-                .disabled(displayedItems.isEmpty)
+                .disabled(snapshot.displayedItems.isEmpty)
                 .help("현재 필터에 표시된 영상의 음소거 재생을 한 번에 선택하거나 해제")
 
-                if displayedItems.count < visibleItems.count {
-                    Text("미리보기 \(displayedItems.count)/\(visibleItems.count)")
+                if snapshot.displayedItems.count < snapshot.visibleItems.count {
+                    Text("미리보기 \(snapshot.displayedItems.count)/\(snapshot.visibleItems.count)")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                         .help("화면 성능을 위해 처리 중인 영상부터 일부만 표시합니다. 별도 창에서는 전체 항목을 볼 수 있습니다.")
@@ -2752,9 +2781,8 @@ struct BatchMultiMonitorView: View {
         .background(.bar)
     }
 
-    private func monitorFilterButton(_ option: BatchMonitorFilter) -> some View {
+    private func monitorFilterButton(_ option: BatchMonitorFilter, count itemCount: Int) -> some View {
         let isSelected = filter == option
-        let itemCount = count(for: option)
         let needsAttention = option == .attention && itemCount > 0
         let tint: Color = needsAttention ? .orange : .accentColor
 
@@ -2801,24 +2829,38 @@ struct BatchMultiMonitorView: View {
         }
     }
 
-    private var visibleItems: [BatchProcessor.Item] {
+    private func makeSnapshot() -> BatchMonitorSnapshot {
+        let allItems = monitorItems
+        let activeItems = allItems.filter { $0.isProcessing || $0.status == .queued }
+        let attentionItems = allItems.filter { [.failed, .cancelled, .paused].contains($0.status) }
+        let completedItems = allItems.filter { $0.status == .completed }
+        let visibleItems: [BatchProcessor.Item]
         switch filter {
         case .active:
-            processor.items
-                .filter { $0.isProcessing || $0.status == .queued }
-                .sorted { lhs, rhs in
+            visibleItems = activeItems.sorted { lhs, rhs in
                     if lhs.isProcessing != rhs.isProcessing { return lhs.isProcessing }
                     return lhs.url.lastPathComponent.localizedStandardCompare(rhs.url.lastPathComponent) == .orderedAscending
                 }
-        case .attention: processor.items.filter { [.failed, .cancelled, .paused].contains($0.status) }
-        case .all: processor.items
-        case .completed: processor.items.filter { $0.status == .completed }
+        case .attention: visibleItems = attentionItems
+        case .all: visibleItems = allItems
+        case .completed: visibleItems = completedItems
         }
-    }
-
-    private var displayedItems: [BatchProcessor.Item] {
-        guard let maximumDisplayedItems else { return visibleItems }
-        return Array(visibleItems.prefix(maximumDisplayedItems))
+        let displayedItems = maximumDisplayedItems.map { Array(visibleItems.prefix($0)) } ?? visibleItems
+        let overallProgress = allItems.isEmpty ? 0 : allItems.reduce(0) {
+            $0 + ($1.isFinished ? 1 : $1.progress)
+        } / Double(allItems.count)
+        return BatchMonitorSnapshot(
+            allItems: allItems,
+            visibleItems: visibleItems,
+            displayedItems: displayedItems,
+            activeCount: activeItems.count,
+            queuedCount: activeItems.filter { $0.status == .queued && !$0.isProcessing }.count,
+            runningCount: allItems.filter(\.isProcessing).count,
+            completedCount: completedItems.count,
+            attentionCount: attentionItems.count,
+            failedCount: attentionItems.filter { $0.status == .failed }.count,
+            overallProgress: overallProgress
+        )
     }
 
     private var columns: [GridItem] {
@@ -2852,11 +2894,11 @@ struct BatchMultiMonitorView: View {
         }
     }
 
-    private var visiblePlaybackSelectionCount: Int {
-        displayedItems.filter { playbackSelection.contains($0.id) }.count
+    private func visiblePlaybackSelectionCount(in displayedItems: [BatchProcessor.Item]) -> Int {
+        displayedItems.lazy.filter { playbackSelection.contains($0.id) }.count
     }
 
-    private var allVisibleItemsSelected: Bool {
+    private func allVisibleItemsSelected(in displayedItems: [BatchProcessor.Item]) -> Bool {
         !displayedItems.isEmpty && displayedItems.allSatisfy { playbackSelection.contains($0.id) }
     }
 
@@ -2871,27 +2913,6 @@ struct BatchMultiMonitorView: View {
                 }
             }
         )
-    }
-
-    private func count(for option: BatchMonitorFilter) -> Int {
-        switch option {
-        case .active: processor.items.filter { $0.isProcessing || $0.status == .queued }.count
-        case .attention: attentionCount
-        case .all: processor.items.count
-        case .completed: processor.completedCount
-        }
-    }
-
-    private var queuedCount: Int {
-        processor.items.filter { $0.status == .queued && !$0.isProcessing }.count
-    }
-
-    private var attentionCount: Int {
-        processor.items.filter { [.failed, .cancelled, .paused].contains($0.status) }.count
-    }
-
-    private var failedCount: Int {
-        processor.items.filter { $0.status == .failed }.count
     }
 
     private func reconnectServersAndRetryFailures() {
