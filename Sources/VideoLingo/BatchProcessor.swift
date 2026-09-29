@@ -1719,6 +1719,7 @@ struct BatchTranslationView: View {
     @State private var showingStartConfirmation = false
     @State private var pendingStartIDs: Set<UUID> = []
     @State private var workspaceTab: BatchWorkspaceTab = .files
+    @State private var monitoringIsReady = false
     @AppStorage("batchListFilter") private var listFilter: BatchListFilter = .active
 
     var body: some View {
@@ -1738,7 +1739,15 @@ struct BatchTranslationView: View {
             Divider()
 
             if workspaceTab == .monitoring {
-                BatchMonitoringWorkspace()
+                if monitoringIsReady {
+                    BatchMonitoringWorkspace()
+                } else {
+                    ContentUnavailableView {
+                        Label("모니터링 화면 준비 중", systemImage: "chart.xyaxis.line")
+                    } description: {
+                        Text("영상 미리보기와 처리 현황을 불러오고 있습니다.")
+                    }
+                }
             } else if processor.items.isEmpty {
                 ContentUnavailableView {
                     Label("대량 번역할 영상을 추가하세요", systemImage: "rectangle.stack.badge.plus")
@@ -1992,6 +2001,16 @@ struct BatchTranslationView: View {
             }
         }
         .onChange(of: listFilter) { _, _ in selection.removeAll() }
+        .onChange(of: workspaceTab) { _, tab in
+            monitoringIsReady = false
+            guard tab == .monitoring else { return }
+            Task { @MainActor in
+                // 탭 선택 표시를 먼저 그린 다음 무거운 미리보기 화면을 구성합니다.
+                await Task.yield()
+                guard workspaceTab == .monitoring else { return }
+                monitoringIsReady = true
+            }
+        }
         .onChange(of: Set(processor.items.map(\.id))) { _, availableIDs in
             selection.formIntersection(availableIDs)
         }
@@ -2378,7 +2397,7 @@ private struct BatchMonitoringWorkspace: View {
 
     var body: some View {
         HSplitView {
-            BatchMultiMonitorView(isEmbedded: true)
+            BatchMultiMonitorView(isEmbedded: true, maximumDisplayedItems: 12)
                 .frame(minWidth: 560)
 
             ScrollView {
@@ -2430,9 +2449,11 @@ struct BatchMultiMonitorView: View {
     @State private var filter: BatchMonitorFilter = .active
     @State private var playbackSelection: Set<UUID> = []
     let isEmbedded: Bool
+    let maximumDisplayedItems: Int?
 
-    init(isEmbedded: Bool = false) {
+    init(isEmbedded: Bool = false, maximumDisplayedItems: Int? = nil) {
         self.isEmbedded = isEmbedded
+        self.maximumDisplayedItems = maximumDisplayedItems
     }
 
     var body: some View {
@@ -2455,7 +2476,7 @@ struct BatchMultiMonitorView: View {
             } else {
                 ScrollView {
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-                        ForEach(visibleItems) { item in
+                        ForEach(displayedItems) { item in
                             BatchMonitorTile(
                                 item: item,
                                 playsVideo: playbackBinding(for: item.id),
@@ -2530,13 +2551,20 @@ struct BatchMultiMonitorView: View {
                 Button(allVisibleItemsSelected ? "표시 영상 선택 해제" : "표시 영상 전체 선택",
                        systemImage: allVisibleItemsSelected ? "checkmark.square.fill" : "square.stack") {
                     if allVisibleItemsSelected {
-                        playbackSelection.subtract(visibleItems.map(\.id))
+                        playbackSelection.subtract(displayedItems.map(\.id))
                     } else {
-                        playbackSelection.formUnion(visibleItems.map(\.id))
+                        playbackSelection.formUnion(displayedItems.map(\.id))
                     }
                 }
-                .disabled(visibleItems.isEmpty)
+                .disabled(displayedItems.isEmpty)
                 .help("현재 필터에 표시된 영상의 음소거 재생을 한 번에 선택하거나 해제")
+
+                if displayedItems.count < visibleItems.count {
+                    Text("미리보기 \(displayedItems.count)/\(visibleItems.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .help("화면 성능을 위해 처리 중인 영상부터 일부만 표시합니다. 별도 창에서는 전체 항목을 볼 수 있습니다.")
+                }
 
                 Stepper(value: $columnCount, in: 1...4) {
                     Text("한 줄 \(columnCount)개")
@@ -2552,11 +2580,22 @@ struct BatchMultiMonitorView: View {
 
     private var visibleItems: [BatchProcessor.Item] {
         switch filter {
-        case .active: processor.items.filter { $0.isProcessing || $0.status == .queued }
+        case .active:
+            processor.items
+                .filter { $0.isProcessing || $0.status == .queued }
+                .sorted { lhs, rhs in
+                    if lhs.isProcessing != rhs.isProcessing { return lhs.isProcessing }
+                    return lhs.url.lastPathComponent.localizedStandardCompare(rhs.url.lastPathComponent) == .orderedAscending
+                }
         case .attention: processor.items.filter { [.failed, .cancelled, .paused].contains($0.status) }
         case .all: processor.items
         case .completed: processor.items.filter { $0.status == .completed }
         }
+    }
+
+    private var displayedItems: [BatchProcessor.Item] {
+        guard let maximumDisplayedItems else { return visibleItems }
+        return Array(visibleItems.prefix(maximumDisplayedItems))
     }
 
     private var columns: [GridItem] {
@@ -2591,11 +2630,11 @@ struct BatchMultiMonitorView: View {
     }
 
     private var visiblePlaybackSelectionCount: Int {
-        visibleItems.filter { playbackSelection.contains($0.id) }.count
+        displayedItems.filter { playbackSelection.contains($0.id) }.count
     }
 
     private var allVisibleItemsSelected: Bool {
-        !visibleItems.isEmpty && visibleItems.allSatisfy { playbackSelection.contains($0.id) }
+        !displayedItems.isEmpty && displayedItems.allSatisfy { playbackSelection.contains($0.id) }
     }
 
     private func playbackBinding(for itemID: UUID) -> Binding<Bool> {
@@ -2662,7 +2701,7 @@ private struct BatchMonitorTile: View {
     @Binding var playsVideo: Bool
     let onShowDetails: () -> Void
     let onExpand: (() -> Void)?
-    @State private var player: AVPlayer
+    @State private var player: AVPlayer?
     @State private var isMuted = true
     /// 미리보기 음량입니다. 음소거를 풀었을 때 곧바로 들리도록 기본값을 적당히 둡니다.
     @State private var previewVolume: Double = 0.6
@@ -2689,17 +2728,32 @@ private struct BatchMonitorTile: View {
         _playsVideo = playsVideo
         self.onShowDetails = onShowDetails
         self.onExpand = onExpand
-        _player = State(initialValue: AVPlayer(url: item.url))
+        _player = State(initialValue: nil)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topTrailing) {
-                BatchMonitorPlayer(player: player)
-                    .aspectRatio(16 / 9, contentMode: .fit)
-                    .background(.black)
-                    .onTapGesture(count: 2) { onExpand?() }
-                    .help(onExpand == nil ? "영상 미리보기" : "더블클릭하여 큰 미리보기 창 열기")
+                Group {
+                    if let player {
+                        BatchMonitorPlayer(player: player)
+                    } else {
+                        ZStack {
+                            Color.black
+                            VStack(spacing: 8) {
+                                Image(systemName: "play.rectangle")
+                                    .font(.largeTitle)
+                                Text("미리보기 재생을 선택하면 영상을 불러옵니다")
+                                    .font(.caption)
+                            }
+                            .foregroundStyle(.white.opacity(0.72))
+                        }
+                    }
+                }
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .background(.black)
+                .onTapGesture(count: 2) { onExpand?() }
+                .help(onExpand == nil ? "영상 미리보기" : "더블클릭하여 큰 미리보기 창 열기")
 
                 HStack(spacing: 6) {
                     Image(systemName: statusSymbol)
@@ -2822,19 +2876,19 @@ private struct BatchMonitorTile: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .onAppear { updatePlayback() }
-        .onDisappear { player.pause() }
+        .onDisappear { releasePlayer() }
         .onChange(of: playsVideo) { _, _ in updatePlayback() }
-        .onChange(of: isMuted) { _, muted in player.isMuted = muted }
-        .onChange(of: previewVolume) { _, value in player.volume = Float(value) }
+        .onChange(of: isMuted) { _, muted in player?.isMuted = muted }
+        .onChange(of: previewVolume) { _, value in player?.volume = Float(value) }
         .task {
             while !Task.isCancelled {
-                if !isSeeking {
+                if playsVideo, let player, !isSeeking {
                     let position = player.currentTime().seconds
                     if position.isFinite { currentTime = max(0, position) }
                     let itemDuration = player.currentItem?.duration.seconds ?? 0
                     if itemDuration.isFinite, itemDuration > 0 { duration = itemDuration }
                 }
-                try? await Task.sleep(for: .milliseconds(500))
+                try? await Task.sleep(for: .seconds(1))
             }
         }
     }
@@ -2866,9 +2920,23 @@ private struct BatchMonitorTile: View {
     }
 
     private func updatePlayback() {
+        if !playsVideo {
+            player?.pause()
+            return
+        }
+        if player == nil {
+            player = AVPlayer(url: item.url)
+        }
+        guard let player else { return }
         player.isMuted = isMuted
         player.volume = Float(previewVolume)
-        if playsVideo { player.play() } else { player.pause() }
+        player.play()
+    }
+
+    private func releasePlayer() {
+        player?.pause()
+        player?.replaceCurrentItem(with: nil)
+        player = nil
     }
 
     private func seek(by seconds: TimeInterval) {
@@ -2876,6 +2944,7 @@ private struct BatchMonitorTile: View {
     }
 
     private func seek(to seconds: TimeInterval) {
+        guard let player else { return }
         let target = min(max(0, seconds), duration > 0 ? duration : .greatestFiniteMagnitude)
         currentTime = target
         player.seek(
