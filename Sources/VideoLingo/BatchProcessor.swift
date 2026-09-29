@@ -2642,16 +2642,15 @@ struct BatchMultiMonitorView: View {
                 )
             }
 
-            HStack(spacing: 16) {
-                Picker("표시 항목", selection: $filter) {
-                    ForEach(BatchMonitorFilter.allCases) { option in
-                        Text("\(option.title) \(count(for: option))").tag(option)
-                    }
+            HStack(spacing: 8) {
+                ForEach(BatchMonitorFilter.allCases) { option in
+                    monitorFilterButton(option)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: 480)
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("모니터링 표시 항목")
 
+            HStack(spacing: 16) {
                 Spacer()
 
                 Text("재생 선택 \(visiblePlaybackSelectionCount)개")
@@ -2687,6 +2686,55 @@ struct BatchMultiMonitorView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(.bar)
+    }
+
+    private func monitorFilterButton(_ option: BatchMonitorFilter) -> some View {
+        let isSelected = filter == option
+        let itemCount = count(for: option)
+        let needsAttention = option == .attention && itemCount > 0
+        let tint: Color = needsAttention ? .orange : .accentColor
+
+        return Button {
+            withAnimation(.snappy(duration: 0.2)) {
+                filter = option
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: filterSymbol(for: option, count: itemCount))
+                    .foregroundStyle(isSelected ? Color.white : (needsAttention ? Color.orange : Color.secondary))
+                Text(option.title)
+                    .lineLimit(1)
+                Text("\(itemCount)")
+                    .font(.caption.weight(.semibold))
+                    .monospacedDigit()
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(isSelected ? Color.white.opacity(0.2) : tint.opacity(needsAttention ? 0.18 : 0.1), in: Capsule())
+            }
+            .font(.callout.weight(isSelected || needsAttention ? .semibold : .regular))
+            .foregroundStyle(isSelected ? Color.white : Color.primary)
+            .frame(maxWidth: .infinity, minHeight: 32)
+            .padding(.horizontal, 8)
+            .background(isSelected ? tint : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(needsAttention && !isSelected ? Color.orange.opacity(0.65) : Color.secondary.opacity(0.2), lineWidth: 1)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("\(option.title) 항목 \(itemCount)개 보기")
+        .accessibilityLabel("\(option.title), \(itemCount)개")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func filterSymbol(for option: BatchMonitorFilter, count: Int) -> String {
+        switch option {
+        case .active: "play.circle.fill"
+        case .attention: count > 0 ? "exclamationmark.triangle.fill" : "checkmark.shield.fill"
+        case .all: "rectangle.stack.fill"
+        case .completed: "checkmark.circle.fill"
+        }
     }
 
     private var visibleItems: [BatchProcessor.Item] {
