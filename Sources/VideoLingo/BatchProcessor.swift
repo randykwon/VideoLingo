@@ -46,6 +46,8 @@ final class BatchProcessor {
     private static let snapshotPollingInterval = Duration.seconds(2)
     private static let missingSnapshotRecoveryThreshold = 3
     private static let maximumServiceRecoveryAttempts = 3
+    private static let slowProgressWarningInterval: TimeInterval = 90
+    private static let stalledProgressRecoveryInterval: TimeInterval = 300
     private static let rememberedVideoPathsKey = "batchRememberedVideoPaths"
 
     struct DuplicateFilenameGroup: Identifiable {
@@ -1280,6 +1282,11 @@ final class BatchProcessor {
             var service = try await sendWithRecovery(payload: payload, itemID: itemID)
             var consecutiveMissingSnapshots = 0
             var recoveryAttempts = 0
+            var lastProgressUptime = ProcessInfo.processInfo.systemUptime
+            var lastObservedProgress = -1.0
+            var lastObservedChunk = -1
+            var lastObservedStatus: JobStatus?
+            var lastObservedTextLength = 0
 
             while !Task.isCancelled {
                 // 고빈도 실시간 갱신은 재설계 전까지 중단하고 저빈도 상태 확인만 유지합니다.
@@ -1308,6 +1315,45 @@ final class BatchProcessor {
                 guard let index = items.firstIndex(where: { $0.id == itemID }) else {
                     service.cancelJob(jobID.uuidString) { _ in }
                     break
+                }
+                let observedProgress = phase == .stt ? snapshot.sttProgress : snapshot.translationProgress
+                let observedTextLength = (snapshot.liveTranscriptText?.count ?? 0)
+                    + (snapshot.liveTranslationText?.count ?? 0)
+                    + (snapshot.lastTranscriptText?.count ?? 0)
+                    + (snapshot.lastTranslationText?.count ?? 0)
+                let madeProgress = observedProgress > lastObservedProgress + 0.0001
+                    || snapshot.currentChunk != lastObservedChunk
+                    || snapshot.status != lastObservedStatus
+                    || observedTextLength != lastObservedTextLength
+                if madeProgress {
+                    lastProgressUptime = ProcessInfo.processInfo.systemUptime
+                    lastObservedProgress = observedProgress
+                    lastObservedChunk = snapshot.currentChunk
+                    lastObservedStatus = snapshot.status
+                    lastObservedTextLength = observedTextLength
+                } else {
+                    let stalledFor = ProcessInfo.processInfo.systemUptime - lastProgressUptime
+                    if stalledFor >= Self.stalledProgressRecoveryInterval {
+                        recoveryAttempts += 1
+                        guard recoveryAttempts <= Self.maximumServiceRecoveryAttempts else {
+                            throw NSError(
+                                domain: "VideoLingo.BatchProcessor.Watchdog",
+                                code: 1,
+                                userInfo: [NSLocalizedDescriptionKey: String(localized: "진행이 장시간 멈춰 자동 복구를 완료하지 못했습니다. 저장된 결과에서 다시 시도할 수 있습니다.")]
+                            )
+                        }
+                        items[index].message = String(localized: "\(stage) 정체 감지 · 서버 자동 재연결 중 (\(recoveryAttempts)/\(Self.maximumServiceRecoveryAttempts))")
+                        await cancelJob(service, jobID: jobID)
+                        connection?.invalidate()
+                        connection = nil
+                        try await Task.sleep(for: recoveryDelay(for: recoveryAttempts))
+                        service = try await sendWithRecovery(payload: payload, itemID: itemID)
+                        lastProgressUptime = ProcessInfo.processInfo.systemUptime
+                        consecutiveMissingSnapshots = 0
+                        continue
+                    } else if stalledFor >= Self.slowProgressWarningInterval {
+                        items[index].message = String(localized: "\(stage) 진행이 느림 · 자동 복구 감시 중 (\(Int(stalledFor))초)")
+                    }
                 }
                 items[index].sttProgress = snapshot.sttProgress
                 items[index].currentChunk = snapshot.currentChunk
@@ -1795,6 +1841,12 @@ final class BatchProcessor {
                 if let error { continuation.resume(throwing: NSError(domain: "VideoLingo", code: 1, userInfo: [NSLocalizedDescriptionKey: error])) }
                 else { continuation.resume() }
             }
+        }
+    }
+
+    private func cancelJob(_ service: VideoLingoAIServiceProtocol, jobID: UUID) async {
+        await withCheckedContinuation { continuation in
+            service.cancelJob(jobID.uuidString) { _ in continuation.resume() }
         }
     }
 
@@ -3151,9 +3203,10 @@ private struct BatchMonitorTile: View {
         .onChange(of: playsVideo) { _, _ in updatePlayback() }
         .onChange(of: isMuted) { _, muted in player?.isMuted = muted }
         .onChange(of: previewVolume) { _, value in player?.volume = Float(value) }
-        .task {
+        .task(id: playsVideo) {
+            guard playsVideo else { return }
             while !Task.isCancelled {
-                if playsVideo, let player, !isSeeking {
+                if let player, !isSeeking {
                     let position = player.currentTime().seconds
                     if position.isFinite { currentTime = max(0, position) }
                     let itemDuration = player.currentItem?.duration.seconds ?? 0
