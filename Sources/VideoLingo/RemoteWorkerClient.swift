@@ -146,7 +146,7 @@ struct RemoteWorkerClient: Sendable {
         defer { try? FileManager.default.removeItem(at: bodyURL) }
         var request = authenticatedRequest(path: "/v1/audio/transcriptions")
         request.httpMethod = "POST"
-        request.timeoutInterval = 60 * 60
+        request.timeoutInterval = 600
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         let (data, response) = try await URLSession.shared.upload(for: request, fromFile: bodyURL)
         try validate(response, data: data)
