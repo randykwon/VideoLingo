@@ -1051,8 +1051,12 @@ final class BatchProcessor {
         var totalNanoseconds: UInt64 = 0
         for pid in pids.prefix(Int(byteCount) / MemoryLayout<pid_t>.size) {
             var name = [CChar](repeating: 0, count: 128)
-            guard proc_name(pid, &name, UInt32(name.count)) > 0,
-                  String(cString: name) == "VideoLingoAIService" else { continue }
+            guard proc_name(pid, &name, UInt32(name.count)) > 0 else { continue }
+            let isLocalService = name.withUnsafeBufferPointer { buffer in
+                guard let baseAddress = buffer.baseAddress else { return false }
+                return strcmp(baseAddress, "VideoLingoAIService") == 0
+            }
+            guard isLocalService else { continue }
             var usage = rusage_info_v4()
             let result = withUnsafeMutablePointer(to: &usage) { pointer in
                 pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
