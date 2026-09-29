@@ -1028,6 +1028,50 @@ final class BatchProcessor {
         scheduledItemIDs.contains(item.id) && !item.isFinished && !item.isProcessing && item.sttCompleted
     }
 
+    /// 시스템 전체 부하의 1분 평균을 논리 코어 수로 정규화한 값입니다.
+    /// 순간 측정값보다 안정적이라 새 내장 작업을 시작할지 판단하는 소프트 가드에 적합합니다.
+    private var estimatedSystemCPUUsage: Double {
+        var loads = [Double](repeating: 0, count: 3)
+        guard getloadavg(&loads, Int32(loads.count)) > 0 else { return 0 }
+        return min(100, max(0, loads[0] / Double(max(1, ProcessInfo.processInfo.activeProcessorCount)) * 100))
+    }
+
+    private var localConcurrencyLimit: Int {
+        let configured = automaticallyAdjustConcurrentJobs
+            ? recommendedConcurrentJobs
+            : max(maximumConcurrentSTTJobs, maximumConcurrentJobs)
+        return max(1, Int((Double(configured) * Double(localCPUUsageLimit) / 100).rounded(.down)))
+    }
+
+    /// 이미 실행 중인 로컬 추론은 끊지 않고, CPU와 로컬 슬롯에 여유가 생길 때만 새 작업을 시작합니다.
+    private func acquireLocalExecutionSlot(for phase: JobPhase, itemID: UUID) async throws {
+        while !Task.isCancelled {
+            let activeLocalJobs = activeLocalSTTJobs + activeLocalTranslationJobs
+            let cpuUsage = estimatedSystemCPUUsage
+            if activeLocalJobs < localConcurrencyLimit, cpuUsage < Double(localCPUUsageLimit) {
+                switch phase {
+                case .stt: activeLocalSTTJobs += 1
+                case .translation: activeLocalTranslationJobs += 1
+                }
+                return
+            }
+            if let index = items.firstIndex(where: { $0.id == itemID }) {
+                items[index].message = String(
+                    localized: "원격 서버 대기 · 내장 CPU \(Int(cpuUsage.rounded()))% (상한 \(localCPUUsageLimit)%)"
+                )
+            }
+            try await Task.sleep(for: .seconds(1))
+        }
+        throw CancellationError()
+    }
+
+    private func releaseLocalExecutionSlot(for phase: JobPhase) {
+        switch phase {
+        case .stt: activeLocalSTTJobs = max(0, activeLocalSTTJobs - 1)
+        case .translation: activeLocalTranslationJobs = max(0, activeLocalTranslationJobs - 1)
+        }
+    }
+
     private func runQueue() async {
         await withTaskGroup(of: JobPhase.self) { group in
             var sttActive = 0
@@ -1143,9 +1187,8 @@ final class BatchProcessor {
             var lastRemoteFailure: String?
             switch phase {
             case .stt:
-                // 원격 자리만큼만 예약하고, 초과분은 내장 서버로 보내 두 쪽을 함께 씁니다.
-                // 예전에는 원격이 가능하면 전부 원격 경로로 가서 내장 Whisper가 놀았습니다.
-                if RemoteWorkerPool.shared.reserveRemoteSTT() {
+                let queueMultiplier = prefersRemoteWorkers ? remoteRequestMultiplier : 1
+                if RemoteWorkerPool.shared.reserveRemoteSTT(queueMultiplier: queueMultiplier) {
                     defer { RemoteWorkerPool.shared.releaseRemoteSTTReservation() }
                     do {
                         try await transcribeRemotely(itemID: itemID, jobID: jobID, mediaURL: url)
@@ -1157,9 +1200,8 @@ final class BatchProcessor {
                     }
                 }
             case .translation:
-                // 번역은 텍스트만 보내 금방 끝나므로 기존처럼 자리를 잡고 서버를 순회합니다.
                 var triedWorkers: Set<UUID> = []
-                while let worker = RemoteWorkerPool.shared.acquire(for: .translation, excluding: triedWorkers) {
+                while let worker = await acquireRemoteWorker(for: .translation, excluding: triedWorkers) {
                     triedWorkers.insert(worker.id)
                     defer { RemoteWorkerPool.shared.release(worker.id, purpose: .translation) }
                     do {
@@ -1179,6 +1221,8 @@ final class BatchProcessor {
                 items[index].message = String(localized: "원격 \(stage) 실패 · 내장 서버로 전환: \(lastRemoteFailure)")
             }
 
+            try await acquireLocalExecutionSlot(for: phase, itemID: itemID)
+            defer { releaseLocalExecutionSlot(for: phase) }
             guard service() != nil else {
                 throw NSError(domain: "VideoLingo.BatchProcessor", code: 3, userInfo: [NSLocalizedDescriptionKey: String(localized: "내장 AI 서버와 원격 Worker 모두 사용할 수 없습니다.")])
             }
@@ -1309,6 +1353,20 @@ final class BatchProcessor {
                 }
             }
         }
+    }
+
+    private func acquireRemoteWorker(
+        for purpose: RemoteWorkerPool.Purpose,
+        excluding excluded: Set<UUID>
+    ) async -> RemoteWorkerConfiguration? {
+        if prefersRemoteWorkers {
+            return await RemoteWorkerPool.shared.acquireWaiting(
+                for: purpose,
+                excluding: excluded,
+                timeout: .seconds(20)
+            )
+        }
+        return RemoteWorkerPool.shared.acquire(for: purpose, excluding: excluded)
     }
 
     /// 영상에서 오디오 청크를 뽑아 하나씩 원격 서버에서 인식합니다.
