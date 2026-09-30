@@ -150,7 +150,9 @@ final class RemoteWorkerPool {
         while !Task.isCancelled {
             if let worker = acquire(for: purpose, excluding: excluded) { return worker }
             let hasEligibleWorker = availableWorkers.contains { worker, status in
-                !excluded.contains(worker.id) && purpose.slots(in: status.capabilities) > 0
+                !excluded.contains(worker.id)
+                    && cooldownUntil[worker.id, default: .distantPast] <= .now
+                    && purpose.slots(in: status.capabilities) > 0
             }
             guard hasEligibleWorker, clock.now < deadline else { return nil }
             try? await Task.sleep(for: .milliseconds(250))

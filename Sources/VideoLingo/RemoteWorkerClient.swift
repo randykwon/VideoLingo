@@ -271,7 +271,7 @@ struct RemoteWorkerClient: Sendable {
             try Task.checkCancellation()
             guard pollingClock.now < pollingDeadline else {
                 await cancelRemoteSTTJob(jobID)
-                throw RemoteWorkerClientError.failed(
+                throw RemoteWorkerClientError.timedOut(
                     String(localized: "원격 STT 진행이 10분 동안 완료되지 않아 다른 서버로 전환합니다.")
                 )
             }
