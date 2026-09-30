@@ -54,6 +54,8 @@ final class RemoteWorkerPool {
     private let credentialStore = RemoteServerCredentialStore()
     private var activeLeases: [Lease: Int] = [:]
     private var cooldownUntil: [UUID: Date] = [:]
+    private(set) var recoveringWorkerIDs: Set<UUID> = []
+    @ObservationIgnored private var recoveryTasks: [UUID: Task<Void, Never>] = [:]
     private(set) var hasDefaultAuthenticationToken = false
 
     private init() {
@@ -66,6 +68,11 @@ final class RemoteWorkerPool {
     var availableWorkers: [(RemoteWorkerConfiguration, RemoteWorkerStatus)] {
         workers.compactMap { worker in
             guard worker.isEnabled, case let .available(status) = states[worker.id] else { return nil }
+            guard cooldownUntil[worker.id, default: .distantPast] <= .now,
+                  !recoveringWorkerIDs.contains(worker.id) else { return nil }
+            // 서버 자체 대기열이 모든 STT·번역 슬롯을 차지한 경우 새 요청을 보내지 않습니다.
+            let combinedSlots = max(1, status.capabilities.sttSlots + status.capabilities.translationSlots)
+            guard status.activeJobs < combinedSlots else { return nil }
             return (worker, status)
         }
     }
@@ -168,11 +175,39 @@ final class RemoteWorkerPool {
     /// 제한 시간을 넘긴 서버를 잠시 배정 대상에서 제외해 같은 장애 서버로 즉시 재시도하지 않습니다.
     func quarantine(_ id: UUID, for duration: TimeInterval = 600) {
         cooldownUntil[id] = Date.now.addingTimeInterval(duration)
+        recoveringWorkerIDs.insert(id)
+        recoveryTasks[id]?.cancel()
+        recoveryTasks[id] = Task { [weak self] in
+            // 서버가 방금 취소된 작업을 정리할 시간을 준 뒤 30초마다 상태를 확인합니다.
+            try? await Task.sleep(for: .seconds(30))
+            while !Task.isCancelled {
+                guard let self,
+                      let worker = self.workers.first(where: { $0.id == id }),
+                      worker.isEnabled else { break }
+                await self.refresh(id)
+                if case let .available(status) = self.states[id] {
+                    let combinedSlots = max(1, status.capabilities.sttSlots + status.capabilities.translationSlots)
+                    if status.activeJobs < combinedSlots {
+                        self.cooldownUntil[id] = nil
+                        self.recoveringWorkerIDs.remove(id)
+                        self.recoveryTasks[id] = nil
+                        return
+                    }
+                }
+                // 접속 불가 또는 서버 대기열 포화면 자동 감시를 계속합니다.
+                self.cooldownUntil[id] = Date.now.addingTimeInterval(60)
+                try? await Task.sleep(for: .seconds(30))
+            }
+            self?.recoveringWorkerIDs.remove(id)
+            self?.recoveryTasks[id] = nil
+        }
     }
 
     func cooldownRemaining(for id: UUID) -> TimeInterval {
         max(0, cooldownUntil[id, default: .distantPast].timeIntervalSinceNow)
     }
+
+    func isRecovering(_ id: UUID) -> Bool { recoveringWorkerIDs.contains(id) }
 
     /// 화면에 서버별 현재 부하를 보여 주기 위한 값입니다.
     func activeLeaseCount(for id: UUID) -> Int { totalLeases(for: id) }
@@ -236,6 +271,10 @@ final class RemoteWorkerPool {
     }
 
     func remove(_ id: UUID) {
+        recoveryTasks[id]?.cancel()
+        recoveryTasks[id] = nil
+        recoveringWorkerIDs.remove(id)
+        cooldownUntil[id] = nil
         workers.removeAll { $0.id == id }
         states[id] = nil
         persist()
@@ -244,7 +283,13 @@ final class RemoteWorkerPool {
     func setEnabled(_ enabled: Bool, for id: UUID) {
         guard let index = workers.firstIndex(where: { $0.id == id }) else { return }
         workers[index].isEnabled = enabled
-        if !enabled { states[id] = .unchecked }
+        if !enabled {
+            recoveryTasks[id]?.cancel()
+            recoveryTasks[id] = nil
+            recoveringWorkerIDs.remove(id)
+            cooldownUntil[id] = nil
+            states[id] = .unchecked
+        }
         persist()
     }
 
