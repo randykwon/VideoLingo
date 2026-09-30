@@ -1379,6 +1379,9 @@ final class BatchProcessor {
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch {
+                        if isRemoteTimeout(error) {
+                            RemoteWorkerPool.shared.quarantine(worker.id)
+                        }
                         lastRemoteFailure = "\(worker.name): \(error.localizedDescription)"
                         if let index = items.firstIndex(where: { $0.id == itemID }) {
                             items[index].message = String(localized: "\(worker.name) 원격 \(stage) 실패 · 다른 서버 확인 중")
@@ -1701,9 +1704,14 @@ final class BatchProcessor {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
+                if isRemoteTimeout(error) {
+                    RemoteWorkerPool.shared.quarantine(worker.id)
+                }
                 lastFailure = error
                 if let index = items.firstIndex(where: { $0.id == itemID }) {
-                    items[index].message = String(localized: "\(worker.name) 전사 실패 · 다른 서버 확인 중")
+                    items[index].message = isRemoteTimeout(error)
+                        ? String(localized: "\(worker.name) 시간 초과 · 10분 격리 후 다른 서버 확인 중")
+                        : String(localized: "\(worker.name) 전사 실패 · 다른 서버 확인 중")
                 }
             }
         }

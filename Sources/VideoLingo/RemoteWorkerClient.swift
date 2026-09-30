@@ -7,6 +7,7 @@ enum RemoteWorkerClientError: LocalizedError {
     case failed(String)
     /// 서버가 표준 형식으로 돌려준 오류입니다. 분기는 code 로 합니다.
     case server(status: Int, code: String?, message: String, retryAfter: Double?)
+    case timedOut(String)
 
     var errorDescription: String? {
         switch self {
@@ -14,12 +15,18 @@ enum RemoteWorkerClientError: LocalizedError {
         case let .rejected(message), let .failed(message): message
         case let .server(status, code, message, _):
             code.map { "STTLMMServer \(status) [\($0)]: \(message)" } ?? "STTLMMServer \(status): \(message)"
+        case let .timedOut(message): message
         }
     }
 
     var serverCode: String? {
         if case let .server(_, code, _, _) = self { return code }
         return nil
+    }
+
+    var isTimeout: Bool {
+        if case .timedOut = self { return true }
+        return false
     }
 }
 
@@ -212,7 +219,9 @@ struct RemoteWorkerClient: Sendable {
             // 장시간 무응답이면 호출자가 다른 원격 서버나 내장 서버로 자동 전환합니다.
             request.timeoutInterval = 600
             request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-            let (data, response) = try await URLSession.shared.upload(for: request, fromFile: bodyURL)
+            let (data, response) = try await withTimeout(seconds: 600, operation: "원격 STT") {
+                try await URLSession.shared.upload(for: request, fromFile: bodyURL)
+            }
             try validate(response, data: data)
             return try JSONDecoder().decode(STTResponse.self, from: data)
         }
@@ -261,6 +270,7 @@ struct RemoteWorkerClient: Sendable {
         while true {
             try Task.checkCancellation()
             guard pollingClock.now < pollingDeadline else {
+                await cancelRemoteSTTJob(jobID)
                 throw RemoteWorkerClientError.failed(
                     String(localized: "원격 STT 진행이 10분 동안 완료되지 않아 다른 서버로 전환합니다.")
                 )
@@ -415,7 +425,9 @@ struct RemoteWorkerClient: Sendable {
             let started = Date.now
             await RemoteServerMetrics.shared.requestStarted(worker: worker, kind: .translation)
             do {
-                let (data, response) = try await URLSession.shared.data(for: request)
+                let (data, response) = try await withTimeout(seconds: 300, operation: "원격 번역") {
+                    try await URLSession.shared.data(for: request)
+                }
                 try validate(response, data: data)
                 let decoded = try JSONDecoder().decode(TranslateResponse.self, from: data)
                 await RemoteServerMetrics.shared.requestFinished(
@@ -459,6 +471,35 @@ struct RemoteWorkerClient: Sendable {
                 String(localized: "\(worker.name) 서버에 연결할 수 없습니다: \(error.localizedDescription)")
             )
         }
+    }
+
+    /// URLSession의 유휴 타임아웃과 별도로 전체 요청 시간을 제한합니다.
+    /// 서버가 연결만 유지한 채 응답하지 않는 경우에도 작업을 취소할 수 있습니다.
+    private func withTimeout<T: Sendable>(
+        seconds: TimeInterval,
+        operation name: String,
+        _ operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                throw RemoteWorkerClientError.timedOut(
+                    String(localized: "\(name) 요청이 \(Int(seconds / 60))분 제한 시간을 초과했습니다.")
+                )
+            }
+            guard let result = try await group.next() else { throw CancellationError() }
+            group.cancelAll()
+            return result
+        }
+    }
+
+    /// 분할 업로드 STT는 서버 작업 ID가 있으므로 시간 초과 시 서버 큐에서도 제거를 시도합니다.
+    private func cancelRemoteSTTJob(_ jobID: String) async {
+        var request = authenticatedRequest(path: "/v1/audio/jobs/\(jobID)")
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 5
+        _ = try? await URLSession.shared.data(for: request)
     }
 
     private func authenticatedRequest(path: String) -> URLRequest {

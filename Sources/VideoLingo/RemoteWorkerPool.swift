@@ -53,6 +53,7 @@ final class RemoteWorkerPool {
     private let defaultsKey = "remoteWorkerConfigurations.v1"
     private let credentialStore = RemoteServerCredentialStore()
     private var activeLeases: [Lease: Int] = [:]
+    private var cooldownUntil: [UUID: Date] = [:]
     private(set) var hasDefaultAuthenticationToken = false
 
     private init() {
@@ -113,6 +114,7 @@ final class RemoteWorkerPool {
     func acquire(for purpose: Purpose, excluding excluded: Set<UUID> = []) -> RemoteWorkerConfiguration? {
         let candidates = availableWorkers.filter { worker, status in
             guard !excluded.contains(worker.id) else { return false }
+            guard cooldownUntil[worker.id, default: .distantPast] <= .now else { return false }
             let limit = max(1, purpose.slots(in: status.capabilities))
             return activeLeases[Lease(worker: worker.id, purpose: purpose), default: 0] < limit
         }
@@ -159,6 +161,15 @@ final class RemoteWorkerPool {
     func release(_ id: UUID, purpose: Purpose) {
         let key = Lease(worker: id, purpose: purpose)
         activeLeases[key] = max(0, activeLeases[key, default: 0] - 1)
+    }
+
+    /// 제한 시간을 넘긴 서버를 잠시 배정 대상에서 제외해 같은 장애 서버로 즉시 재시도하지 않습니다.
+    func quarantine(_ id: UUID, for duration: TimeInterval = 600) {
+        cooldownUntil[id] = Date.now.addingTimeInterval(duration)
+    }
+
+    func cooldownRemaining(for id: UUID) -> TimeInterval {
+        max(0, cooldownUntil[id, default: .distantPast].timeIntervalSinceNow)
     }
 
     /// 화면에 서버별 현재 부하를 보여 주기 위한 값입니다.
