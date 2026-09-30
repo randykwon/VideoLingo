@@ -48,6 +48,7 @@ final class BatchProcessor {
     private static let maximumServiceRecoveryAttempts = 3
     private static let slowProgressWarningInterval: TimeInterval = 90
     private static let stalledProgressRecoveryInterval: TimeInterval = 300
+    private static let remoteFailureRetryInterval = Duration.seconds(10 * 60)
     private static let rememberedVideoPathsKey = "batchRememberedVideoPaths"
     private static let autoResumePathsKey = "batchAutoResumePaths"
 
@@ -253,6 +254,7 @@ final class BatchProcessor {
     private var scheduledItemIDs: Set<UUID> = []
     private var pausedItemIDs: Set<UUID> = []
     private var pendingLaunchResumePaths: Set<String> = []
+    @ObservationIgnored private var remoteFailureRetryTask: Task<Void, Never>?
     private var alternateResultDirectoryBookmark: Data?
     var alternateResultDirectoryURL: URL?
 
@@ -290,6 +292,12 @@ final class BatchProcessor {
                 await Task.yield()
                 self?.refreshExistingResults()
             }
+        }
+
+        // 원격 요청이 실패해도 사용자가 계속 지켜보며 재시도할 필요가 없도록 합니다.
+        // 취소·일시 정지는 사용자의 명시적 선택이므로 실패 상태만 자동으로 재개합니다.
+        remoteFailureRetryTask = Task { @MainActor [weak self] in
+            await self?.monitorRemoteFailures()
         }
     }
 
@@ -779,6 +787,26 @@ final class BatchProcessor {
             connection = nil
         }
         return RemoteWorkerPool.shared.availableWorkers.count
+    }
+
+    /// 실패한 대량 번역을 10분마다 확인하고, 원격 서버가 정상일 때 저장된 결과부터 다시 시도합니다.
+    /// 서버가 계속 비정상이면 항목을 건드리지 않고 다음 주기까지 기다립니다.
+    private func monitorRemoteFailures() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: Self.remoteFailureRetryInterval)
+            guard !Task.isCancelled, prefersRemoteWorkers else { continue }
+
+            await RemoteWorkerPool.shared.refreshAll()
+            guard !RemoteWorkerPool.shared.availableWorkers.isEmpty else { continue }
+
+            let failedIDs = Set(items.lazy.filter { $0.status == .failed }.map(\.id))
+            guard !failedIDs.isEmpty else { continue }
+
+            folderScanMessage = String(
+                localized: "원격 서버 연결 정상 · 실패한 대량 번역 \(failedIDs.count)개를 자동 재시도합니다."
+            )
+            start(ids: failedIDs)
+        }
     }
 
     /// 완료된 항목의 화자 이름을 다시 분석합니다.
