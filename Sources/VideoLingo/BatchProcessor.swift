@@ -1052,6 +1052,34 @@ final class BatchProcessor {
         scheduledItemIDs.contains(item.id) && !item.isFinished && !item.isProcessing && item.sttCompleted
     }
 
+    /// 재개 가능한 결과가 많이 쌓인 작업부터 마무리해 완료 항목을 빠르게 늘립니다.
+    /// 같은 진행률이면 청크 수, 마지막에는 원래 목록 순서를 사용해 순서가 흔들리지 않게 합니다.
+    private func nextWaitingIndex(for phase: JobPhase) -> Int? {
+        let candidates = items.indices.filter { index in
+            switch phase {
+            case .stt: waitsForSTT(items[index])
+            case .translation: waitsForTranslation(items[index])
+            }
+        }
+        return candidates.max { lhs, rhs in
+            let leftProgress: Double
+            let rightProgress: Double
+            switch phase {
+            case .stt:
+                leftProgress = items[lhs].sttProgress
+                rightProgress = items[rhs].sttProgress
+            case .translation:
+                leftProgress = items[lhs].translationProgress
+                rightProgress = items[rhs].translationProgress
+            }
+            if leftProgress != rightProgress { return leftProgress < rightProgress }
+            if items[lhs].currentChunk != items[rhs].currentChunk {
+                return items[lhs].currentChunk < items[rhs].currentChunk
+            }
+            return lhs > rhs
+        }
+    }
+
     /// VideoLingoAIService 프로세스만 표본화해 다른 앱의 빌드나 렌더링 부하가
     /// 대량 번역의 로컬 큐를 불필요하게 막지 않도록 합니다.
     private func measuredLocalServiceCPUUsage() -> Double {
@@ -1133,7 +1161,7 @@ final class BatchProcessor {
                 // STT 레인: 번역이 밀려 있어도 다음 영상들의 STT를 계속 진행합니다.
                 while !isPaused,
                       sttActive < effectiveSTTConcurrentJobs,
-                      let index = items.firstIndex(where: { self.waitsForSTT($0) }) {
+                      let index = nextWaitingIndex(for: .stt) {
                     let itemID = items[index].id
                     items[index].isProcessing = true
                     if group.addTaskUnlessCancelled(operation: { [weak self] in
@@ -1149,7 +1177,7 @@ final class BatchProcessor {
                 // 번역 레인: STT가 끝난 영상만 순서대로 처리합니다.
                 while !isPaused,
                       translationActive < effectiveConcurrentJobs,
-                      let index = items.firstIndex(where: { self.waitsForTranslation($0) }) {
+                      let index = nextWaitingIndex(for: .translation) {
                     let itemID = items[index].id
                     items[index].isProcessing = true
                     if group.addTaskUnlessCancelled(operation: { [weak self] in
