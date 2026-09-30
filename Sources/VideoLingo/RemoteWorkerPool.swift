@@ -305,9 +305,19 @@ final class RemoteWorkerPool {
         guard let worker = workers.first(where: { $0.id == id }), worker.isEnabled else { return }
         states[id] = .checking
         do {
-            states[id] = .available(try await checkConnection(to: workerUsingDefaultTokenIfNeeded(worker)))
+            let status = try await checkConnection(to: workerUsingDefaultTokenIfNeeded(worker))
+            states[id] = .available(status)
+            let combinedSlots = max(1, status.capabilities.sttSlots + status.capabilities.translationSlots)
+            if status.activeJobs >= combinedSlots, !recoveringWorkerIDs.contains(id) {
+                // 연결은 정상이지만 서버 내부 대기열이 가득 찬 경우도 주기적으로 다시 확인합니다.
+                quarantine(id, for: 60)
+            }
         } catch {
             states[id] = .unavailable(error.localizedDescription)
+            if !recoveringWorkerIDs.contains(id) {
+                // 시작 시 오프라인이었던 서버도 사용자가 수동으로 다시 연결할 필요가 없습니다.
+                quarantine(id, for: 60)
+            }
         }
     }
 
