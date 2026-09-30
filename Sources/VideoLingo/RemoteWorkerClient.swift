@@ -219,8 +219,9 @@ struct RemoteWorkerClient: Sendable {
             // 장시간 무응답이면 호출자가 다른 원격 서버나 내장 서버로 자동 전환합니다.
             request.timeoutInterval = 600
             request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+            let finalizedRequest = request
             let (data, response) = try await withTimeout(seconds: 600, operation: "원격 STT") {
-                try await URLSession.shared.upload(for: request, fromFile: bodyURL)
+                try await URLSession.shared.upload(for: finalizedRequest, fromFile: bodyURL)
             }
             try validate(response, data: data)
             return try JSONDecoder().decode(STTResponse.self, from: data)
@@ -421,12 +422,13 @@ struct RemoteWorkerClient: Sendable {
             request.timeoutInterval = 600
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let finalizedRequest = request
             // 배치 단위로 왕복 시간과 서버 처리 시간을 기록합니다.
             let started = Date.now
             await RemoteServerMetrics.shared.requestStarted(worker: worker, kind: .translation)
             do {
                 let (data, response) = try await withTimeout(seconds: 300, operation: "원격 번역") {
-                    try await URLSession.shared.data(for: request)
+                    try await URLSession.shared.data(for: finalizedRequest)
                 }
                 try validate(response, data: data)
                 let decoded = try JSONDecoder().decode(TranslateResponse.self, from: data)
@@ -435,7 +437,7 @@ struct RemoteWorkerClient: Sendable {
                     kind: .translation,
                     roundTrip: Date.now.timeIntervalSince(started),
                     serverSeconds: decoded.processingSeconds,
-                    uploadedBytes: Int64(request.httpBody?.count ?? 0),
+                    uploadedBytes: Int64(finalizedRequest.httpBody?.count ?? 0),
                     translatedTexts: decoded.translations.count
                 )
                 results += decoded.translations.map(\.text)
