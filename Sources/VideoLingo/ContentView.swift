@@ -1828,6 +1828,7 @@ private struct GeneralSettingsView: View {
     @Environment(LocalizationManager.self) private var localization
     @Environment(ThemeManager.self) private var theme
     @Environment(AppModel.self) private var model
+    @Environment(BatchProcessor.self) private var batchProcessor
     @AppStorage("subtitlePositionX") private var subtitlePositionX = 0.5
     @AppStorage("subtitlePositionY") private var subtitlePositionY = 0.86
     @AppStorage("subtitlePositionLocked") private var subtitlePositionLocked = false
@@ -1836,6 +1837,7 @@ private struct GeneralSettingsView: View {
         @Bindable var localization = localization
         @Bindable var theme = theme
         @Bindable var model = model
+        @Bindable var batchProcessor = batchProcessor
         Form {
             Section("테마") {
                 VStack(alignment: .leading, spacing: 6) {
@@ -1925,6 +1927,8 @@ private struct GeneralSettingsView: View {
                 Toggle("앱 시작 시 무음", isOn: $model.startMuted)
                 Toggle("마지막 영상 자동 복원", isOn: $model.autoloadLastVideoPreference)
                 Toggle("이전 재생 위치 기억", isOn: $model.rememberPlaybackPosition)
+                Toggle("앱 재시작 후 대량 번역 자동 재개", isOn: $batchProcessor.automaticallyResumeOnLaunch)
+                    .help("실행 중이던 파일만 저장된 STT·번역 지점부터 자동으로 계속합니다")
                 Picker("방향키 음량 조절 폭", selection: $model.volumeAdjustmentStep) {
                     Text("1% · 매우 미세").tag(0.01)
                     Text("2% · 미세").tag(0.02)
@@ -1932,7 +1936,7 @@ private struct GeneralSettingsView: View {
                     Text("10% · 크게").tag(0.10)
                 }
                 .help("위·아래 방향키를 한 번 누를 때 바뀌는 음량입니다")
-                Text("음량 조절 폭은 즉시 적용됩니다. 시작·복원 설정은 앱을 재시작하면 반영됩니다.")
+                Text("대량 번역 자동 재개 설정은 즉시 저장되며, 다음 앱 실행 때 적용됩니다.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

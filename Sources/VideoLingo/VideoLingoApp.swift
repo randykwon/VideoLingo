@@ -96,6 +96,7 @@ struct VideoLingoApp: App {
                 .environment(shortcuts)
                 .environment(localization)
                 .environment(theme)
+                .environment(batchProcessor)
                 .environment(\.locale, localization.locale)
                 .id(localization.language)
                 .tint(theme.accentColor)
