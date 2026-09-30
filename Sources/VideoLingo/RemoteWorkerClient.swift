@@ -159,6 +159,8 @@ struct RemoteWorkerClient: Sendable {
     func transcribeAudio(
         audioURL: URL,
         language: String?,
+        usesChunkedUpload: Bool = true,
+        splitThresholdBytes: Int = 100 * 1024 * 1024,
         onProgress: @Sendable (String) -> Void = { _ in }
     ) async throws -> STTResponse {
         let size = (try? FileManager.default.attributesOfItem(atPath: audioURL.path)[.size] as? NSNumber)??.intValue ?? 0
@@ -170,7 +172,10 @@ struct RemoteWorkerClient: Sendable {
         let worker = self.worker
         await RemoteServerMetrics.shared.requestStarted(worker: worker, kind: .stt)
         do {
-            let response = size > Self.singleRequestLimit
+            // 사용자가 분할을 끄더라도 서버의 단일 요청 안전 한도를 넘으면 자동 분할합니다.
+            let requestedThreshold = min(Self.singleRequestLimit, max(25 * 1024 * 1024, splitThresholdBytes))
+            let effectiveThreshold = usesChunkedUpload ? requestedThreshold : Self.singleRequestLimit
+            let response = size > effectiveThreshold
                 ? try await transcribeViaUploadSession(audioURL: audioURL, size: size, language: language, onProgress: onProgress)
                 : try await transcribeSingleRequest(audioURL: audioURL, language: language)
             await RemoteServerMetrics.shared.requestFinished(
@@ -236,13 +241,15 @@ struct RemoteWorkerClient: Sendable {
         let handle = try FileHandle(forReadingFrom: audioURL)
         defer { try? handle.close() }
         var offset = (session["next_offset"] as? NSNumber)?.intValue ?? 0
+        let totalParts = max(1, Int(ceil(Double(size) / Double(chunkSize))))
         while offset < size {
             try handle.seek(toOffset: UInt64(offset))
             guard let data = try handle.read(upToCount: chunkSize), !data.isEmpty else { break }
             let state = try await uploadChunk(uploadID: uploadID, offset: offset, data: data)
             offset = (state["next_offset"] as? NSNumber)?.intValue ?? (offset + data.count)
             let progress = (state["progress"] as? NSNumber)?.doubleValue ?? 0
-            onProgress(String(localized: "업로드 \(Int(progress * 100))%"))
+            let completedParts = min(totalParts, Int(ceil(Double(offset) / Double(chunkSize))))
+            onProgress(String(localized: "분할 전송 \(completedParts)/\(totalParts) · \(Int(progress * 100))%"))
         }
 
         let job = try await postJSON(path: "/v1/audio/uploads/\(uploadID)/transcribe", body: nil)
