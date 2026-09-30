@@ -49,6 +49,7 @@ final class BatchProcessor {
     private static let slowProgressWarningInterval: TimeInterval = 90
     private static let stalledProgressRecoveryInterval: TimeInterval = 300
     private static let rememberedVideoPathsKey = "batchRememberedVideoPaths"
+    private static let autoResumePathsKey = "batchAutoResumePaths"
 
     struct DuplicateFilenameGroup: Identifiable {
         let id: String
@@ -104,6 +105,16 @@ final class BatchProcessor {
     var isCheckingExistingResults = false
     var folderScanMessage = ""
     var resultCheckMessage = ""
+    var automaticallyResumeOnLaunch: Bool = UserDefaults.standard.object(forKey: "batchAutomaticallyResumeOnLaunch") as? Bool ?? false {
+        didSet {
+            UserDefaults.standard.set(automaticallyResumeOnLaunch, forKey: "batchAutomaticallyResumeOnLaunch")
+            if automaticallyResumeOnLaunch, isRunning {
+                persistAutoResumeState()
+            } else if !automaticallyResumeOnLaunch {
+                clearAutoResumeState()
+            }
+        }
+    }
     var maximumConcurrentJobs: Int = {
         let stored = UserDefaults.standard.integer(forKey: "batchMaximumConcurrentJobs")
         return stored == 0 ? 5 : min(10, max(1, stored))
@@ -241,6 +252,7 @@ final class BatchProcessor {
     }
     private var scheduledItemIDs: Set<UUID> = []
     private var pausedItemIDs: Set<UUID> = []
+    private var pendingLaunchResumePaths: Set<String> = []
     private var alternateResultDirectoryBookmark: Data?
     var alternateResultDirectoryURL: URL?
 
@@ -259,6 +271,11 @@ final class BatchProcessor {
         }
 
         let rememberedPaths = UserDefaults.standard.stringArray(forKey: Self.rememberedVideoPathsKey) ?? []
+        if automaticallyResumeOnLaunch {
+            pendingLaunchResumePaths = Set(UserDefaults.standard.stringArray(forKey: Self.autoResumePathsKey) ?? [])
+        } else {
+            clearAutoResumeState()
+        }
         let rememberedURLs = rememberedPaths
             .map { URL(filePath: $0).standardizedFileURL }
             .filter { FileManager.default.fileExists(atPath: $0.path) && Self.isSupportedVideoURL($0) }
@@ -478,6 +495,40 @@ final class BatchProcessor {
     private func rememberCurrentVideoList() {
         let paths = items.map { $0.url.standardizedFileURL.path(percentEncoded: false) }
         UserDefaults.standard.set(paths, forKey: Self.rememberedVideoPathsKey)
+        if isRunning { persistAutoResumeState() }
+    }
+
+    private func persistAutoResumeState() {
+        guard automaticallyResumeOnLaunch else { return }
+        let paths = items.compactMap { item -> String? in
+            guard scheduledItemIDs.contains(item.id), !item.isFinished else { return nil }
+            return item.url.standardizedFileURL.path(percentEncoded: false)
+        }
+        if paths.isEmpty {
+            clearAutoResumeState()
+        } else {
+            UserDefaults.standard.set(paths, forKey: Self.autoResumePathsKey)
+        }
+    }
+
+    private func clearAutoResumeState() {
+        UserDefaults.standard.removeObject(forKey: Self.autoResumePathsKey)
+    }
+
+    private func resumePreviousRunIfNeeded() {
+        guard automaticallyResumeOnLaunch, !pendingLaunchResumePaths.isEmpty else { return }
+        let paths = pendingLaunchResumePaths
+        pendingLaunchResumePaths.removeAll()
+        let ids = Set(items.compactMap { item -> UUID? in
+            let path = item.url.standardizedFileURL.path(percentEncoded: false)
+            return paths.contains(path) && item.status != .completed ? item.id : nil
+        })
+        guard !ids.isEmpty else {
+            clearAutoResumeState()
+            return
+        }
+        folderScanMessage = String(localized: "이전 대량 번역 \(ids.count)개를 저장된 지점부터 자동 재개합니다.")
+        start(ids: ids)
     }
 
     private func isSupportedVideo(_ url: URL) -> Bool {
@@ -835,6 +886,7 @@ final class BatchProcessor {
             }
             self?.isCheckingExistingResults = false
             self?.resultCheckTask = nil
+            self?.resumePreviousRunIfNeeded()
         }
     }
 
@@ -960,6 +1012,7 @@ final class BatchProcessor {
         }
         guard !eligible.isEmpty else { return }
         scheduledItemIDs.formUnion(eligible)
+        persistAutoResumeState()
         guard !isRunning else { return }
         isRunning = true
         isPaused = false
@@ -982,6 +1035,7 @@ final class BatchProcessor {
     func pause() {
         guard isRunning, !isPaused else { return }
         isPaused = true
+        clearAutoResumeState()
         for index in items.indices where !items[index].isProcessing && scheduledItemIDs.contains(items[index].id) {
             items[index].message = String(localized: "일시 정지됨 · 계속하면 자동으로 시작합니다.")
         }
@@ -990,6 +1044,7 @@ final class BatchProcessor {
     func resume() {
         guard isRunning, isPaused else { return }
         isPaused = false
+        persistAutoResumeState()
         for index in items.indices where !items[index].isProcessing && scheduledItemIDs.contains(items[index].id) {
             items[index].message = String(localized: "재개 대기 중")
         }
@@ -999,6 +1054,7 @@ final class BatchProcessor {
         guard !ids.isEmpty else { return }
         pausedItemIDs.subtract(ids)
         scheduledItemIDs.subtract(ids)
+        persistAutoResumeState()
         for id in ids {
             guard let index = items.firstIndex(where: { $0.id == id }) else { continue }
             if items[index].isProcessing {
@@ -1017,6 +1073,7 @@ final class BatchProcessor {
         guard !ids.isEmpty else { return }
         pausedItemIDs.formUnion(ids)
         scheduledItemIDs.subtract(ids)
+        persistAutoResumeState()
         for id in ids {
             guard let index = items.firstIndex(where: { $0.id == id }), !items[index].isFinished else { continue }
             if items[index].isProcessing {
@@ -1035,6 +1092,7 @@ final class BatchProcessor {
         isPaused = false
         runTask?.cancel()
         scheduledItemIDs.removeAll()
+        clearAutoResumeState()
         let ids = activeJobIDsByItem.values
         for id in ids { service()?.cancelJob(id.uuidString) { _ in } }
     }
@@ -1296,6 +1354,7 @@ final class BatchProcessor {
         }
         activeJobIDsByItem.removeAll()
         scheduledItemIDs.removeAll()
+        clearAutoResumeState()
         isRunning = false
         isPaused = false
         runTask = nil
@@ -2187,6 +2246,8 @@ struct BatchTranslationView: View {
                         }
                         Spacer()
                         VStack(alignment: .trailing, spacing: 4) {
+                            Toggle("앱 재시작 후 자동 재개", isOn: $processor.automaticallyResumeOnLaunch)
+                                .help("현재 실행 중인 대량 번역을 저장하고 다음 실행에서 체크포인트부터 계속합니다")
                             Toggle("Mac 성능에 맞게 자동 조정", isOn: $processor.automaticallyAdjustConcurrentJobs)
                                 .disabled(processor.isRunning)
                             Stepper(value: $processor.maximumConcurrentJobs, in: 1...10) {
