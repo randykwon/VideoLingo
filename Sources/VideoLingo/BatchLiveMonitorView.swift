@@ -412,6 +412,7 @@ struct BatchLiveMonitorView: View {
 
     private func serverIsAvailable(_ server: MonitoredServer) -> Bool {
         guard let workerID = server.workerID else { return true }
+        guard pool.cooldownRemaining(for: workerID) <= 0 else { return false }
         guard let state = pool.states[workerID] else { return false }
         if case .available = state { return true }
         return false
@@ -431,6 +432,7 @@ struct BatchLiveMonitorView: View {
         let samples = recorder.serverSamples.filter { $0.server == server.name }.suffix(120)
         let active = activeCount(for: server, stt: stt)
         let available = serverIsAvailable(server)
+        let cooldown = server.workerID.map { pool.cooldownRemaining(for: $0) } ?? 0
         let tint: Color = stt ? .blue : .purple
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
@@ -441,7 +443,9 @@ struct BatchLiveMonitorView: View {
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Label(
-                    available ? "\(active)개" : String(localized: "연결 안 됨"),
+                    cooldown > 0
+                        ? String(localized: "자동 격리 \(Int(ceil(cooldown / 60)))분")
+                        : (available ? "\(active)개" : String(localized: "연결 안 됨")),
                     systemImage: available ? (active > 0 ? "bolt.fill" : "circle") : "exclamationmark.triangle"
                 )
                 .font(.caption2.monospacedDigit())
@@ -467,7 +471,9 @@ struct BatchLiveMonitorView: View {
                 }
                 .frame(height: 58)
             } else {
-                Text(available ? "처리량 표본 수집 중" : "서버 설정에서 연결을 확인하세요")
+                Text(cooldown > 0
+                    ? "시간 초과 감지 · 다른 서버 또는 내장 서버로 자동 전환됨"
+                    : (available ? "처리량 표본 수집 중" : "서버 설정에서 연결을 확인하세요"))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 58, alignment: .center)
