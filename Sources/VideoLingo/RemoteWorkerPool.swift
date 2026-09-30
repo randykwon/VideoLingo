@@ -116,8 +116,20 @@ final class RemoteWorkerPool {
             let limit = max(1, purpose.slots(in: status.capabilities))
             return activeLeases[Lease(worker: worker.id, purpose: purpose), default: 0] < limit
         }
-        // 같은 서버에 몰리지 않도록 전체 임대 수가 가장 적은 서버를 우선합니다.
-        guard let selected = candidates.min(by: { totalLeases(for: $0.0.id) < totalLeases(for: $1.0.id) })?.0 else {
+        // 단순 임대 건수로 비교하면 4슬롯 서버와 1슬롯 서버가 같은 비율로 선택되어
+        // 느린 서버에 대기열이 몰립니다. 용도별 사용률을 비교해 서버가 알린 처리 용량에
+        // 비례하도록 분산하고, 동률일 때만 전체 임대 수를 보조 기준으로 사용합니다.
+        guard let selected = candidates.min(by: { lhs, rhs in
+            let lhsSlots = max(1, purpose.slots(in: lhs.1.capabilities))
+            let rhsSlots = max(1, purpose.slots(in: rhs.1.capabilities))
+            let lhsLeases = activeLeases[Lease(worker: lhs.0.id, purpose: purpose), default: 0]
+            let rhsLeases = activeLeases[Lease(worker: rhs.0.id, purpose: purpose), default: 0]
+            let lhsUtilization = Double(lhsLeases) / Double(lhsSlots)
+            let rhsUtilization = Double(rhsLeases) / Double(rhsSlots)
+            if lhsUtilization != rhsUtilization { return lhsUtilization < rhsUtilization }
+            if lhsLeases != rhsLeases { return lhsLeases < rhsLeases }
+            return totalLeases(for: lhs.0.id) < totalLeases(for: rhs.0.id)
+        })?.0 else {
             return nil
         }
         activeLeases[Lease(worker: selected.id, purpose: purpose), default: 0] += 1

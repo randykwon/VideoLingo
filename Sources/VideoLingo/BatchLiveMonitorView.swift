@@ -144,21 +144,6 @@ struct BatchLiveMonitorView: View {
     @Environment(BatchProcessor.self) private var processor
     @State private var recorder = BatchThroughputRecorder.shared
     @State private var metrics = RemoteServerMetrics.shared
-    @State private var breakdown: Breakdown = .combined
-    @State private var perServerMetric: PerServerMetric = .stt
-
-    private enum Breakdown: Hashable { case combined, perServer }
-
-    private enum PerServerMetric: Hashable {
-        case stt, translation
-
-        var title: String {
-            switch self {
-            case .stt: String(localized: "STT 배속")
-            case .translation: String(localized: "번역 구간/분")
-            }
-        }
-    }
 
     /// 화면에 나눠 보여 줄 단계입니다. 순서가 곧 파이프라인 순서입니다.
     private enum Stage: String, CaseIterable, Plottable {
@@ -234,18 +219,8 @@ struct BatchLiveMonitorView: View {
                 }
 
                 if recorder.samples.count >= 2 {
-                    Picker("보기", selection: $breakdown) {
-                        Text("합계").tag(Breakdown.combined)
-                        Text("서버별").tag(Breakdown.perServer)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(width: 200)
-
-                    switch breakdown {
-                    case .combined: throughputChart
-                    case .perServer: perServerChart
-                    }
+                    sttMonitor
+                    translationMonitor
                 } else {
                     Text("처리량 그래프는 잠시 뒤부터 표시됩니다.")
                         .font(.caption)
@@ -317,11 +292,8 @@ struct BatchLiveMonitorView: View {
         }
     }
 
-    private var throughputChart: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("처리량 (최근 10분)")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+    private var sttMonitor: some View {
+        GroupBox {
             Chart {
                 ForEach(recorder.samples) { sample in
                     AreaMark(
@@ -337,11 +309,41 @@ struct BatchLiveMonitorView: View {
                     )
                     .foregroundStyle(.blue)
                 }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading, values: .automatic(desiredCount: 3))
+            }
+            .chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: 4)) {
+                    AxisValueLabel(format: .dateTime.hour().minute())
+                }
+            }
+            .frame(height: 96)
+
+            serverRateRows(stt: true)
+        } label: {
+            HStack {
+                Label("STT 모니터링", systemImage: "waveform")
+                Spacer()
+                Text("\(count(.extracting) + count(.transcribing))개 처리 · \(String(format: "%.1f", recorder.recentSTTRate)) 청크/분")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var translationMonitor: some View {
+        GroupBox {
+            Chart {
                 ForEach(recorder.samples) { sample in
+                    AreaMark(
+                        x: .value("시각", sample.time),
+                        y: .value("번역 구간/분", sample.translationRate)
+                    )
+                    .foregroundStyle(Color.purple.opacity(0.24))
                     LineMark(
                         x: .value("시각", sample.time),
-                        y: .value("번역 구간/분", sample.translationRate),
-                        series: .value("항목", "번역")
+                        y: .value("번역 구간/분", sample.translationRate)
                     )
                     .foregroundStyle(.purple)
                 }
@@ -355,75 +357,35 @@ struct BatchLiveMonitorView: View {
                 }
             }
             .frame(height: 96)
-            HStack(spacing: 12) {
-                legend("STT", .blue)
-                legend(String(localized: "번역"), .purple)
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-        }
-    }
 
-    /// 서버마다 선을 따로 그려 어느 쪽이 빠른지, 실제로 일하고 있는지 비교합니다.
-    private var perServerChart: some View {
-        VStack(alignment: .leading, spacing: 4) {
+            serverRateRows(stt: false)
+        } label: {
             HStack {
-                Picker("지표", selection: $perServerMetric) {
-                    Text("STT 배속").tag(PerServerMetric.stt)
-                    Text("번역 구간/분").tag(PerServerMetric.translation)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 230)
+                Label("번역 모니터링", systemImage: "character.book.closed")
                 Spacer()
-                Text(perServerMetric == .stt
-                    ? String(localized: "실제 1분당 전사한 오디오 분량")
-                    : String(localized: "실제 1분당 완성한 번역 구간"))
-                    .font(.caption2)
+                Text("\(count(.translating))개 처리 · \(String(format: "%.1f", recorder.recentTranslationRate)) 구간/분")
+                    .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            Chart(recorder.serverSamples) { sample in
-                LineMark(
-                    x: .value("시각", sample.time),
-                    y: .value(
-                        perServerMetric.title,
-                        perServerMetric == .stt ? sample.sttMinutesPerMinute : sample.translationRate
-                    ),
-                    series: .value("서버", sample.server)
-                )
-                .foregroundStyle(by: .value("서버", sample.server))
-                .interpolationMethod(.monotone)
-            }
-            .chartYAxis {
-                AxisMarks(position: .leading, values: .automatic(desiredCount: 3))
-            }
-            .chartXAxis {
-                AxisMarks(values: .automatic(desiredCount: 4)) {
-                    AxisValueLabel(format: .dateTime.hour().minute())
-                }
-            }
-            .chartLegend(position: .bottom, spacing: 6)
-            .frame(height: 110)
-
-            // 숫자로도 비교할 수 있게 최근 평균을 함께 보여 줍니다.
-            ForEach(recorder.trackedServers, id: \.self) { server in
-                HStack(spacing: 10) {
-                    Text(server).frame(minWidth: 130, alignment: .leading)
-                    Text(String(format: "%.1f배속", recorder.recentRate(for: server, stt: true)))
-                        .foregroundStyle(.blue)
-                    Text(String(format: "번역 %.1f/분", recorder.recentRate(for: server, stt: false)))
-                        .foregroundStyle(.purple)
-                    Spacer()
-                }
-                .font(.caption2.monospacedDigit())
-            }
         }
     }
 
-    private func legend(_ title: String, _ color: Color) -> some View {
-        HStack(spacing: 3) {
-            RoundedRectangle(cornerRadius: 1).fill(color).frame(width: 10, height: 3)
-            Text(title)
+    @ViewBuilder
+    private func serverRateRows(stt: Bool) -> some View {
+        if !recorder.trackedServers.isEmpty {
+            Divider()
+            ForEach(recorder.trackedServers, id: \.self) { server in
+                HStack {
+                    Text(server)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(stt
+                        ? String(format: "%.1f배속", recorder.recentRate(for: server, stt: true))
+                        : String(format: "%.1f 구간/분", recorder.recentRate(for: server, stt: false)))
+                        .foregroundStyle(stt ? Color.blue : Color.purple)
+                }
+                .font(.caption.monospacedDigit())
+            }
         }
     }
 
