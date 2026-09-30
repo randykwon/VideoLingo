@@ -31,6 +31,8 @@ final class RemoteServerMetrics {
         /// 서버가 보고한 순수 처리 시간 합계(초)입니다. 왕복과의 차이가 전송·대기 비용입니다.
         var serverSeconds: [Kind: Double] = [:]
         var uploadedBytes: Int64 = 0
+        /// STT 오디오와 번역 텍스트의 크기를 분리해 전송 시간 예측이 섞이지 않게 합니다.
+        var uploadedBytesByKind: [Kind: Int64] = [:]
         /// 전사한 오디오 길이 합계(초)입니다. 처리량 계산에 씁니다.
         var audioSeconds: Double = 0
         var translatedTexts: Int = 0
@@ -105,6 +107,7 @@ final class RemoteServerMetrics {
         entry.roundTripSeconds[kind, default: 0] += roundTrip
         if let serverSeconds { entry.serverSeconds[kind, default: 0] += serverSeconds }
         entry.uploadedBytes += uploadedBytes
+        entry.uploadedBytesByKind[kind, default: 0] += uploadedBytes
         if let audioSeconds { entry.audioSeconds += audioSeconds }
         entry.translatedTexts += translatedTexts
         if let realtimeFactor { entry.lastRealtimeFactor = realtimeFactor }
@@ -127,6 +130,45 @@ final class RemoteServerMetrics {
         startedAt = nil
         warnings = []
         acknowledged = []
+    }
+
+    /// 최근 실측값으로 특정 서버의 STT 완료 시간을 추정합니다.
+    /// 왕복 시간에서 서버 처리 시간을 뺀 값을 업로드·큐 대기 비용으로 보므로
+    /// 단순 서버 연산 속도뿐 아니라 실제 전송 지연도 경로 선택에 반영됩니다.
+    func estimatedSTTDuration(
+        workerID: UUID,
+        audioDuration: TimeInterval,
+        uploadBytes: Int64,
+        fallbackRealtimeFactor: Double,
+        slots: Int
+    ) -> (total: TimeInterval, transferAndWait: TimeInterval) {
+        guard let entry = stats[workerID] else {
+            let processing = audioDuration / max(0.25, fallbackRealtimeFactor)
+            // 32kbps 오디오는 작지만 Wi-Fi 상태를 고려해 첫 요청은 5MB/s로 보수적으로 계산합니다.
+            let transfer = 0.5 + Double(uploadBytes) / (5 * 1_024 * 1_024)
+            return (processing + transfer, transfer)
+        }
+
+        let serverSeconds = entry.serverSeconds[.stt] ?? 0
+        let measuredFactor = serverSeconds > 0 && entry.audioSeconds > 0
+            ? entry.audioSeconds / serverSeconds
+            : fallbackRealtimeFactor
+        let processing = audioDuration / max(0.25, measuredFactor)
+
+        let roundTrip = entry.roundTripSeconds[.stt] ?? 0
+        let overhead = max(0, roundTrip - serverSeconds)
+        let measuredBytes = entry.uploadedBytesByKind[.stt] ?? 0
+        let transfer: TimeInterval
+        if overhead > 0.05, measuredBytes > 0 {
+            let secondsPerByte = overhead / Double(measuredBytes)
+            transfer = max(0.25, Double(uploadBytes) * secondsPerByte)
+        } else {
+            transfer = 0.5 + Double(uploadBytes) / (5 * 1_024 * 1_024)
+        }
+
+        let inFlight = entry.inFlight[.stt] ?? 0
+        let queueWait = Double(inFlight) / Double(max(1, slots)) * processing
+        return (processing + transfer + queueWait, transfer + queueWait)
     }
 
     // MARK: 이상 감지

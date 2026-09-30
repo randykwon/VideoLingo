@@ -229,6 +229,16 @@ final class BatchProcessor {
     private var activeLocalSTTJobs = 0
     private var activeLocalTranslationJobs = 0
     private var localServiceCPUSample: (uptime: TimeInterval, cpuNanoseconds: UInt64)?
+    private var localSTTRealtimeFactor: Double {
+        let stored = UserDefaults.standard.double(forKey: "batchLocalSTTRealtimeFactor")
+        return stored > 0 ? min(50, max(0.25, stored)) : 2
+    }
+
+    private struct STTRoutingDecision {
+        let useRemote: Bool
+        let audioDuration: TimeInterval
+        let summary: String
+    }
     private var scheduledItemIDs: Set<UUID> = []
     private var pausedItemIDs: Set<UUID> = []
     private var alternateResultDirectoryBookmark: Data?
