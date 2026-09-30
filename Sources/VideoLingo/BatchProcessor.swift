@@ -1163,6 +1163,76 @@ final class BatchProcessor {
         }
     }
 
+    /// 영상 길이와 32kbps 정규화 오디오 크기, 최근 서버 왕복 시간, 로컬 실측 속도를
+    /// 같은 '예상 완료 시간' 단위로 바꿔 더 빨리 끝날 STT 경로를 고릅니다.
+    private func sttRoutingDecision(for mediaURL: URL) async -> STTRoutingDecision {
+        let duration = (try? await AVURLAsset(url: mediaURL).load(.duration).seconds) ?? 0
+        guard duration.isFinite, duration > 0 else {
+            return STTRoutingDecision(useRemote: prefersRemoteWorkers, audioDuration: 0, summary: String(localized: "STT 경로 계산 정보 부족"))
+        }
+
+        let localProcessing = duration / localSTTRealtimeFactor
+        let localQueue = Double(activeLocalSTTJobs) / Double(max(1, localConcurrencyLimit)) * localProcessing
+        let localTotal = localProcessing + localQueue
+        let estimatedBytes = Int64((duration * 32_000 / 8).rounded(.up))
+        let pool = RemoteWorkerPool.shared
+        let candidates = pool.availableWorkers.filter { $0.1.capabilities.sttSlots > 0 }
+        guard prefersRemoteWorkers, !candidates.isEmpty else {
+            return STTRoutingDecision(
+                useRemote: false,
+                audioDuration: duration,
+                summary: String(localized: "STT 경로 · 내장 서버 예상 (formattedEstimate(localTotal)) · 사용 가능한 원격 없음")
+            )
+        }
+
+        let best = candidates.map { worker, status -> (name: String, total: TimeInterval, transfer: TimeInterval) in
+            let version = status.version.lowercased()
+            let fallbackFactor: Double
+            if version.contains("metal") { fallbackFactor = 12 }
+            else if version.contains("cuda") || version.contains("gpu") { fallbackFactor = 10 }
+            else if version.contains("cpu") { fallbackFactor = 1 }
+            else { fallbackFactor = 3 }
+            let estimate = RemoteServerMetrics.shared.estimatedSTTDuration(
+                workerID: worker.id,
+                audioDuration: duration,
+                uploadBytes: estimatedBytes,
+                fallbackRealtimeFactor: fallbackFactor,
+                slots: status.capabilities.sttSlots
+            )
+            // 아직 전송을 시작하지 않은 예약도 원격 대기 시간에 포함합니다.
+            let reservedAhead = max(0, pool.remoteSTTReservationCount - pool.totalSTTSlots)
+            let reservationWait = Double(reservedAhead) / Double(max(1, pool.totalSTTSlots)) * estimate.total
+            return (status.name, estimate.total + reservationWait, estimate.transferAndWait + reservationWait)
+        }.min { $0.total < $1.total }
+
+        guard let best else {
+            return STTRoutingDecision(useRemote: false, audioDuration: duration, summary: String(localized: "STT 경로 · 내장 서버 선택"))
+        }
+        // 예측 오차 때문에 거의 같은 경우에는 사용자가 설정한 원격 우선 정책을 존중합니다.
+        let useRemote = best.total <= localTotal * 1.1
+        let route = useRemote ? String(localized: "원격 (best.name)") : String(localized: "내장 서버")
+        return STTRoutingDecision(
+            useRemote: useRemote,
+            audioDuration: duration,
+            summary: String(
+                localized: "STT 경로 계산 · 원격 (formattedEstimate(best.total)) (전송·대기 (formattedEstimate(best.transfer))) / 내장 (formattedEstimate(localTotal)) → (route)"
+            )
+        )
+    }
+
+    private func recordLocalSTTPerformance(audioDuration: TimeInterval, elapsed: TimeInterval) {
+        guard audioDuration > 0, elapsed > 0.1 else { return }
+        let measured = min(50, max(0.25, audioDuration / elapsed))
+        let updated = localSTTRealtimeFactor * 0.7 + measured * 0.3
+        UserDefaults.standard.set(updated, forKey: "batchLocalSTTRealtimeFactor")
+    }
+
+    private func formattedEstimate(_ seconds: TimeInterval) -> String {
+        let value = max(0, seconds)
+        if value < 60 { return String(localized: "(Int(value.rounded()))초") }
+        return String(localized: "(Int((value / 60).rounded()))분")
+    }
+
     private func runQueue() async {
         await withTaskGroup(of: JobPhase.self) { group in
             var sttActive = 0
@@ -1246,6 +1316,8 @@ final class BatchProcessor {
         }
         let url = items[initialIndex].url
         do {
+            var sttDecision: STTRoutingDecision?
+            var localSTTStartedAt: Date?
             let paths = try AppPaths()
             let jobID = AppModel.stableJobID(
                 forPath: url.path,
@@ -1278,8 +1350,14 @@ final class BatchProcessor {
             var lastRemoteFailure: String?
             switch phase {
             case .stt:
+                let decision = await sttRoutingDecision(for: url)
+                sttDecision = decision
+                if let index = items.firstIndex(where: { $0.id == itemID }) {
+                    items[index].message = decision.summary
+                }
                 let queueMultiplier = prefersRemoteWorkers ? remoteRequestMultiplier : 1
-                if RemoteWorkerPool.shared.reserveRemoteSTT(queueMultiplier: queueMultiplier) {
+                if decision.useRemote,
+                   RemoteWorkerPool.shared.reserveRemoteSTT(queueMultiplier: queueMultiplier) {
                     defer { RemoteWorkerPool.shared.releaseRemoteSTTReservation() }
                     do {
                         try await transcribeRemotely(itemID: itemID, jobID: jobID, mediaURL: url)
@@ -1314,6 +1392,7 @@ final class BatchProcessor {
 
             try await acquireLocalExecutionSlot(for: phase, itemID: itemID)
             defer { releaseLocalExecutionSlot(for: phase) }
+            if phase == .stt { localSTTStartedAt = .now }
             guard service() != nil else {
                 throw NSError(domain: "VideoLingo.BatchProcessor", code: 3, userInfo: [NSLocalizedDescriptionKey: String(localized: "내장 AI 서버와 원격 Worker 모두 사용할 수 없습니다.")])
             }
@@ -1433,6 +1512,12 @@ final class BatchProcessor {
                     // 끝나기 전에 보내면 XPC가 '이미 실행 중'으로 판단해 번역 요청을 버립니다.
                     guard snapshot.status == .completed else { continue }
                     items[index].sttCompleted = true
+                    if let started = localSTTStartedAt, let decision = sttDecision {
+                        recordLocalSTTPerformance(
+                            audioDuration: decision.audioDuration,
+                            elapsed: Date.now.timeIntervalSince(started)
+                        )
+                    }
                     if options.targetLanguages.isEmpty {
                         items[index].status = .completed
                         items[index].progress = 1
