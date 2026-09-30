@@ -83,7 +83,12 @@ enum RemoteAudioWorkspaceCleaner {
 /// 여기서는 PCM으로 완전히 디코딩한 뒤 다시 인코딩하므로 깨진 프레임이 결과에 남지 않고,
 /// 서버가 어차피 16kHz 모노로 정규화하므로 전송량도 약 8분의 1로 줄어듭니다.
 enum NormalizedAudioExporter {
-    static func export(asset: AVURLAsset, to outputURL: URL) async throws {
+    static func export(
+        asset: AVURLAsset,
+        start: TimeInterval = 0,
+        duration: TimeInterval? = nil,
+        to outputURL: URL
+    ) async throws {
         guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
             throw VideoLingoError.mediaHasNoAudio
         }
@@ -105,6 +110,16 @@ enum NormalizedAudioExporter {
         guard reader.canAdd(readerOutput) else { throw VideoLingoError.mediaHasNoAudio }
         reader.add(readerOutput)
 
+        let sourceDuration = try await asset.load(.duration).seconds
+        let boundedStart = max(0, min(start, sourceDuration))
+        let boundedDuration = max(0, min(duration ?? (sourceDuration - boundedStart), sourceDuration - boundedStart))
+        guard boundedDuration > 0 else { throw VideoLingoError.mediaHasNoAudio }
+        let range = CMTimeRange(
+            start: CMTime(seconds: boundedStart, preferredTimescale: 600),
+            duration: CMTime(seconds: boundedDuration, preferredTimescale: 600)
+        )
+        reader.timeRange = range
+
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .m4a)
         let writerInput = AVAssetWriterInput(
             mediaType: .audio,
@@ -125,7 +140,8 @@ enum NormalizedAudioExporter {
         guard writer.startWriting() else {
             throw writer.error ?? VideoLingoError.mediaHasNoAudio
         }
-        writer.startSession(atSourceTime: .zero)
+        // 두 번째 절반처럼 원본 중간부터 읽더라도 출력 파일의 시간축은 0부터 시작합니다.
+        writer.startSession(atSourceTime: range.start)
 
         let queue = DispatchQueue(label: "com.vvv.VideoLingo.audio-normalize")
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in

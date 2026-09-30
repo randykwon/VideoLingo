@@ -1701,7 +1701,7 @@ final class BatchProcessor {
         defer { try? FileManager.default.removeItem(at: workspace) }
 
         // 서버는 파일 하나를 통으로 처리할 때 가장 빠릅니다(실측 65배속).
-        // 구간을 나눠 수십 번 왕복하는 대신 오디오 트랙 전체를 한 번 보냅니다.
+        // 다만 3시간을 넘는 오디오는 요청 정체와 시간 초과를 줄이기 위해 정확히 반으로 나눕니다.
         //
         // 추출은 로컬 CPU 작업이고 수 분이 걸립니다. 원격 슬롯을 잡은 채로 추출하면
         // 그동안 서버가 유휴로 남고 Mac만 과부하가 되므로, 슬롯 밖에서 별도 제한으로 처리합니다.
@@ -1710,7 +1710,15 @@ final class BatchProcessor {
             items[index].totalChunks = total
             items[index].message = String(localized: "오디오 추출 대기 중")
         }
-        let audioURL = workspace.appending(path: "audio.m4a")
+        let maximumSingleAudioDuration: TimeInterval = 3 * 60 * 60
+        let shouldSplitAudio = duration > maximumSingleAudioDuration
+        let splitPoint = duration / 2
+        let audioParts: [(url: URL, start: TimeInterval, duration: TimeInterval)] = shouldSplitAudio
+            ? [
+                (workspace.appending(path: "audio-1-of-2.m4a"), 0, splitPoint),
+                (workspace.appending(path: "audio-2-of-2.m4a"), splitPoint, duration - splitPoint)
+            ]
+            : [(workspace.appending(path: "audio.m4a"), 0, duration)]
         // 외장 디스크에서는 동시에 하나만 직접 읽고, 나머지는 SSD로 순차 복사한 뒤 처리합니다.
         // 디코딩 읽기는 랜덤 액세스가 섞여 느리지만 복사는 순차라 훨씬 빠릅니다(실측).
         let staging = paths.workspace(for: jobID).appending(path: "Staging", directoryHint: .isDirectory)
@@ -1739,7 +1747,21 @@ final class BatchProcessor {
             }
             // 원본 오디오를 그대로 옮기지 않고 16kHz 모노로 다시 인코딩합니다.
             // 손상된 AAC 프레임이 서버 디코딩을 깨뜨리는 것을 막고 전송량도 크게 줄입니다.
-            try await NormalizedAudioExporter.export(asset: sourceAsset, to: audioURL)
+            for (partIndex, part) in audioParts.enumerated() {
+                if shouldSplitAudio {
+                    await MainActor.run {
+                        if let index = self.items.firstIndex(where: { $0.id == itemID }) {
+                            self.items[index].message = String(localized: "3시간 초과 · 오디오 분할 추출 \(partIndex + 1)/2")
+                        }
+                    }
+                }
+                try await NormalizedAudioExporter.export(
+                    asset: sourceAsset,
+                    start: part.start,
+                    duration: part.duration,
+                    to: part.url
+                )
+            }
         }
 
         // 추출이 끝난 뒤에야 원격 자리를 잡습니다. 자리가 없거나 모두 실패하면 내장 서버로 넘어갑니다.
@@ -1754,17 +1776,49 @@ final class BatchProcessor {
                 items[index].message = String(localized: "\(worker.name)에 오디오 전송 중")
             }
             do {
-                response = try await RemoteWorkerClient(worker: worker).transcribeAudio(
-                    audioURL: audioURL,
-                    language: options.sourceLanguage,
-                    usesChunkedUpload: usesChunkedAudioUpload,
-                    splitThresholdBytes: chunkedAudioThresholdMB * 1_024 * 1_024
-                ) { [weak self] note in
-                    Task { @MainActor in
-                        guard let self, let index = self.items.firstIndex(where: { $0.id == itemID }) else { return }
-                        self.items[index].message = "\(worker.name) · \(note)"
+                var combinedSegments: [RemoteWorkerClient.STTSegment] = []
+                var detectedLanguage: String?
+                var processingSeconds: Double = 0
+                var realtimeFactorWeightedSum: Double = 0
+                var realtimeFactorDuration: Double = 0
+                for (partIndex, part) in audioParts.enumerated() {
+                    try Task.checkCancellation()
+                    let partResponse = try await RemoteWorkerClient(worker: worker).transcribeAudio(
+                        audioURL: part.url,
+                        language: options.sourceLanguage,
+                        usesChunkedUpload: usesChunkedAudioUpload,
+                        splitThresholdBytes: chunkedAudioThresholdMB * 1_024 * 1_024
+                    ) { [weak self] note in
+                        Task { @MainActor in
+                            guard let self, let index = self.items.firstIndex(where: { $0.id == itemID }) else { return }
+                            let partNote = shouldSplitAudio ? "오디오 \(partIndex + 1)/2 · " : ""
+                            self.items[index].message = "\(worker.name) · \(partNote)\(note)"
+                        }
+                    }
+                    detectedLanguage = detectedLanguage ?? partResponse.language
+                    processingSeconds += partResponse.processingSeconds ?? 0
+                    if let factor = partResponse.realtimeFactor {
+                        realtimeFactorWeightedSum += factor * part.duration
+                        realtimeFactorDuration += part.duration
+                    }
+                    combinedSegments += (partResponse.segments ?? []).map { segment in
+                        RemoteWorkerClient.STTSegment(
+                            start: segment.start + part.start,
+                            end: segment.end + part.start,
+                            text: segment.text,
+                            avgLogprob: segment.avgLogprob
+                        )
                     }
                 }
+                response = RemoteWorkerClient.STTResponse(
+                    language: detectedLanguage,
+                    segments: combinedSegments,
+                    duration: duration,
+                    processingSeconds: processingSeconds > 0 ? processingSeconds : nil,
+                    realtimeFactor: realtimeFactorDuration > 0
+                        ? realtimeFactorWeightedSum / realtimeFactorDuration
+                        : nil
+                )
                 break
             } catch is CancellationError {
                 throw CancellationError()
@@ -1785,7 +1839,9 @@ final class BatchProcessor {
                 String(localized: "사용 가능한 원격 서버가 없습니다.")
             )
         }
-        try? FileManager.default.removeItem(at: audioURL)
+        for part in audioParts {
+            try? FileManager.default.removeItem(at: part.url)
+        }
 
         // 서버는 영상 전체 기준 타임스탬프를 주므로, 앱의 청크 모델에 맞게 시간대로 나눠 담습니다.
         let serverSegments = (response.segments ?? []).sorted { $0.start < $1.start }
