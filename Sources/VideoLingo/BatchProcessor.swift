@@ -137,6 +137,17 @@ final class BatchProcessor {
             UserDefaults.standard.set(min(90, max(20, localCPUUsageLimit)), forKey: "batchLocalCPUUsageLimit")
         }
     }
+    var usesChunkedAudioUpload: Bool = UserDefaults.standard.object(forKey: "batchUsesChunkedAudioUpload") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(usesChunkedAudioUpload, forKey: "batchUsesChunkedAudioUpload") }
+    }
+    var chunkedAudioThresholdMB: Int = {
+        let stored = UserDefaults.standard.integer(forKey: "batchChunkedAudioThresholdMB")
+        return stored == 0 ? 100 : min(500, max(25, stored))
+    }() {
+        didSet {
+            UserDefaults.standard.set(min(500, max(25, chunkedAudioThresholdMB)), forKey: "batchChunkedAudioThresholdMB")
+        }
+    }
 
     var recommendedConcurrentJobs: Int {
         let process = ProcessInfo.processInfo
@@ -1554,7 +1565,9 @@ final class BatchProcessor {
             do {
                 response = try await RemoteWorkerClient(worker: worker).transcribeAudio(
                     audioURL: audioURL,
-                    language: options.sourceLanguage
+                    language: options.sourceLanguage,
+                    usesChunkedUpload: usesChunkedAudioUpload,
+                    splitThresholdBytes: chunkedAudioThresholdMB * 1_024 * 1_024
                 ) { [weak self] note in
                     Task { @MainActor in
                         guard let self, let index = self.items.firstIndex(where: { $0.id == itemID }) else { return }
@@ -2066,6 +2079,12 @@ struct BatchTranslationView: View {
                                 Text("내장 CPU 상한 \(processor.localCPUUsageLimit)%")
                                     .monospacedDigit()
                             }
+                            Toggle("큰 오디오 분할 전송", isOn: $processor.usesChunkedAudioUpload)
+                            Stepper(value: $processor.chunkedAudioThresholdMB, in: 25...500, step: 25) {
+                                Text("분할 기준 \(processor.chunkedAudioThresholdMB)MB")
+                                    .monospacedDigit()
+                            }
+                            .disabled(!processor.usesChunkedAudioUpload)
                             Text(processor.workloadRoutingSummary)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
@@ -2491,6 +2510,12 @@ private struct BatchStartConfirmationView: View {
                                 Text("내장 CPU 상한 \(processor.localCPUUsageLimit)%")
                                     .monospacedDigit()
                             }
+                            Toggle("큰 오디오 분할 전송", isOn: $processor.usesChunkedAudioUpload)
+                            Stepper(value: $processor.chunkedAudioThresholdMB, in: 25...500, step: 25) {
+                                Text("분할 기준 \(processor.chunkedAudioThresholdMB)MB")
+                                    .monospacedDigit()
+                            }
+                            .disabled(!processor.usesChunkedAudioUpload)
                             Text(processor.workloadRoutingSummary)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
