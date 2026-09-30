@@ -144,6 +144,14 @@ struct BatchLiveMonitorView: View {
     @Environment(BatchProcessor.self) private var processor
     @State private var recorder = BatchThroughputRecorder.shared
     @State private var metrics = RemoteServerMetrics.shared
+    @State private var pool = RemoteWorkerPool.shared
+
+    private struct MonitoredServer: Identifiable {
+        let id: String
+        let workerID: UUID?
+        let name: String
+        let isLocal: Bool
+    }
 
     /// 화면에 나눠 보여 줄 단계입니다. 순서가 곧 파이프라인 순서입니다.
     private enum Stage: String, CaseIterable, Plottable {
@@ -320,7 +328,7 @@ struct BatchLiveMonitorView: View {
             }
             .frame(height: 96)
 
-            serverRateRows(stt: true)
+            serverMonitorGrid(stt: true)
         } label: {
             HStack {
                 Label("STT 모니터링", systemImage: "waveform")
@@ -358,7 +366,7 @@ struct BatchLiveMonitorView: View {
             }
             .frame(height: 96)
 
-            serverRateRows(stt: false)
+            serverMonitorGrid(stt: false)
         } label: {
             HStack {
                 Label("번역 모니터링", systemImage: "character.book.closed")
@@ -370,23 +378,114 @@ struct BatchLiveMonitorView: View {
         }
     }
 
+    private var monitoredServers: [MonitoredServer] {
+        var result = [MonitoredServer(
+            id: "local",
+            workerID: nil,
+            name: BatchThroughputRecorder.localServerName,
+            isLocal: true
+        )]
+        result += pool.workers.map { worker in
+            MonitoredServer(
+                id: worker.id.uuidString,
+                workerID: worker.id,
+                name: worker.name.isEmpty ? (worker.baseURL.host() ?? "STTLMMServer") : worker.name,
+                isLocal: false
+            )
+        }
+        return result
+    }
+
+    private func activeCount(for server: MonitoredServer, stt: Bool) -> Int {
+        if let workerID = server.workerID {
+            let kind: RemoteServerMetrics.Kind = stt ? .stt : .translation
+            return metrics.stats[workerID]?.inFlight[kind] ?? 0
+        }
+        let remote = metrics.orderedStats.reduce(0) { total, entry in
+            total + (entry.inFlight[stt ? .stt : .translation] ?? 0)
+        }
+        let all = stt
+            ? count(.extracting) + count(.transcribing)
+            : count(.translating)
+        return max(0, all - remote)
+    }
+
+    private func serverIsAvailable(_ server: MonitoredServer) -> Bool {
+        guard let workerID = server.workerID else { return true }
+        guard let state = pool.states[workerID] else { return false }
+        if case .available = state { return true }
+        return false
+    }
+
     @ViewBuilder
-    private func serverRateRows(stt: Bool) -> some View {
-        if !recorder.trackedServers.isEmpty {
-            Divider()
-            ForEach(recorder.trackedServers, id: \.self) { server in
-                HStack {
-                    Text(server)
-                        .lineLimit(1)
-                    Spacer()
-                    Text(stt
-                        ? String(format: "%.1f배속", recorder.recentRate(for: server, stt: true))
-                        : String(format: "%.1f 구간/분", recorder.recentRate(for: server, stt: false)))
-                        .foregroundStyle(stt ? Color.blue : Color.purple)
-                }
-                .font(.caption.monospacedDigit())
+    private func serverMonitorGrid(stt: Bool) -> some View {
+        Divider()
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 8)], spacing: 8) {
+            ForEach(monitoredServers) { server in
+                serverMonitorCard(server, stt: stt)
             }
         }
+    }
+
+    private func serverMonitorCard(_ server: MonitoredServer, stt: Bool) -> some View {
+        let samples = recorder.serverSamples.filter { $0.server == server.name }.suffix(120)
+        let active = activeCount(for: server, stt: stt)
+        let available = serverIsAvailable(server)
+        let tint: Color = stt ? .blue : .purple
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: server.isLocal ? "desktopcomputer" : "network")
+                    .foregroundStyle(available ? tint : .secondary)
+                Text(server.name)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Label(
+                    available ? "\(active)개" : String(localized: "연결 안 됨"),
+                    systemImage: available ? (active > 0 ? "bolt.fill" : "circle") : "exclamationmark.triangle"
+                )
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(available ? (active > 0 ? tint : Color.secondary) : Color.orange)
+            }
+
+            if samples.count >= 2 {
+                Chart(Array(samples)) { sample in
+                    AreaMark(
+                        x: .value("시각", sample.time),
+                        y: .value("속도", stt ? sample.sttMinutesPerMinute : sample.translationRate)
+                    )
+                    .foregroundStyle(tint.opacity(0.2))
+                    LineMark(
+                        x: .value("시각", sample.time),
+                        y: .value("속도", stt ? sample.sttMinutesPerMinute : sample.translationRate)
+                    )
+                    .foregroundStyle(tint)
+                }
+                .chartXAxis(.hidden)
+                .chartYAxis {
+                    AxisMarks(position: .leading, values: .automatic(desiredCount: 2))
+                }
+                .frame(height: 58)
+            } else {
+                Text(available ? "처리량 표본 수집 중" : "서버 설정에서 연결을 확인하세요")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 58, alignment: .center)
+            }
+
+            HStack {
+                Text(stt ? "최근 STT 속도" : "최근 번역 속도")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(stt
+                    ? String(format: "%.1f배속", recorder.recentRate(for: server.name, stt: true))
+                    : String(format: "%.1f 구간/분", recorder.recentRate(for: server.name, stt: false)))
+                    .foregroundStyle(tint)
+            }
+            .font(.caption2.monospacedDigit())
+        }
+        .padding(8)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
     }
 
     /// 지금 어디서 처리하고 있는지(내장 서버 vs 원격) 막대로 보여 줍니다.
