@@ -793,8 +793,12 @@ final class BatchProcessor {
     /// 서버가 계속 비정상이면 항목을 건드리지 않고 다음 주기까지 기다립니다.
     private func monitorRemoteFailures() async {
         while !Task.isCancelled {
-            try? await Task.sleep(for: Self.remoteFailureRetryInterval)
-            guard !Task.isCancelled, prefersRemoteWorkers else { continue }
+            do {
+                try await Task.sleep(for: Self.remoteFailureRetryInterval)
+            } catch {
+                break
+            }
+            guard prefersRemoteWorkers else { continue }
 
             await RemoteWorkerPool.shared.refreshAll()
             guard !RemoteWorkerPool.shared.availableWorkers.isEmpty else { continue }
