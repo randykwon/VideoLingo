@@ -1210,12 +1210,12 @@ final class BatchProcessor {
         }
         // 예측 오차 때문에 거의 같은 경우에는 사용자가 설정한 원격 우선 정책을 존중합니다.
         let useRemote = best.total <= localTotal * 1.1
-        let route = useRemote ? String(localized: "원격 (best.name)") : String(localized: "내장 서버")
+        let route = useRemote ? String(localized: "원격 \(best.name)") : String(localized: "내장 서버")
         return STTRoutingDecision(
             useRemote: useRemote,
             audioDuration: duration,
             summary: String(
-                localized: "STT 경로 계산 · 원격 (formattedEstimate(best.total)) (전송·대기 (formattedEstimate(best.transfer))) / 내장 (formattedEstimate(localTotal)) → (route)"
+                localized: "STT 경로 계산 · 원격 \(formattedEstimate(best.total)) (전송·대기 \(formattedEstimate(best.transfer))) / 내장 \(formattedEstimate(localTotal)) → \(route)"
             )
         )
     }
