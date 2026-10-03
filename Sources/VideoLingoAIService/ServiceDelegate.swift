@@ -24,6 +24,55 @@ final class VideoLingoAIService: NSObject, VideoLingoAIServiceProtocol, @uncheck
     private var modelDownloadTasks: [String: Task<Void, Never>] = [:]
     private var modelRecords: [String: ManagedModelRecord] = [:]
     private let startedAt = Date.now
+    private let directSTT = WhisperSTTEngine()
+    private let directTranslator = FoundationTranslationEngine.shared
+
+    func transcribeDirect(_ payload: Data, withReply reply: @escaping @Sendable (Data?, String?) -> Void) {
+        Task(priority: .utility) { [directSTT] in
+            do {
+                let request = try WireCodec.decode(DirectSTTRequest.self, from: payload)
+                let started = Date.now
+                let output = try await directSTT.transcribe(
+                    audioURL: request.audioURL, model: request.modelID, language: request.language,
+                    modelsURL: request.modelsURL, qualityMode: .enhanced, onPartialText: { _ in }
+                )
+                let duration = output.cues.map(\.endTime).max() ?? 0
+                let segments = output.cues.map {
+                    DirectSTTSegment(start: $0.startTime, end: $0.endTime, text: $0.text,
+                                     avgLogprob: output.confidence.map { log(max(0.0001, $0)) })
+                }
+                reply(try WireCodec.encode(DirectSTTResponse(
+                    language: output.language, segments: segments, duration: duration,
+                    processingSeconds: Date.now.timeIntervalSince(started)
+                )), nil)
+            } catch { reply(nil, error.localizedDescription) }
+        }
+    }
+
+    func translateDirect(_ payload: Data, withReply reply: @escaping @Sendable (Data?, String?) -> Void) {
+        Task(priority: .utility) { [directTranslator] in
+            do {
+                let request = try WireCodec.decode(DirectTranslationRequest.self, from: payload)
+                let started = Date.now
+                let jobID = UUID()
+                var results: [String] = []
+                for (index, text) in request.texts.enumerated() {
+                    let output = try await directTranslator.translate(
+                        text, jobID: jobID, sourceLanguage: request.sourceLanguage,
+                        targetLanguage: request.targetLanguage, modelID: request.modelID,
+                        modelsURL: request.modelsURL,
+                        previousContext: Array(request.texts.prefix(index).suffix(2)),
+                        nextContext: Array(request.texts.dropFirst(index + 1).prefix(1)),
+                        glossary: [], qualityMode: .enhanced, onPartialText: { _ in }
+                    )
+                    results.append(output.text)
+                }
+                reply(try WireCodec.encode(DirectTranslationResponse(
+                    translations: results, processingSeconds: Date.now.timeIntervalSince(started)
+                )), nil)
+            } catch { reply(nil, error.localizedDescription) }
+        }
+    }
 
     func ping(withReply reply: @escaping @Sendable (String) -> Void) {
         reply("VideoLingo AI Service ready")

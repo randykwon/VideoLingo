@@ -11,6 +11,58 @@ import Foundation
     func modelManagerSnapshot(at modelsPath: String, withReply reply: @escaping @Sendable (Data?, String?) -> Void)
     func startModelDownload(_ payload: Data, withReply reply: @escaping @Sendable (Data?, String?) -> Void)
     func deleteManagedModel(_ payload: Data, withReply reply: @escaping @Sendable (Data?, String?) -> Void)
+    func transcribeDirect(_ payload: Data, withReply reply: @escaping @Sendable (Data?, String?) -> Void)
+    func translateDirect(_ payload: Data, withReply reply: @escaping @Sendable (Data?, String?) -> Void)
+}
+
+public struct DirectSTTRequest: Codable, Sendable {
+    public let audioURL: URL
+    public let language: String?
+    public let modelID: String
+    public let modelsURL: URL
+    public init(audioURL: URL, language: String?, modelID: String, modelsURL: URL) {
+        self.audioURL = audioURL; self.language = language; self.modelID = modelID; self.modelsURL = modelsURL
+    }
+}
+
+public struct DirectSTTSegment: Codable, Sendable {
+    public let start: Double
+    public let end: Double
+    public let text: String
+    public let avgLogprob: Double?
+    public init(start: Double, end: Double, text: String, avgLogprob: Double?) {
+        self.start = start; self.end = end; self.text = text; self.avgLogprob = avgLogprob
+    }
+}
+
+public struct DirectSTTResponse: Codable, Sendable {
+    public let language: String?
+    public let segments: [DirectSTTSegment]
+    public let duration: Double
+    public let processingSeconds: Double
+    public init(language: String?, segments: [DirectSTTSegment], duration: Double, processingSeconds: Double) {
+        self.language = language; self.segments = segments; self.duration = duration; self.processingSeconds = processingSeconds
+    }
+}
+
+public struct DirectTranslationRequest: Codable, Sendable {
+    public let texts: [String]
+    public let sourceLanguage: String?
+    public let targetLanguage: String
+    public let modelID: String
+    public let modelsURL: URL
+    public init(texts: [String], sourceLanguage: String?, targetLanguage: String, modelID: String, modelsURL: URL) {
+        self.texts = texts; self.sourceLanguage = sourceLanguage; self.targetLanguage = targetLanguage
+        self.modelID = modelID; self.modelsURL = modelsURL
+    }
+}
+
+public struct DirectTranslationResponse: Codable, Sendable {
+    public let translations: [String]
+    public let processingSeconds: Double
+    public init(translations: [String], processingSeconds: Double) {
+        self.translations = translations; self.processingSeconds = processingSeconds
+    }
 }
 
 public struct AIServiceStatus: Codable, Sendable, Equatable {
