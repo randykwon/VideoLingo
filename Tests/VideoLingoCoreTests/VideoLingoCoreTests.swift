@@ -79,6 +79,27 @@ import Testing
     #expect(decoded == original)
 }
 
+@Test func embeddedAPIResponseUsesSTTLMMServerFieldNames() throws {
+    let response = DirectSTTResponse(
+        language: "ko",
+        segments: [DirectSTTSegment(start: 0, end: 1.25, text: "안녕하세요", avgLogprob: -0.2)],
+        duration: 1.25,
+        processingSeconds: 0.75
+    )
+    let data = try WireCodec.encode(response)
+    let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let segments = try #require(json["segments"] as? [[String: Any]])
+
+    #expect(json["processing_seconds"] as? Double == 0.75)
+    #expect(json["processingSeconds"] == nil)
+    #expect(segments.first?["avg_logprob"] as? Double == -0.2)
+    #expect(segments.first?["avgLogprob"] == nil)
+
+    let decoded = try WireCodec.decode(DirectSTTResponse.self, from: data)
+    #expect(decoded.language == "ko")
+    #expect(decoded.segments.first?.text == "안녕하세요")
+}
+
 @Test func liveSTTAndTranslationRoundTripAcrossXPCCodec() throws {
     let original = JobSnapshot(
         id: UUID(),
