@@ -33,6 +33,11 @@ public struct DirectSTTSegment: Codable, Sendable {
     public init(start: Double, end: Double, text: String, avgLogprob: Double?) {
         self.start = start; self.end = end; self.text = text; self.avgLogprob = avgLogprob
     }
+
+    enum CodingKeys: String, CodingKey {
+        case start, end, text
+        case avgLogprob = "avg_logprob"
+    }
 }
 
 public struct DirectSTTResponse: Codable, Sendable {
@@ -42,6 +47,11 @@ public struct DirectSTTResponse: Codable, Sendable {
     public let processingSeconds: Double
     public init(language: String?, segments: [DirectSTTSegment], duration: Double, processingSeconds: Double) {
         self.language = language; self.segments = segments; self.duration = duration; self.processingSeconds = processingSeconds
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case language, segments, duration
+        case processingSeconds = "processing_seconds"
     }
 }
 

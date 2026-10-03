@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import Observation
+import Darwin
 import VideoLingoCore
 
 @MainActor
@@ -150,7 +151,7 @@ final class EmbeddedAPIServer {
         return try await callXPC(payload, method: { $0.translateDirect($1, withReply: $2) })
     }
 
-    private func callXPC<T: Decodable>(_ payload: Data, method: @escaping (VideoLingoAIServiceProtocol, Data, @escaping @Sendable (Data?, String?) -> Void) -> Void) async throws -> T {
+    private func callXPC<T: Decodable & Sendable>(_ payload: Data, method: @escaping @Sendable (VideoLingoAIServiceProtocol, Data, @escaping @Sendable (Data?, String?) -> Void) -> Void) async throws -> T {
         let connection = NSXPCConnection(serviceName: "com.vvv.VideoLingo.AIService")
         connection.remoteObjectInterface = NSXPCInterface(with: VideoLingoAIServiceProtocol.self)
         connection.resume()
@@ -207,7 +208,7 @@ private struct HTTPRequest: Sendable {
     func multipartFile() throws -> (data: Data, fields: [String: String]) {
         guard let contentType = headers["content-type"], let marker = contentType.range(of: "boundary=") else { throw APIError.badRequest("multipart boundary가 없습니다.") }
         let boundary = "--" + String(contentType[marker.upperBound...]).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-        let parts = body.split(separator: Data(boundary.utf8), omittingEmptySubsequences: true)
+        let parts = body.components(separatedBy: Data(boundary.utf8))
         var file: Data?; var fields: [String: String] = [:]
         for raw in parts {
             guard let divider = raw.range(of: Data("\r\n\r\n".utf8)) else { continue }
@@ -220,6 +221,25 @@ private struct HTTPRequest: Sendable {
         }
         guard let file else { throw APIError.badRequest("업로드된 오디오 파일이 없습니다.") }
         return (file, fields)
+    }
+}
+
+private extension Data {
+    func components(separatedBy separator: Data) -> [Data] {
+        guard !separator.isEmpty else { return [self] }
+        var components: [Data] = []
+        var cursor = startIndex
+        while cursor < endIndex,
+              let match = self[cursor...].range(of: separator) {
+            let component = Data(self[cursor..<match.lowerBound])
+            if !component.isEmpty { components.append(component) }
+            cursor = match.upperBound
+        }
+        if cursor < endIndex {
+            let component = Data(self[cursor..<endIndex])
+            if !component.isEmpty { components.append(component) }
+        }
+        return components
     }
 }
 
