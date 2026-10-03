@@ -18,6 +18,7 @@ struct VideoLingoApp: App {
     @State private var localization = LocalizationManager.shared
     @State private var theme = ThemeManager.shared
     @State private var batchProcessor = BatchProcessor.shared
+    @State private var embeddedAPIServer = EmbeddedAPIServer.shared
     // 설정 창은 영상 플레이어가 필요 없으므로 마지막 영상은 복원하지 않는 전용 모델을 사용합니다.
     @State private var settingsModel = AppModel(autoloadLastVideo: false)
 

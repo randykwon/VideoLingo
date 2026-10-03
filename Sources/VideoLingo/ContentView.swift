@@ -2049,6 +2049,7 @@ private struct DatabaseSettingsView: View {
 private struct ServerSettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var remotePool = RemoteWorkerPool.shared
+    @State private var embeddedServer = EmbeddedAPIServer.shared
     @State private var workerName = ""
     @State private var workerAddress = ""
     @State private var workerToken = ""
@@ -2066,6 +2067,40 @@ private struct ServerSettingsView: View {
 
     var body: some View {
         Form {
+            Section("외부용 표준 API 서버") {
+                Toggle("이 Mac의 내장 STT·LLM을 외부에 제공", isOn: $embeddedServer.isEnabled)
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                    GridRow {
+                        Text("포트")
+                        TextField("8848", value: $embeddedServer.port, format: .number)
+                            .frame(width: 100)
+                    }
+                    GridRow {
+                        Text("API 키")
+                        SecureField("비워 두면 키 없이 연결", text: $embeddedServer.apiKey)
+                    }
+                }
+                HStack(spacing: 12) {
+                    Label(embeddedServer.statusText, systemImage: embeddedServer.state == .running ? "checkmark.circle.fill" : "network")
+                        .foregroundStyle(embeddedServer.state == .running ? .green : .secondary)
+                    Spacer()
+                    Button("설정 적용", systemImage: "arrow.trianglehead.2.clockwise.rotate.90") {
+                        Task { await embeddedServer.apply() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                if embeddedServer.state == .running {
+                    LabeledContent("다른 기기에서 추가할 주소") {
+                        Text(embeddedServer.endpoint).font(.caption.monospaced()).textSelection(.enabled)
+                    }
+                    LabeledContent("요청") {
+                        Text("처리 중 \(embeddedServer.activeRequests) · 누적 \(embeddedServer.totalRequests)").monospacedDigit()
+                    }
+                }
+                Text("STTLMMServer 호환 API: /health, /v1/system, /v1/audio/transcriptions, /v1/translate. 같은 네트워크의 기기에서 위 주소를 원격 서버로 추가할 수 있습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("내장 LLM 서버") {
                 HStack {
                     Circle()
