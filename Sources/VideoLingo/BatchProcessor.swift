@@ -133,6 +133,14 @@ final class BatchProcessor {
     var prefersRemoteWorkers: Bool = UserDefaults.standard.object(forKey: "batchPrefersRemoteWorkers") as? Bool ?? true {
         didSet { UserDefaults.standard.set(prefersRemoteWorkers, forKey: "batchPrefersRemoteWorkers") }
     }
+    /// 한 영상을 STT부터 번역까지 끝낸 뒤 다음 영상으로 넘어갑니다.
+    /// 사용 가능한 원격 서버를 우선 사용해 '완료된 영상'을 빠르게 늘리는 모드입니다.
+    var focusedTranslationMode: Bool = UserDefaults.standard.object(forKey: "batchFocusedTranslationMode") as? Bool ?? false {
+        didSet {
+            UserDefaults.standard.set(focusedTranslationMode, forKey: "batchFocusedTranslationMode")
+            if focusedTranslationMode { prefersRemoteWorkers = true }
+        }
+    }
     var remoteRequestMultiplier: Int = {
         let stored = UserDefaults.standard.integer(forKey: "batchRemoteRequestMultiplier")
         return stored == 0 ? 2 : min(4, max(1, stored))
@@ -192,6 +200,7 @@ final class BatchProcessor {
     }
 
     var effectiveSTTConcurrentJobs: Int {
+        if focusedTranslationMode { return 1 }
         let local = automaticallyAdjustConcurrentJobs
             ? min(4, max(2, recommendedConcurrentJobs + 1))
             : maximumConcurrentSTTJobs
@@ -200,6 +209,7 @@ final class BatchProcessor {
     }
 
     var effectiveConcurrentJobs: Int {
+        if focusedTranslationMode { return 1 }
         let local = automaticallyAdjustConcurrentJobs ? recommendedConcurrentJobs : maximumConcurrentJobs
         let remote = RemoteWorkerPool.shared.totalTranslationSlots
         return local + remote * (prefersRemoteWorkers ? remoteRequestMultiplier : 1)
@@ -220,6 +230,10 @@ final class BatchProcessor {
     }
 
     var workloadRoutingSummary: String {
+        if focusedTranslationMode {
+            let servers = RemoteWorkerPool.shared.availableWorkers.count
+            return String(localized: "집중 모드 · 영상 1개씩 완료 · 연결된 원격 서버 \(servers)대 우선")
+        }
         let remote = RemoteWorkerPool.shared.hasUsableWorker
             ? String(localized: "원격 요청 \(remoteRequestMultiplier)배 우선")
             : String(localized: "사용 가능한 원격 서버 없음")
@@ -252,6 +266,8 @@ final class BatchProcessor {
         let summary: String
     }
     private var scheduledItemIDs: Set<UUID> = []
+    /// 집중 모드에서 STT와 번역 레인이 같은 영상을 끝까지 이어받도록 고정합니다.
+    private var focusedItemID: UUID?
     private var pausedItemIDs: Set<UUID> = []
     private var pendingLaunchResumePaths: Set<String> = []
     @ObservationIgnored private var remoteFailureRetryTask: Task<Void, Never>?
@@ -1155,6 +1171,35 @@ final class BatchProcessor {
     /// 재개 가능한 결과가 많이 쌓인 작업부터 마무리해 완료 항목을 빠르게 늘립니다.
     /// 같은 진행률이면 청크 수, 마지막에는 원래 목록 순서를 사용해 순서가 흔들리지 않게 합니다.
     private func nextWaitingIndex(for phase: JobPhase) -> Int? {
+        if focusedTranslationMode {
+            if let focusedItemID,
+               let index = items.firstIndex(where: { $0.id == focusedItemID }),
+               scheduledItemIDs.contains(focusedItemID),
+               !items[index].isFinished {
+                switch phase {
+                case .stt: return waitsForSTT(items[index]) ? index : nil
+                case .translation: return waitsForTranslation(items[index]) ? index : nil
+                }
+            }
+
+            let candidates = items.indices.filter {
+                scheduledItemIDs.contains(items[$0].id) && !items[$0].isFinished && !items[$0].isProcessing
+            }
+            let selected = candidates.max { lhs, rhs in
+                if items[lhs].progress != items[rhs].progress { return items[lhs].progress < items[rhs].progress }
+                if items[lhs].currentChunk != items[rhs].currentChunk {
+                    return items[lhs].currentChunk < items[rhs].currentChunk
+                }
+                return lhs > rhs
+            }
+            guard let selected else { return nil }
+            focusedItemID = items[selected].id
+            switch phase {
+            case .stt: return waitsForSTT(items[selected]) ? selected : nil
+            case .translation: return waitsForTranslation(items[selected]) ? selected : nil
+            }
+        }
+
         let candidates = items.indices.filter { index in
             switch phase {
             case .stt: waitsForSTT(items[index])
@@ -1267,7 +1312,7 @@ final class BatchProcessor {
         let estimatedBytes = Int64((duration * 32_000 / 8).rounded(.up))
         let pool = RemoteWorkerPool.shared
         let candidates = pool.availableWorkers.filter { $0.1.capabilities.sttSlots > 0 }
-        guard prefersRemoteWorkers, !candidates.isEmpty else {
+        guard (prefersRemoteWorkers || focusedTranslationMode), !candidates.isEmpty else {
             return STTRoutingDecision(
                 useRemote: false,
                 audioDuration: duration,
@@ -1299,7 +1344,8 @@ final class BatchProcessor {
             return STTRoutingDecision(useRemote: false, audioDuration: duration, summary: String(localized: "STT 경로 · 내장 서버 선택"))
         }
         // 예측 오차 때문에 거의 같은 경우에는 사용자가 설정한 원격 우선 정책을 존중합니다.
-        let useRemote = best.total <= localTotal * 1.1
+        // 집중 모드는 처리량보다 한 영상의 빠른 완료가 목적이므로 연결된 STTLMM 서버를 먼저 씁니다.
+        let useRemote = focusedTranslationMode || best.total <= localTotal * 1.1
         let route = useRemote ? String(localized: "원격 \(best.name)") : String(localized: "내장 서버")
         return STTRoutingDecision(
             useRemote: useRemote,
@@ -1386,6 +1432,7 @@ final class BatchProcessor {
         }
         activeJobIDsByItem.removeAll()
         scheduledItemIDs.removeAll()
+        focusedItemID = nil
         clearAutoResumeState()
         isRunning = false
         isPaused = false
@@ -1446,7 +1493,7 @@ final class BatchProcessor {
                 if let index = items.firstIndex(where: { $0.id == itemID }) {
                     items[index].message = decision.summary
                 }
-                let queueMultiplier = prefersRemoteWorkers ? remoteRequestMultiplier : 1
+                let queueMultiplier = (prefersRemoteWorkers || focusedTranslationMode) ? remoteRequestMultiplier : 1
                 if decision.useRemote,
                    RemoteWorkerPool.shared.reserveRemoteSTT(queueMultiplier: queueMultiplier) {
                     defer { RemoteWorkerPool.shared.releaseRemoteSTTReservation() }
@@ -1673,7 +1720,7 @@ final class BatchProcessor {
         for purpose: RemoteWorkerPool.Purpose,
         excluding excluded: Set<UUID>
     ) async -> RemoteWorkerConfiguration? {
-        if prefersRemoteWorkers {
+        if prefersRemoteWorkers || focusedTranslationMode {
             return await RemoteWorkerPool.shared.acquireWaiting(
                 for: purpose,
                 excluding: excluded,
@@ -2341,26 +2388,28 @@ struct BatchTranslationView: View {
                         VStack(alignment: .trailing, spacing: 4) {
                             Toggle("앱 재시작 후 자동 재개", isOn: $processor.automaticallyResumeOnLaunch)
                                 .help("현재 실행 중인 대량 번역을 저장하고 다음 실행에서 체크포인트부터 계속합니다")
+                            BatchFocusedModeToggle()
                             Toggle("Mac 성능에 맞게 자동 조정", isOn: $processor.automaticallyAdjustConcurrentJobs)
-                                .disabled(processor.isRunning)
+                                .disabled(processor.isRunning || processor.focusedTranslationMode)
                             Stepper(value: $processor.maximumConcurrentJobs, in: 1...10) {
                                 Text(processor.automaticallyAdjustConcurrentJobs
                                     ? "자동 번역 \(processor.effectiveConcurrentJobs)개"
                                     : "수동 번역 \(processor.maximumConcurrentJobs)개")
                                     .monospacedDigit()
                             }
-                            .disabled(processor.isRunning || processor.automaticallyAdjustConcurrentJobs)
+                            .disabled(processor.isRunning || processor.automaticallyAdjustConcurrentJobs || processor.focusedTranslationMode)
                             Stepper(value: $processor.maximumConcurrentSTTJobs, in: 1...10) {
                                 Text(processor.automaticallyAdjustConcurrentJobs
                                     ? "자동 STT \(processor.effectiveSTTConcurrentJobs)개"
                                     : "수동 STT \(processor.maximumConcurrentSTTJobs)개")
                                     .monospacedDigit()
                             }
-                            .disabled(processor.isRunning || processor.automaticallyAdjustConcurrentJobs)
+                            .disabled(processor.isRunning || processor.automaticallyAdjustConcurrentJobs || processor.focusedTranslationMode)
                             Text(processor.automaticConcurrencySummary)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                             Toggle("원격 서버 우선 사용", isOn: $processor.prefersRemoteWorkers)
+                                .disabled(processor.focusedTranslationMode)
                             Stepper(value: $processor.remoteRequestMultiplier, in: 1...4) {
                                 Text("원격 요청 \(processor.remoteRequestMultiplier)배")
                                     .monospacedDigit()
@@ -2730,6 +2779,17 @@ struct BatchTranslationView: View {
     }
 }
 
+private struct BatchFocusedModeToggle: View {
+    @Environment(BatchProcessor.self) private var processor
+
+    var body: some View {
+        @Bindable var processor = processor
+        Toggle("집중 번역 모드", isOn: $processor.focusedTranslationMode)
+            .disabled(processor.isRunning)
+            .help("진행률이 높은 영상 하나를 STT부터 번역까지 먼저 끝내고, 연결된 원격 서버를 우선 사용합니다")
+    }
+}
+
 private struct BatchStartConfirmationView: View {
     @Environment(BatchProcessor.self) private var processor
     @Environment(\.dismiss) private var dismiss
@@ -2781,25 +2841,28 @@ private struct BatchStartConfirmationView: View {
                     }
                     LabeledContent("동시 처리") {
                         VStack(alignment: .trailing, spacing: 6) {
+                            BatchFocusedModeToggle()
                             Toggle("Mac 성능에 맞게 자동 조정", isOn: $processor.automaticallyAdjustConcurrentJobs)
+                                .disabled(processor.focusedTranslationMode)
                             Stepper(value: $processor.maximumConcurrentSTTJobs, in: 1...10) {
                                 Text(processor.automaticallyAdjustConcurrentJobs
                                     ? "자동 STT \(processor.effectiveSTTConcurrentJobs)개"
                                     : "수동 STT \(processor.maximumConcurrentSTTJobs)개")
                                     .monospacedDigit()
                             }
-                            .disabled(processor.isRunning || processor.automaticallyAdjustConcurrentJobs)
+                            .disabled(processor.isRunning || processor.automaticallyAdjustConcurrentJobs || processor.focusedTranslationMode)
                             Stepper(value: $processor.maximumConcurrentJobs, in: 1...10) {
                                 Text(processor.automaticallyAdjustConcurrentJobs
                                     ? "자동 번역 \(processor.effectiveConcurrentJobs)개"
                                     : "수동 번역 \(processor.maximumConcurrentJobs)개")
                                     .monospacedDigit()
                             }
-                            .disabled(processor.automaticallyAdjustConcurrentJobs)
+                            .disabled(processor.automaticallyAdjustConcurrentJobs || processor.focusedTranslationMode)
                             Text(processor.automaticConcurrencySummary)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                             Toggle("원격 서버 우선 사용", isOn: $processor.prefersRemoteWorkers)
+                                .disabled(processor.focusedTranslationMode)
                             Stepper(value: $processor.remoteRequestMultiplier, in: 1...4) {
                                 Text("원격 요청 \(processor.remoteRequestMultiplier)배")
                                     .monospacedDigit()

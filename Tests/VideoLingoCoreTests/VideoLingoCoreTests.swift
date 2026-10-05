@@ -79,6 +79,23 @@ import Testing
     #expect(decoded == original)
 }
 
+@Test func manualDemosaicRegionsRoundTripAcrossXPCCodec() throws {
+    let original = DemosaicOptions(
+        model: .classical,
+        regionMode: .manual,
+        fidelity: 0.82,
+        temporalStabilization: true,
+        watermarkSynthetic: true,
+        manualRegions: [
+            DemosaicRegion(x: 0.1, y: 0.2, width: 0.3, height: 0.4),
+            DemosaicRegion(x: 0.65, y: 0.7, width: 0.2, height: 0.15)
+        ]
+    )
+
+    let decoded = try WireCodec.decode(DemosaicOptions.self, from: WireCodec.encode(original))
+    #expect(decoded == original)
+}
+
 @Test func embeddedAPIResponseUsesSTTLMMServerFieldNames() throws {
     let response = DirectSTTResponse(
         language: "ko",

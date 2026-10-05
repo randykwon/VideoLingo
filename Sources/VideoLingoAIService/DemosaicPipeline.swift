@@ -112,9 +112,16 @@ final class DemosaicPipeline: @unchecked Sendable {
                 if regionMode == .wholeFrame {
                     image = restorer.restore(image, roi: bounds, fidelity: request.options.fidelity)
                 } else {
-                    let detected = regionMode == .face
-                        ? detectFaces(pixelBuffer, width: width, height: height)
-                        : detectMosaicRegions(pixelBuffer, width: width, height: height)
+                    let detected: [DetectedFace] = switch regionMode {
+                    case .face:
+                        detectFaces(pixelBuffer, width: width, height: height)
+                    case .autoMosaic:
+                        detectMosaicRegions(pixelBuffer, width: width, height: height)
+                    case .manual:
+                        manualRegions(request.options.manualRegions, width: width, height: height)
+                    case .wholeFrame:
+                        []
+                    }
                     let assigned = assignTracks(detected, previous: &previousBoxes, nextID: &nextTrackID)
                     var newTracks: [Int: (rect: CGRect, crop: CIImage)] = [:]
                     for (trackID, face) in assigned {
@@ -210,6 +217,26 @@ final class DemosaicPipeline: @unchecked Sendable {
     }
 
     // MARK: - 얼굴 검출
+
+    private func manualRegions(_ normalizedRegions: [DemosaicRegion], width: Int, height: Int) -> [DetectedFace] {
+        let bounds = CGRect(x: 0, y: 0, width: width, height: height)
+        return normalizedRegions.compactMap { normalized in
+            let clamped = CGRect(
+                x: CGFloat(normalized.x),
+                y: CGFloat(normalized.y),
+                width: CGFloat(normalized.width),
+                height: CGFloat(normalized.height)
+            ).intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+            guard !clamped.isNull, clamped.width > 0.005, clamped.height > 0.005 else { return nil }
+            let rect = CGRect(
+                x: clamped.minX * CGFloat(width),
+                y: clamped.minY * CGFloat(height),
+                width: clamped.width * CGFloat(width),
+                height: clamped.height * CGFloat(height)
+            ).intersection(bounds).integral
+            return DetectedFace(rect: rect, roll: 0)
+        }
+    }
 
     private func detectFaces(_ pixelBuffer: CVPixelBuffer, width: Int, height: Int) -> [DetectedFace] {
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])

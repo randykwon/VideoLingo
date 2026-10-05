@@ -124,7 +124,23 @@ public enum DemosaicModel: String, Codable, Sendable, CaseIterable {
 public enum DemosaicRegionMode: String, Codable, Sendable, CaseIterable {
     case face          // 얼굴 영역만 (Vision 얼굴 검출)
     case autoMosaic    // 모자이크 영역 자동 탐지(전체 영상에서)
+    case manual        // 사용자가 화면에서 직접 지정한 영역
     case wholeFrame    // 전체 화면
+}
+
+/// 영상 크기와 방향에 독립적인 좌하단 원점의 0...1 영역 좌표입니다.
+public struct DemosaicRegion: Codable, Sendable, Equatable {
+    public var x: Double
+    public var y: Double
+    public var width: Double
+    public var height: Double
+
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
 }
 
 public struct DemosaicOptions: Codable, Sendable, Equatable {
@@ -133,19 +149,23 @@ public struct DemosaicOptions: Codable, Sendable, Equatable {
     public var fidelity: Double
     public var temporalStabilization: Bool
     public var watermarkSynthetic: Bool
+    /// 좌하단 원점의 0...1 정규화 좌표. manual 모드에서 영상 전체에 적용합니다.
+    public var manualRegions: [DemosaicRegion]
 
     public init(
         model: DemosaicModel = .classical,
         regionMode: DemosaicRegionMode = .face,
         fidelity: Double = 0.7,
         temporalStabilization: Bool = true,
-        watermarkSynthetic: Bool = true
+        watermarkSynthetic: Bool = true,
+        manualRegions: [DemosaicRegion] = []
     ) {
         self.model = model
         self.regionMode = regionMode
         self.fidelity = fidelity
         self.temporalStabilization = temporalStabilization
         self.watermarkSynthetic = watermarkSynthetic
+        self.manualRegions = manualRegions
     }
 }
 

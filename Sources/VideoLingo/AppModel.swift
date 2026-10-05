@@ -122,6 +122,8 @@ final class AppModel {
     var demosaicWatermark = UserDefaults.standard.object(forKey: "demosaicWatermark") as? Bool ?? true {
         didSet { UserDefaults.standard.set(demosaicWatermark, forKey: "demosaicWatermark") }
     }
+    /// 현재 영상에서 사용자가 직접 지정한 모자이크 영역입니다. 영상이 바뀌면 다시 지정합니다.
+    var demosaicManualRegions: [DemosaicRegion] = []
     var maximumRefinementPasses = UserDefaults.standard.object(forKey: "maximumRefinementPasses") == nil
         ? 3
         : max(1, UserDefaults.standard.integer(forKey: "maximumRefinementPasses")) {
@@ -529,7 +531,11 @@ final class AppModel {
         service.cancelJob(id.uuidString) { _ in }
     }
 
-    var canStartDemosaic: Bool { mediaURL != nil && canMutateStorage }
+    var canStartDemosaic: Bool {
+        mediaURL != nil
+            && canMutateStorage
+            && (demosaicRegionMode != .manual || !demosaicManualRegions.isEmpty)
+    }
 
     /// 현재 영상의 얼굴 모자이크 제거를 시작합니다. (STT·번역과 별개의 작업)
     func startDemosaic() {
@@ -550,7 +556,8 @@ final class AppModel {
                 regionMode: demosaicRegionMode,
                 fidelity: demosaicFidelity,
                 temporalStabilization: true,
-                watermarkSynthetic: demosaicWatermark
+                watermarkSynthetic: demosaicWatermark,
+                manualRegions: demosaicManualRegions
             )
             let request = StartDemosaicRequest(
                 jobID: jobID,
@@ -1410,6 +1417,7 @@ final class AppModel {
         }
         statusTask?.cancel()
         currentRequest = nil
+        demosaicManualRegions.removeAll()
         mediaURL = url
         let item = AVPlayerItem(url: url)
         let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [

@@ -523,3 +523,11 @@
 "번역 %.1f/분" = "translate %.1f/min";
 "내장 SSD로 복사 중" = "Copying to internal SSD";
 "오디오 추출 중 (SSD)" = "Extracting audio (SSD)";
+"화면 모자이크 복원" = "Restore screen mosaic";
+"모자이크는 비가역 손실이라 원본 복구가 아니라 AI 재구성입니다. 복원된 내용은 실제 원본과 다를 수 있으므로 권리 있는 영상에만 사용하세요." = "Mosaic removal is AI reconstruction, not recovery of the original pixels. The result may differ from the original, so use it only with media you have the rights to process.";
+"화면에서 직접 지정" = "Select on screen";
+"복원할 영역" = "Areas to restore";
+"미리보기에서 모자이크 영역을 드래그하세요. 여러 영역을 지정할 수 있습니다." = "Drag over mosaic areas in the preview. You can select multiple areas.";
+"마지막 영역 취소" = "Undo last area";
+"모두 지우기" = "Clear all";
+"미리보기 준비 중" = "Preparing preview";

@@ -980,10 +980,10 @@ private struct DemosaicSheet: View {
     var body: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 0) {
-            Text("얼굴 모자이크 제거")
+            Text("화면 모자이크 복원")
                 .font(.title2.weight(.semibold))
                 .padding(.bottom, 4)
-            Text("모자이크는 비가역 손실이라 원본 복구가 아니라 AI 재구성입니다. 복원된 얼굴은 실제 인물이 아니며, 권리 있는 영상에만 사용하세요.")
+            Text("모자이크는 비가역 손실이라 원본 복구가 아니라 AI 재구성입니다. 복원된 내용은 실제 원본과 다를 수 있으므로 권리 있는 영상에만 사용하세요.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 12)
@@ -996,7 +996,14 @@ private struct DemosaicSheet: View {
                 Picker("처리 영역", selection: $model.demosaicRegionMode) {
                     Text("얼굴 영역만").tag(DemosaicRegionMode.face)
                     Text("모자이크 자동 탐지(실험적)").tag(DemosaicRegionMode.autoMosaic)
+                    Text("화면에서 직접 지정").tag(DemosaicRegionMode.manual)
                     Text("전체 화면").tag(DemosaicRegionMode.wholeFrame)
+                }
+                if model.demosaicRegionMode == .manual, let mediaURL = model.mediaURL {
+                    MosaicRegionEditor(
+                        mediaURL: mediaURL,
+                        regions: $model.demosaicManualRegions
+                    )
                 }
                 VStack(alignment: .leading) {
                     Text("충실도 \(Int(model.demosaicFidelity * 100))%")
@@ -1006,7 +1013,7 @@ private struct DemosaicSheet: View {
                 Toggle("합성 표식 남기기(권장)", isOn: $model.demosaicWatermark)
             }
             .formStyle(.grouped)
-            .frame(height: 220)
+            .frame(height: model.demosaicRegionMode == .manual ? 500 : 220)
             if model.demosaicModel != .classical {
                 Label("이 모델을 쓰려면 Core ML 파일을 Models/Demosaic 폴더에 넣어야 합니다. 없으면 기본 복원으로 처리됩니다.", systemImage: "info.circle")
                     .font(.caption)
@@ -1027,7 +1034,139 @@ private struct DemosaicSheet: View {
             .padding(.top, 8)
         }
         .padding(20)
-        .frame(width: 460)
+        .frame(width: model.demosaicRegionMode == .manual ? 620 : 460)
+    }
+}
+
+private struct MosaicRegionEditor: View {
+    let mediaURL: URL
+    @Binding var regions: [DemosaicRegion]
+    @State private var previewImage: NSImage?
+    @State private var draftRect: CGRect?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("복원할 영역")
+                        .font(.callout.weight(.semibold))
+                    Text("미리보기에서 모자이크 영역을 드래그하세요. 여러 영역을 지정할 수 있습니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("\(regions.count)개")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Button("마지막 영역 취소") {
+                    if !regions.isEmpty { regions.removeLast() }
+                }
+                .disabled(regions.isEmpty)
+                Button("모두 지우기", role: .destructive) { regions.removeAll() }
+                    .disabled(regions.isEmpty)
+            }
+
+            GeometryReader { proxy in
+                let canvas = CGRect(origin: .zero, size: proxy.size)
+                let imageRect = fittedImageRect(in: canvas)
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(.black.opacity(0.85))
+                    if let previewImage {
+                        Image(nsImage: previewImage)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: imageRect.width, height: imageRect.height)
+                            .position(x: imageRect.midX, y: imageRect.midY)
+                    } else {
+                        ProgressView("미리보기 준비 중")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .foregroundStyle(.white)
+                    }
+                    ForEach(Array(regions.enumerated()), id: \.offset) { index, region in
+                        let rect = displayRect(for: region, in: imageRect)
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(.tint.opacity(0.18))
+                            .stroke(.tint, lineWidth: 2)
+                            .frame(width: rect.width, height: rect.height)
+                            .position(x: rect.midX, y: rect.midY)
+                            .accessibilityLabel("복원 영역 \(index + 1)")
+                    }
+                    if let draftRect {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(.white.opacity(0.15))
+                            .stroke(.white, style: StrokeStyle(lineWidth: 2, dash: [5, 4]))
+                            .frame(width: draftRect.width, height: draftRect.height)
+                            .position(x: draftRect.midX, y: draftRect.midY)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
+                .gesture(regionDrag(in: imageRect))
+            }
+            .frame(height: 260)
+        }
+        .task(id: mediaURL) { await loadPreview() }
+    }
+
+    private func fittedImageRect(in canvas: CGRect) -> CGRect {
+        guard let previewImage, previewImage.size.width > 0, previewImage.size.height > 0 else { return canvas }
+        let scale = min(canvas.width / previewImage.size.width, canvas.height / previewImage.size.height)
+        let size = CGSize(width: previewImage.size.width * scale, height: previewImage.size.height * scale)
+        return CGRect(x: canvas.midX - size.width / 2, y: canvas.midY - size.height / 2, width: size.width, height: size.height)
+    }
+
+    private func displayRect(for normalized: DemosaicRegion, in imageRect: CGRect) -> CGRect {
+        CGRect(
+            x: imageRect.minX + CGFloat(normalized.x) * imageRect.width,
+            y: imageRect.minY + CGFloat(1 - normalized.y - normalized.height) * imageRect.height,
+            width: CGFloat(normalized.width) * imageRect.width,
+            height: CGFloat(normalized.height) * imageRect.height
+        )
+    }
+
+    private func regionDrag(in imageRect: CGRect) -> some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { value in
+                guard imageRect.contains(value.startLocation) else { return }
+                let start = clamped(value.startLocation, to: imageRect)
+                let current = clamped(value.location, to: imageRect)
+                draftRect = CGRect(
+                    x: min(start.x, current.x),
+                    y: min(start.y, current.y),
+                    width: abs(current.x - start.x),
+                    height: abs(current.y - start.y)
+                )
+            }
+            .onEnded { _ in
+                defer { draftRect = nil }
+                guard let rect = draftRect, rect.width >= 8, rect.height >= 8 else { return }
+                regions.append(DemosaicRegion(
+                    x: Double((rect.minX - imageRect.minX) / imageRect.width),
+                    y: Double(1 - (rect.maxY - imageRect.minY) / imageRect.height),
+                    width: Double(rect.width / imageRect.width),
+                    height: Double(rect.height / imageRect.height)
+                ))
+            }
+    }
+
+    private func clamped(_ point: CGPoint, to rect: CGRect) -> CGPoint {
+        CGPoint(
+            x: min(rect.maxX, max(rect.minX, point.x)),
+            y: min(rect.maxY, max(rect.minY, point.y))
+        )
+    }
+
+    @MainActor
+    private func loadPreview() async {
+        let asset = AVURLAsset(url: mediaURL)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 1_200, height: 800)
+        let duration = (try? await asset.load(.duration).seconds) ?? 0
+        let seconds = min(5, max(0, duration * 0.1))
+        guard let result = try? await generator.image(at: CMTime(seconds: seconds, preferredTimescale: 600)) else { return }
+        previewImage = NSImage(cgImage: result.image, size: .zero)
     }
 }
 
