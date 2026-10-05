@@ -1,4 +1,5 @@
 import AVKit
+import AppKit
 import SwiftUI
 @preconcurrency import Translation
 import VideoLingoCore
@@ -509,6 +510,10 @@ private struct ViewingSidebarView: View {
                         .lineLimit(2)
                         .truncationMode(.middle)
                 }
+            }
+
+            Section("영상 라이브러리") {
+                PlayerMediaLibraryView()
             }
 
             Section("재생") {
@@ -2046,6 +2051,215 @@ private struct DatabaseSettingsView: View {
     }
 }
 
+private struct EmbeddedAPIServerSettingsSections: View {
+    @Bindable var server: EmbeddedAPIServer
+    @State private var copiedMessage = ""
+    @State private var confirmsKeyRotation = false
+    @State private var confirmsKeyRevocation = false
+
+    var body: some View {
+        Group {
+            Section("외부용 STTLMMServer") {
+                HStack(spacing: 12) {
+                    Label(server.statusText, systemImage: statusSymbol)
+                        .foregroundStyle(statusColor)
+                    Spacer()
+                    Toggle("서버 사용", isOn: $server.isEnabled)
+                        .toggleStyle(.switch)
+                        .onChange(of: server.isEnabled) { _, enabled in
+                            Task {
+                                if enabled { await server.start() }
+                                else { server.stop() }
+                            }
+                        }
+                }
+                LabeledContent("기본 API 주소") {
+                    HStack(spacing: 8) {
+                        Text(server.endpoint)
+                            .font(.body.monospaced())
+                            .textSelection(.enabled)
+                        copyButton(server.endpoint, label: "기본 주소 복사")
+                    }
+                }
+                HStack(spacing: 8) {
+                    TextField("포트", value: $server.port, format: .number)
+                        .frame(width: 100)
+                    Button("포트 적용 및 재시작", systemImage: "arrow.trianglehead.2.clockwise.rotate.90") {
+                        Task { await server.apply() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!server.isEnabled || server.state == .starting)
+                    Button("중지", systemImage: "stop.fill") { server.stop(); server.isEnabled = false }
+                        .disabled(server.state == .stopped)
+                }
+                if case .failed(let message) = server.state {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .textSelection(.enabled)
+                }
+                Text("같은 네트워크의 Windows·Linux·macOS 기기에서 이 주소를 STTLMMServer로 등록할 수 있습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("API URI") {
+                ForEach(EmbeddedAPIServer.apiEndpoints) { endpoint in
+                    LabeledContent {
+                        HStack(spacing: 8) {
+                            Text(server.uri(for: endpoint.path))
+                                .font(.caption.monospaced())
+                                .textSelection(.enabled)
+                                .lineLimit(1)
+                            copyButton(server.uri(for: endpoint.path), label: "\(endpoint.title) URI 복사")
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(endpoint.title)
+                            Text(endpoint.method)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                if !copiedMessage.isEmpty {
+                    Label(copiedMessage, systemImage: "checkmark")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("외부 접속 API 키") {
+                SecureField("비워 두면 인증 없이 연결", text: $server.apiKey)
+                    .textFieldStyle(.roundedBorder)
+                HStack(spacing: 8) {
+                    Button(server.apiKey.isEmpty ? "새 키 발급" : "키 재발급", systemImage: "key.fill") {
+                        if server.apiKey.isEmpty { issueAndCopyKey() }
+                        else { confirmsKeyRotation = true }
+                    }
+                    Button("키 복사", systemImage: "doc.on.doc") { copy(server.apiKey, message: "API 키를 복사했습니다.") }
+                        .disabled(server.apiKey.isEmpty)
+                    Button("키 폐기", systemImage: "trash", role: .destructive) { confirmsKeyRevocation = true }
+                        .disabled(server.apiKey.isEmpty)
+                    Spacer()
+                    Label(server.apiKey.isEmpty ? "인증 없음" : "Bearer 인증 사용", systemImage: server.apiKey.isEmpty ? "lock.open" : "lock.fill")
+                        .foregroundStyle(server.apiKey.isEmpty ? .orange : .green)
+                }
+                Text(server.apiKey.isEmpty
+                     ? "현재 키 없이 접속할 수 있습니다. 외부 제공 시 API 키 발급을 권장합니다."
+                     : "키는 macOS Keychain에 저장됩니다. 클라이언트는 Authorization: Bearer <API 키> 헤더를 보내야 하며, 재발급하면 기존 키는 즉시 사용할 수 없습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("요청 모니터링") {
+                Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
+                    GridRow {
+                        monitorValue("처리 중", value: server.activeRequests, color: .blue)
+                        monitorValue("STT", value: server.activeSTTRequests, color: .purple)
+                        monitorValue("번역", value: server.activeTranslationRequests, color: .indigo)
+                    }
+                    GridRow {
+                        monitorValue("성공", value: server.successfulRequests, color: .green)
+                        monitorValue("실패", value: server.failedRequests, color: .red)
+                        monitorValue("인증 거부", value: server.unauthorizedRequests, color: .orange)
+                    }
+                }
+                if let startedAt = server.startedAt {
+                    LabeledContent("서버 시작", value: startedAt.formatted(date: .abbreviated, time: .standard))
+                }
+                if let lastError = server.lastError {
+                    LabeledContent("최근 오류") {
+                        Text(lastError).foregroundStyle(.orange).textSelection(.enabled)
+                    }
+                }
+                if server.recentRequests.isEmpty {
+                    ContentUnavailableView("요청 기록 없음", systemImage: "waveform.path.ecg", description: Text("외부 요청이 들어오면 최근 처리 상태가 표시됩니다."))
+                } else {
+                    ForEach(server.recentRequests.prefix(10)) { request in
+                        HStack(spacing: 8) {
+                            Text(request.method).font(.caption2.monospaced()).foregroundStyle(.secondary).frame(width: 34, alignment: .leading)
+                            Text(request.path).font(.caption.monospaced()).lineLimit(1)
+                            Spacer()
+                            if let status = request.statusCode {
+                                Text("\(status)").font(.caption.monospaced()).foregroundStyle(status < 400 ? .green : .red)
+                            } else {
+                                ProgressView().controlSize(.small)
+                            }
+                            if let duration = request.duration {
+                                Text(duration.formatted(.number.precision(.fractionLength(2))) + "초")
+                                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                HStack {
+                    Text("누적 요청 \(server.totalRequests)건").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    Spacer()
+                    Button("모니터링 초기화", systemImage: "arrow.counterclockwise") { server.clearMonitoring() }
+                        .disabled(server.totalRequests == 0 && server.lastError == nil)
+                }
+            }
+        }
+        .confirmationDialog("새 API 키를 발급할까요?", isPresented: $confirmsKeyRotation) {
+            Button("기존 키 폐기 후 재발급", role: .destructive) { issueAndCopyKey() }
+            Button("취소", role: .cancel) { }
+        } message: {
+            Text("기존 키를 사용하는 외부 클라이언트는 즉시 인증에 실패합니다. 새 키가 자동으로 클립보드에 복사됩니다.")
+        }
+        .confirmationDialog("API 키를 폐기할까요?", isPresented: $confirmsKeyRevocation) {
+            Button("키 폐기", role: .destructive) { server.revokeAPIKey() }
+            Button("취소", role: .cancel) { }
+        } message: {
+            Text("키를 폐기하면 서버는 인증 없이 접속 가능한 상태가 됩니다. 필요하지 않다면 서버도 함께 중지하세요.")
+        }
+    }
+
+    private var statusSymbol: String {
+        switch server.state {
+        case .running: "checkmark.circle.fill"
+        case .starting: "clock.arrow.circlepath"
+        case .failed: "exclamationmark.triangle.fill"
+        case .stopped: "stop.circle"
+        }
+    }
+
+    private var statusColor: Color {
+        switch server.state {
+        case .running: .green
+        case .starting: .blue
+        case .failed: .red
+        case .stopped: .secondary
+        }
+    }
+
+    private func copyButton(_ value: String, label: String) -> some View {
+        Button(label, systemImage: "doc.on.doc") { copy(value, message: "URI를 복사했습니다.") }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .help(label)
+    }
+
+    private func copy(_ value: String, message: String) {
+        guard !value.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        copiedMessage = message
+    }
+
+    private func issueAndCopyKey() {
+        copy(server.issueAPIKey(), message: "새 API 키를 발급하고 복사했습니다.")
+    }
+
+    private func monitorValue(_ title: String, value: Int, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            Text("\(value)").font(.title3.weight(.semibold)).foregroundStyle(color).monospacedDigit()
+        }
+        .frame(minWidth: 88, alignment: .leading)
+    }
+}
+
 private struct ServerSettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var remotePool = RemoteWorkerPool.shared
@@ -2067,40 +2281,7 @@ private struct ServerSettingsView: View {
 
     var body: some View {
         Form {
-            Section("외부용 표준 API 서버") {
-                Toggle("이 Mac의 내장 STT·LLM을 외부에 제공", isOn: $embeddedServer.isEnabled)
-                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-                    GridRow {
-                        Text("포트")
-                        TextField("8848", value: $embeddedServer.port, format: .number)
-                            .frame(width: 100)
-                    }
-                    GridRow {
-                        Text("API 키")
-                        SecureField("비워 두면 키 없이 연결", text: $embeddedServer.apiKey)
-                    }
-                }
-                HStack(spacing: 12) {
-                    Label(embeddedServer.statusText, systemImage: embeddedServer.state == .running ? "checkmark.circle.fill" : "network")
-                        .foregroundStyle(embeddedServer.state == .running ? .green : .secondary)
-                    Spacer()
-                    Button("설정 적용", systemImage: "arrow.trianglehead.2.clockwise.rotate.90") {
-                        Task { await embeddedServer.apply() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-                if embeddedServer.state == .running {
-                    LabeledContent("다른 기기에서 추가할 주소") {
-                        Text(embeddedServer.endpoint).font(.caption.monospaced()).textSelection(.enabled)
-                    }
-                    LabeledContent("요청") {
-                        Text("처리 중 \(embeddedServer.activeRequests) · 누적 \(embeddedServer.totalRequests)").monospacedDigit()
-                    }
-                }
-                Text("STTLMMServer 호환 API: /health, /v1/system, /v1/audio/transcriptions, /v1/translate. 같은 네트워크의 기기에서 위 주소를 원격 서버로 추가할 수 있습니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            EmbeddedAPIServerSettingsSections(server: embeddedServer)
             Section("내장 LLM 서버") {
                 HStack {
                     Circle()

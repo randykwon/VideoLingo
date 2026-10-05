@@ -429,6 +429,11 @@ final class AppModel {
         loadVideo(url, remember: true)
     }
 
+    func openLibraryVideo(_ url: URL) {
+        playerMode = .viewing
+        loadVideo(url.standardizedFileURL, remember: true)
+    }
+
     /// 대량 번역과 동일한 작업 키로 저장된 STT·번역을 불러오는 완료 결과 검토용 진입점입니다.
     func loadBatchReviewVideo(_ url: URL, options: ProcessingOptions) {
         sourceLanguage = options.sourceLanguage ?? ""

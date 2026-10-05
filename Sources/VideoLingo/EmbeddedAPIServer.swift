@@ -2,6 +2,7 @@ import Foundation
 import Network
 import Observation
 import Darwin
+import Security
 import VideoLingoCore
 
 @MainActor
@@ -11,6 +12,33 @@ final class EmbeddedAPIServer {
 
     enum State: Equatable { case stopped, starting, running, failed(String) }
 
+    struct RequestRecord: Identifiable, Sendable {
+        let id: UUID
+        let method: String
+        let path: String
+        let startedAt: Date
+        var completedAt: Date?
+        var statusCode: Int?
+
+        var duration: TimeInterval? {
+            completedAt.map { $0.timeIntervalSince(startedAt) }
+        }
+    }
+
+    struct APIEndpoint: Identifiable, Sendable {
+        let path: String
+        let title: String
+        let method: String
+        var id: String { path }
+    }
+
+    static let apiEndpoints = [
+        APIEndpoint(path: "/health", title: "상태 확인", method: "GET"),
+        APIEndpoint(path: "/v1/system", title: "시스템 정보", method: "GET"),
+        APIEndpoint(path: "/v1/audio/transcriptions", title: "STT 음성 인식", method: "POST"),
+        APIEndpoint(path: "/v1/translate", title: "LLM 번역", method: "POST")
+    ]
+
     var isEnabled: Bool {
         didSet { UserDefaults.standard.set(isEnabled, forKey: "embeddedAPIEnabled") }
     }
@@ -18,18 +46,39 @@ final class EmbeddedAPIServer {
         didSet { UserDefaults.standard.set(port, forKey: "embeddedAPIPort") }
     }
     var apiKey: String {
-        didSet { UserDefaults.standard.set(apiKey, forKey: "embeddedAPIKey") }
+        didSet {
+            do {
+                if apiKey.isEmpty { try credentialStore.clear() }
+                else { try credentialStore.save(apiKey) }
+                UserDefaults.standard.removeObject(forKey: "embeddedAPIKey")
+            } catch {
+                lastError = "API 키를 Keychain에 저장하지 못했습니다: \(error.localizedDescription)"
+            }
+        }
     }
     private(set) var state: State = .stopped
     private(set) var activeRequests = 0
     private(set) var totalRequests = 0
+    private(set) var successfulRequests = 0
+    private(set) var failedRequests = 0
+    private(set) var unauthorizedRequests = 0
+    private(set) var activeSTTRequests = 0
+    private(set) var activeTranslationRequests = 0
+    private(set) var recentRequests: [RequestRecord] = []
+    private(set) var startedAt: Date?
     private(set) var lastError: String?
+    @ObservationIgnored private let credentialStore = EmbeddedServerCredentialStore()
     @ObservationIgnored private var listener: NWListener?
 
     private init() {
         isEnabled = UserDefaults.standard.bool(forKey: "embeddedAPIEnabled")
         port = UserDefaults.standard.object(forKey: "embeddedAPIPort") as? Int ?? 8848
-        apiKey = UserDefaults.standard.string(forKey: "embeddedAPIKey") ?? ""
+        let legacyKey = UserDefaults.standard.string(forKey: "embeddedAPIKey") ?? ""
+        apiKey = credentialStore.load() ?? legacyKey
+        if credentialStore.load() == nil, !legacyKey.isEmpty,
+           (try? credentialStore.save(legacyKey)) != nil {
+            UserDefaults.standard.removeObject(forKey: "embeddedAPIKey")
+        }
         if isEnabled { Task { await start() } }
     }
 
@@ -43,6 +92,35 @@ final class EmbeddedAPIServer {
     }
 
     var endpoint: String { "http://\(Self.lanAddress() ?? "이 Mac의 IP"):\(port)" }
+
+    func uri(for path: String) -> String { endpoint + path }
+
+    @discardableResult
+    func issueAPIKey() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+            let fallback = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+            apiKey = "vl_\(fallback)"
+            return apiKey
+        }
+        let token = Data(bytes).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        apiKey = "vl_\(token)"
+        return apiKey
+    }
+
+    func revokeAPIKey() { apiKey = "" }
+
+    func clearMonitoring() {
+        totalRequests = 0
+        successfulRequests = 0
+        failedRequests = 0
+        unauthorizedRequests = 0
+        recentRequests.removeAll()
+        lastError = nil
+    }
 
     func apply() async {
         stop()
@@ -62,7 +140,7 @@ final class EmbeddedAPIServer {
                 Task { @MainActor in
                     guard let self else { return }
                     switch value {
-                    case .ready: self.state = .running
+                    case .ready: self.state = .running; self.startedAt = .now
                     case .failed(let error): self.lastError = error.localizedDescription; self.state = .failed(error.localizedDescription); self.listener = nil
                     case .cancelled: if self.listener == nil { self.state = .stopped }
                     default: break
@@ -85,6 +163,7 @@ final class EmbeddedAPIServer {
         listener = nil
         current?.cancel()
         state = .stopped
+        startedAt = nil
     }
 
     private func accept(_ connection: NWConnection) {
@@ -96,12 +175,14 @@ final class EmbeddedAPIServer {
 
     private func handle(_ request: HTTPRequest?, connection: NWConnection) async {
         guard let request else { sendJSON(["error": ["message": "잘못된 HTTP 요청입니다."]], status: 400, connection: connection); return }
+        let recordID = beginRequest(request)
+        var responseStatus = 200
+        defer { finishRequest(recordID, status: responseStatus, path: request.path) }
         if !apiKey.isEmpty && request.headers["authorization"] != "Bearer \(apiKey)" {
+            responseStatus = 401
+            unauthorizedRequests += 1
             sendJSON(["error": ["message": "API 키가 올바르지 않습니다."]], status: 401, connection: connection); return
         }
-        totalRequests += 1
-        activeRequests += 1
-        defer { activeRequests -= 1 }
         do {
             switch (request.method, request.path) {
             case ("GET", "/health"):
@@ -133,12 +214,37 @@ final class EmbeddedAPIServer {
                 let model = UserDefaults.standard.string(forKey: "translationModel") ?? "mlx-community/Qwen3-8B-4bit"
                 let result = try await directTranslation(DirectTranslationRequest(texts: texts, sourceLanguage: json?["source_lang"] as? String, targetLanguage: target, modelID: model, modelsURL: paths.models))
                 sendJSON(["translations": result.translations.map { ["text": $0] }, "processing_seconds": result.processingSeconds], connection: connection)
-            default: sendJSON(["error": ["message": "지원하지 않는 API 경로입니다."]], status: 404, connection: connection)
+            default:
+                responseStatus = 404
+                sendJSON(["error": ["message": "지원하지 않는 API 경로입니다."]], status: 404, connection: connection)
             }
         } catch {
+            responseStatus = error is APIError ? 400 : 500
             lastError = error.localizedDescription
-            sendJSON(["error": ["message": error.localizedDescription]], status: error is APIError ? 400 : 500, connection: connection)
+            sendJSON(["error": ["message": error.localizedDescription]], status: responseStatus, connection: connection)
         }
+    }
+
+    private func beginRequest(_ request: HTTPRequest) -> UUID {
+        let record = RequestRecord(id: UUID(), method: request.method, path: request.path, startedAt: .now)
+        totalRequests += 1
+        activeRequests += 1
+        if request.path == "/v1/audio/transcriptions" { activeSTTRequests += 1 }
+        if request.path == "/v1/translate" { activeTranslationRequests += 1 }
+        recentRequests.insert(record, at: 0)
+        if recentRequests.count > 50 { recentRequests.removeLast(recentRequests.count - 50) }
+        return record.id
+    }
+
+    private func finishRequest(_ id: UUID, status: Int, path: String) {
+        activeRequests = max(0, activeRequests - 1)
+        if path == "/v1/audio/transcriptions" { activeSTTRequests = max(0, activeSTTRequests - 1) }
+        if path == "/v1/translate" { activeTranslationRequests = max(0, activeTranslationRequests - 1) }
+        if (200..<400).contains(status) { successfulRequests += 1 }
+        else if status != 401 { failedRequests += 1 }
+        guard let index = recentRequests.firstIndex(where: { $0.id == id }) else { return }
+        recentRequests[index].completedAt = .now
+        recentRequests[index].statusCode = status
     }
 
     private func directSTT(_ request: DirectSTTRequest) async throws -> DirectSTTResponse {
@@ -198,6 +304,61 @@ final class EmbeddedAPIServer {
             address = String(cString: host)
         }
         return address
+    }
+}
+
+private struct EmbeddedServerCredentialStore {
+    private let service = "com.vvv.VideoLingo.EmbeddedSTTLMMServer"
+    private let account = "external-api-key"
+
+    func load() -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    func save(_ token: String) throws {
+        let identity: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        let attributes: [String: Any] = [kSecValueData as String: Data(token.utf8)]
+        let status = SecItemUpdate(identity as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            var item = identity
+            item[kSecValueData as String] = Data(token.utf8)
+            let addStatus = SecItemAdd(item as CFDictionary, nil)
+            guard addStatus == errSecSuccess else { throw keychainError(addStatus) }
+        } else if status != errSecSuccess {
+            throw keychainError(status)
+        }
+    }
+
+    func clear() throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw keychainError(status) }
+    }
+
+    private func keychainError(_ status: OSStatus) -> NSError {
+        NSError(
+            domain: NSOSStatusErrorDomain,
+            code: Int(status),
+            userInfo: [NSLocalizedDescriptionKey: SecCopyErrorMessageString(status, nil) as String? ?? "Keychain 오류 \(status)"]
+        )
     }
 }
 

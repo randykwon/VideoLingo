@@ -2162,18 +2162,21 @@ final class BatchProcessor {
 
 private enum BatchWorkspaceTab: String, CaseIterable, Identifiable {
     case files
+    case library
     case monitoring
 
     var id: Self { self }
     var title: String {
         switch self {
         case .files: String(localized: "파일 목록")
+        case .library: String(localized: "영상 라이브러리")
         case .monitoring: String(localized: "모니터링")
         }
     }
     var systemImage: String {
         switch self {
         case .files: "list.bullet.rectangle"
+        case .library: "rectangle.stack"
         case .monitoring: "chart.xyaxis.line"
         }
     }
@@ -2224,6 +2227,8 @@ struct BatchTranslationView: View {
                         Text("영상 미리보기와 처리 현황을 불러오고 있습니다.")
                     }
                 }
+            } else if workspaceTab == .library {
+                BatchMediaLibraryView()
             } else if processor.items.isEmpty {
                 ContentUnavailableView {
                     Label("대량 번역할 영상을 추가하세요", systemImage: "rectangle.stack.badge.plus")
@@ -2632,12 +2637,20 @@ struct BatchTranslationView: View {
                         .help("폴더와 하위 폴더에서 영상 검색")
                     Button("영상 추가…", systemImage: "plus") { processor.addFiles() }
                         .help("여러 영상 추가")
-                } else {
+                } else if workspaceTab == .monitoring {
                     Button("모니터링 별도 창", systemImage: "macwindow.on.rectangle") {
                         openWindow(id: "batch-monitor")
                     }
                     .disabled(processor.items.isEmpty)
                     .help("현재 모니터링 화면을 별도 창으로 열기")
+                } else {
+                    Button("라이브러리 새로 고침", systemImage: "arrow.clockwise") {
+                        MediaLibrary.shared.refresh()
+                    }
+                    .disabled(MediaLibrary.shared.isScanning || MediaLibrary.shared.folders.isEmpty)
+                    Button("라이브러리 폴더 추가…", systemImage: "folder.badge.plus") {
+                        MediaLibrary.shared.chooseFolders()
+                    }
                 }
             }
         }

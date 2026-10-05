@@ -349,6 +349,29 @@ import Testing
     #expect(TranscriptTextSanitizer.cleanWhisperText(raw) == "こんにちは 世界")
 }
 
+@Test func mediaLibrarySummaryFindsTranscriptAndAllTranslationLanguages() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let mediaURL = directory.appending(path: "library-sample.mp4")
+    try Data().write(to: mediaURL)
+    let jobID = UUID()
+    let store = try MediaSidecarStore(mediaURL: mediaURL, jobID: jobID, sttModel: "small", sourceLanguage: "en")
+    let transcript = TranscriptSegment(jobID: jobID, chunkIndex: 0, startTime: 0, endTime: 2, text: "Hello")
+    try store.saveTranscripts([transcript])
+    for language in ["ko", "ja"] {
+        let translation = TranslationSegment(transcriptID: transcript.id, jobID: jobID, targetLanguage: language, modelID: "test-model", text: language)
+        try store.saveTranslations([translation], language: language, modelID: "test-model", transcripts: [transcript])
+    }
+
+    let summary = MediaSidecarStore.resultSummary(for: mediaURL)
+    #expect(summary.hasTranscript)
+    #expect(summary.transcriptSegmentCount == 1)
+    #expect(summary.translationLanguages == ["ja", "ko"])
+    #expect(summary.translationFileCount == 2)
+    #expect(summary.newestUpdate != nil)
+}
+
 @Test func storePersistsChunkAtomicallyForResume() throws {
     let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

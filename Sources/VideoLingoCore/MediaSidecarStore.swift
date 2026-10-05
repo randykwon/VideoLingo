@@ -9,6 +9,22 @@ public struct DiscoveredMediaSidecar: Sendable {
     public let translationModel: String?
 }
 
+public struct MediaSidecarSummary: Sendable, Equatable {
+    public let hasTranscript: Bool
+    public let transcriptSegmentCount: Int
+    public let translationLanguages: [String]
+    public let translationFileCount: Int
+    public let newestUpdate: Date?
+
+    public init(hasTranscript: Bool, transcriptSegmentCount: Int, translationLanguages: [String], translationFileCount: Int, newestUpdate: Date?) {
+        self.hasTranscript = hasTranscript
+        self.transcriptSegmentCount = transcriptSegmentCount
+        self.translationLanguages = translationLanguages
+        self.translationFileCount = translationFileCount
+        self.newestUpdate = newestUpdate
+    }
+}
+
 public final class MediaSidecarStore: @unchecked Sendable {
     private struct TranscriptDocument: Codable {
         let version: Int
@@ -148,6 +164,46 @@ public final class MediaSidecarStore: @unchecked Sendable {
             transcripts: transcriptDocument.segments.sorted { $0.chunkIndex < $1.chunkIndex },
             translations: translationDocument?.segments ?? [],
             translationModel: translationDocument?.modelID
+        )
+    }
+
+    /// 영상 라이브러리에서 전체 번역 결과 유무를 빠르게 표시하기 위한 요약입니다.
+    public static func resultSummary(for mediaURL: URL) -> MediaSidecarSummary {
+        resultSummary(in: resultDirectoryCandidates(for: mediaURL))
+    }
+
+    /// 호출자가 앱 관리 결과 폴더를 한 번만 열어 캐시한 경우 사용하는 대량 인덱싱용 진입점입니다.
+    public static func resultSummary(for mediaURL: URL, cachedManagedDirectories: [URL]) -> MediaSidecarSummary {
+        let manager = FileManager.default
+        var directories: [URL] = []
+        let beside = directoryURL(for: mediaURL)
+        if manager.fileExists(atPath: beside.path) { directories.append(beside) }
+        let prefix = mediaURL.deletingPathExtension().lastPathComponent + "-"
+        directories.append(contentsOf: cachedManagedDirectories.filter { $0.lastPathComponent.hasPrefix(prefix) })
+        return resultSummary(in: directories)
+    }
+
+    private static func resultSummary(in directories: [URL]) -> MediaSidecarSummary {
+        let files = directories.flatMap {
+            (try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? []
+        }
+        let transcripts = files
+            .filter { $0.pathExtension == "json" && $0.lastPathComponent.hasPrefix("stt-") }
+            .compactMap { try? WireCodec.decode(TranscriptDocument.self, from: Data(contentsOf: $0)) }
+        let translations = files
+            .filter { $0.pathExtension == "json" && $0.lastPathComponent.hasPrefix("translation-") }
+            .compactMap { try? WireCodec.decode(TranslationDocument.self, from: Data(contentsOf: $0)) }
+        let newestTranscript = transcripts.max(by: { $0.updatedAt < $1.updatedAt })
+        let matchingTranslations = newestTranscript.map { transcript in
+            translations.filter { $0.jobID == transcript.jobID }
+        } ?? translations
+        let newestDates = transcripts.map(\.updatedAt) + matchingTranslations.map(\.updatedAt)
+        return MediaSidecarSummary(
+            hasTranscript: newestTranscript != nil,
+            transcriptSegmentCount: newestTranscript?.segments.count ?? 0,
+            translationLanguages: Array(Set(matchingTranslations.map(\.language))).sorted(),
+            translationFileCount: matchingTranslations.count,
+            newestUpdate: newestDates.max()
         )
     }
 
