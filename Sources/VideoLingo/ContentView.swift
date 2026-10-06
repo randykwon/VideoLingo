@@ -352,7 +352,7 @@ struct ContentView: View {
         } message: { request in
             Text(request.message)
         }
-        .alert("VideoLingo", isPresented: Binding(
+        .alert("VAutoLang", isPresented: Binding(
             get: { model.errorMessage != nil },
             set: { if !$0 { model.errorMessage = nil } }
         )) {
@@ -2477,7 +2477,7 @@ private struct ServerSettingsView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("설치 없이 서버 연결", systemImage: "network")
                         .font(.callout.weight(.semibold))
-                    Text("Windows·Linux·macOS에서 이미 실행 중인 STTLMMServer 주소만 입력하세요. VideoLingo Worker나 추가 프로그램을 설치할 필요가 없습니다.")
+                    Text("Windows·Linux·macOS에서 이미 실행 중인 STTLMMServer 주소만 입력하세요. VAutoLang Worker나 추가 프로그램을 설치할 필요가 없습니다.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

@@ -3,10 +3,10 @@ set -euo pipefail
 
 ROOT_DIR="${0:A:h}/.."
 BUILD_DIR="$ROOT_DIR/.build/DerivedData"
-APP_PATH="$BUILD_DIR/Build/Products/Release/VideoLingo.app"
+APP_PATH="$BUILD_DIR/Build/Products/Release/VAutoLang.app"
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/Sources/VideoLingo/Info.plist")
 DIST_DIR="$ROOT_DIR/dist"
-DMG_PATH="$DIST_DIR/VideoLingo-$VERSION.dmg"
+DMG_PATH="$DIST_DIR/VAutoLang-$VERSION.dmg"
 STAGING_DIR=$(mktemp -d "${TMPDIR:-/tmp}/videolingo-dmg.XXXXXX")
 
 cleanup() {
@@ -19,11 +19,11 @@ trap cleanup EXIT
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
 mkdir -p "$DIST_DIR"
-ditto "$APP_PATH" "$STAGING_DIR/VideoLingo.app"
+ditto "$APP_PATH" "$STAGING_DIR/VAutoLang.app"
 ln -s /Applications "$STAGING_DIR/Applications"
 
 hdiutil create \
-  -volname "VideoLingo" \
+  -volname "VAutoLang" \
   -srcfolder "$STAGING_DIR" \
   -format UDZO \
   -ov \

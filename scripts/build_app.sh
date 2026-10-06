@@ -14,5 +14,5 @@ xcodebuild \
   CODE_SIGN_STYLE=Manual \
   build
 
-echo "Built: $PWD/.build/DerivedData/Build/Products/Release/VideoLingo.app"
+echo "Built: $PWD/.build/DerivedData/Build/Products/Release/VAutoLang.app"
 
