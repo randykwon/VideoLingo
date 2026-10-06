@@ -718,7 +718,7 @@
 					"@executable_path/../Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.vvv.VideoLingo;
-				PRODUCT_NAME = VideoLingo;
+				PRODUCT_NAME = VAutoLang;
 				SDKROOT = macosx;
 			};
 			name = Release;
@@ -800,7 +800,7 @@
 					"@executable_path/Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.vvv.VideoLingo.mobile;
-				PRODUCT_NAME = VideoLingo;
+				PRODUCT_NAME = VAutoLang;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -820,7 +820,7 @@
 					"@executable_path/Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.vvv.VideoLingo.mobile;
-				PRODUCT_NAME = VideoLingo;
+				PRODUCT_NAME = VAutoLang;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -879,7 +879,7 @@
 					"@executable_path/../Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.vvv.VideoLingo;
-				PRODUCT_NAME = VideoLingo;
+				PRODUCT_NAME = VAutoLang;
 				SDKROOT = macosx;
 			};
 			name = Debug;

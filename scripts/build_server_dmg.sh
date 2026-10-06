@@ -7,9 +7,9 @@ ROOT_DIR="${0:A:h}/.."
 SOURCE_DIR="$ROOT_DIR/tools/RemoteWorker"
 DIST_DIR="$ROOT_DIR/dist"
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/Sources/VideoLingo/Info.plist")
-DMG_PATH="$DIST_DIR/VideoLingo-Server-$VERSION.dmg"
+DMG_PATH="$DIST_DIR/VAutoLang-Server-$VERSION.dmg"
 STAGING_DIR=$(mktemp -d "${TMPDIR:-/tmp}/videolingo-server-dmg.XXXXXX")
-PAYLOAD="$STAGING_DIR/VideoLingo Server"
+PAYLOAD="$STAGING_DIR/VAutoLang Server"
 
 cleanup() { rm -rf "$STAGING_DIR"; }
 trap cleanup EXIT
@@ -46,10 +46,10 @@ LAUNCHER
 chmod +x "$PAYLOAD/시작하기.command"
 
 cat > "$PAYLOAD/읽어주세요.txt" <<'GUIDE'
-VideoLingo 원격 STT·번역 서버 (macOS)
+VAutoLang 원격 STT·번역 서버 (macOS)
 =====================================
 
-이 Mac을 VideoLingo의 STT·번역 처리 서버로 씁니다.
+이 Mac을 VAutoLang의 STT·번역 처리 서버로 씁니다.
 대량 번역을 다른 Mac에 맡겨 본체 부담을 줄일 수 있습니다.
 
 ■ 준비물 (먼저 설치)
@@ -65,7 +65,7 @@ VideoLingo 원격 STT·번역 서버 (macOS)
        - API 키가 자동 생성되어 .env에 저장됩니다.
     3. 터미널에 표시되는 주소와 API 키를 적어 둡니다.
 
-■ VideoLingo(작업용 Mac)에서 등록
+■ VAutoLang(작업용 Mac)에서 등록
     대량 번역 창 → 설정 → "원격 STT·번역 서버"
       · 서버 주소: 표시된 http://... 주소 (또는 IP만 입력)
       · API 키 사용: 켬 → 표시된 키 입력
@@ -81,7 +81,7 @@ VideoLingo 원격 STT·번역 서버 (macOS)
   - 설치본은 github.com/randykwon/STTLMMServer 에서 받아옵니다.
 GUIDE
 
-hdiutil create -volname "VideoLingo Server" -srcfolder "$STAGING_DIR" -format UDZO -ov "$DMG_PATH" >/dev/null
+hdiutil create -volname "VAutoLang Server" -srcfolder "$STAGING_DIR" -format UDZO -ov "$DMG_PATH" >/dev/null
 hdiutil verify "$DMG_PATH" >/dev/null
 echo "DMG: $DMG_PATH"
 ls -lh "$DMG_PATH" | awk '{print "크기: "$5}'
