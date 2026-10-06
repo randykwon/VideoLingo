@@ -384,6 +384,11 @@ final class BatchProcessor {
             : String(localized: "지정한 결과 폴더에 저장됨")
     }
 
+    /// 주의가 필요한 항목입니다. 실패·취소·일시정지된 영상이 여기 들어옵니다.
+    var attentionItems: [Item] {
+        items.filter { [.failed, .cancelled, .paused].contains($0.status) }
+    }
+
     func readOnlyItemCount(in ids: Set<UUID>? = nil) -> Int {
         items.filter { item in
             (ids == nil || ids?.contains(item.id) == true) && needsAlternateResultDirectory(item.url)
@@ -4411,6 +4416,169 @@ struct RemoteServerMonitorView: View {
         VStack(alignment: .leading, spacing: 1) {
             Text(title).font(.caption2).foregroundStyle(.secondary)
             Text(value).foregroundStyle(tint ?? .primary)
+        }
+    }
+}
+
+/// 주의가 필요한 영상(실패·취소·일시정지)의 원인을 실제로 진단하고, 손상된 파일을 정리합니다.
+private struct AttentionReviewView: View {
+    @Environment(BatchProcessor.self) private var processor
+    @Environment(\.dismiss) private var dismiss
+    @State private var diagnoses: [MediaDiagnosis] = []
+    @State private var isDiagnosing = false
+    @State private var progress = ""
+    @State private var statusMessage = ""
+    @State private var moveToTrash = true
+
+    private var brokenDiagnoses: [MediaDiagnosis] {
+        diagnoses.filter { $0.verdict.isFileProblem }
+    }
+
+    private var reclaimable: String {
+        ByteCountFormatter.string(
+            fromByteCount: brokenDiagnoses.reduce(0) { $0 + $1.byteCount },
+            countStyle: .file
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("주의 필요 항목 점검", systemImage: "stethoscope")
+                    .font(.title2.weight(.semibold))
+                Text("실패·취소·일시정지된 영상을 실제로 열어 원인을 판정합니다. 파일 손상이 확인된 것만 정리 대상으로 표시합니다.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            if isDiagnosing {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(progress).font(.callout)
+                }
+            } else if diagnoses.isEmpty {
+                ContentUnavailableView(
+                    "점검할 항목이 없습니다",
+                    systemImage: "checkmark.shield",
+                    description: Text("주의가 필요한 영상이 없거나, 아직 점검하지 않았습니다.")
+                )
+                .frame(maxHeight: 160)
+            } else {
+                HStack(spacing: 12) {
+                    Text("점검 \(diagnoses.count)건")
+                    if brokenDiagnoses.isEmpty {
+                        Label("파일 문제 없음", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    } else {
+                        Label("손상 \(brokenDiagnoses.count)건 · \(reclaimable)", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                    Spacer()
+                }
+                .font(.callout.weight(.medium))
+
+                List(diagnoses) { diagnosis in
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: diagnosis.verdict.isFileProblem ? "xmark.circle.fill" : "info.circle")
+                            .foregroundStyle(diagnosis.verdict.isFileProblem ? Color.orange : Color.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(diagnosis.url.lastPathComponent)
+                                    .font(.callout)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Text(diagnosis.verdict.title)
+                                    .font(.caption2.weight(.semibold))
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1)
+                                    .background(
+                                        (diagnosis.verdict.isFileProblem ? Color.orange : Color.secondary).opacity(0.18),
+                                        in: Capsule()
+                                    )
+                            }
+                            Text(diagnosis.detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                            if diagnosis.byteCount > 0 {
+                                Text(ByteCountFormatter.string(fromByteCount: diagnosis.byteCount, countStyle: .file))
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 2)
+                }
+                .frame(minHeight: 240, maxHeight: 340)
+
+                if !brokenDiagnoses.isEmpty {
+                    Toggle(isOn: $moveToTrash) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("원본 파일도 휴지통으로 이동")
+                            Text(moveToTrash
+                                ? "손상이 확인된 \(brokenDiagnoses.count)개 파일이 휴지통으로 이동합니다. 되돌릴 수 있습니다."
+                                : "목록에서만 제거하고 파일은 그대로 둡니다.")
+                                .font(.caption)
+                                .foregroundStyle(moveToTrash ? Color.orange : Color.secondary)
+                        }
+                    }
+                }
+            }
+
+            if !statusMessage.isEmpty {
+                Text(statusMessage).font(.caption).textSelection(.enabled)
+            }
+
+            HStack {
+                Button("다시 점검", systemImage: "arrow.clockwise") { Task { await runDiagnosis() } }
+                    .disabled(isDiagnosing)
+                Spacer()
+                Button("닫기") { dismiss() }
+                Button(moveToTrash ? "손상 파일 휴지통으로" : "손상 항목 목록에서 제거", role: .destructive) {
+                    cleanUp()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(brokenDiagnoses.isEmpty || isDiagnosing)
+            }
+        }
+        .padding(24)
+        .frame(width: 660)
+        .task { if diagnoses.isEmpty { await runDiagnosis() } }
+    }
+
+    private func runDiagnosis() async {
+        let targets = processor.attentionItems
+        guard !targets.isEmpty else {
+            diagnoses = []
+            return
+        }
+        isDiagnosing = true
+        defer { isDiagnosing = false }
+        var results: [MediaDiagnosis] = []
+        for (index, item) in targets.enumerated() {
+            progress = String(localized: "\(index + 1)/\(targets.count) 점검 중 · \(item.url.lastPathComponent)")
+            results.append(await MediaDiagnostics.diagnose(itemID: item.id, url: item.url))
+        }
+        // 손상된 것을 위로 올려 바로 보이게 합니다.
+        diagnoses = results.sorted { lhs, rhs in
+            lhs.verdict.isFileProblem && !rhs.verdict.isFileProblem
+        }
+    }
+
+    private func cleanUp() {
+        let ids = Set(brokenDiagnoses.map(\.id))
+        guard !ids.isEmpty else { return }
+        Task {
+            if moveToTrash {
+                let result = await processor.moveVideosToTrash(ids: ids)
+                statusMessage = result.failureMessage
+                    ?? String(localized: "\(result.movedCount)개를 휴지통으로 옮겼습니다.")
+            } else {
+                processor.remove(ids: ids)
+                statusMessage = String(localized: "\(ids.count)개를 목록에서 제거했습니다.")
+            }
+            await runDiagnosis()
         }
     }
 }
