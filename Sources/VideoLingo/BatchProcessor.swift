@@ -2660,6 +2660,14 @@ struct BatchTranslationView: View {
                     }
                     .disabled(processor.isRunning || processor.isCheckingExistingResults || processor.items.isEmpty)
                     .help("현재 모델과 언어 기준으로 저장된 STT·번역 다시 확인")
+                // 실패·취소된 항목이 있으면 원인 점검으로 바로 들어갈 수 있게 합니다.
+                if !processor.attentionItems.isEmpty {
+                    Button("주의 필요 \(processor.attentionItems.count)건 점검", systemImage: "stethoscope") {
+                        showingAttentionReview = true
+                    }
+                    .disabled(processor.isRunning)
+                    .help("실패한 영상을 실제로 열어 원인을 판정하고, 손상 파일을 정리합니다")
+                }
                 // 같은 이름이 여러 개면 한 번 눌러 바로 정리할 수 있게 메뉴 밖으로 꺼냈습니다.
                 if processor.duplicateFilenameRemovalCount > 0 {
                     Button("중복 \(processor.duplicateFilenameRemovalCount)개 삭제", systemImage: "trash") {
