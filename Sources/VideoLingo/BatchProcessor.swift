@@ -2244,6 +2244,7 @@ struct BatchTranslationView: View {
     @State private var showingDuplicateReview = false
     @State private var showingDuplicateCleanupConfirmation = false
     @State private var showingContentDuplicateReview = false
+    @State private var showingAttentionReview = false
     @State private var showingSameNameTrashConfirmation = false
     @State private var isTrashingSameNameDuplicates = false
     @State private var sameNameTrashResult = ""
@@ -2596,6 +2597,9 @@ struct BatchTranslationView: View {
         }
         .sheet(isPresented: $showingContentDuplicateReview) {
             ContentDuplicateReviewView()
+        }
+        .sheet(isPresented: $showingAttentionReview) {
+            AttentionReviewView()
         }
         .confirmationDialog(
             "이름이 같은 영상 \(processor.duplicateFilenameRemovalCount)개를 삭제할까요?",
