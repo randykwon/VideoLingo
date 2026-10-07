@@ -4488,6 +4488,55 @@ struct RemoteServerMonitorView: View {
             Text(value).foregroundStyle(tint ?? .primary)
         }
     }
+
+    /// 이름을 비워 둔 서버도 알아볼 수 있게 호스트로 대체합니다.
+    private func displayName(_ worker: RemoteWorkerConfiguration) -> String {
+        if !worker.name.isEmpty { return worker.name }
+        return worker.baseURL.host() ?? worker.baseURL.absoluteString
+    }
+
+    private func connectionColor(_ worker: RemoteWorkerConfiguration) -> Color {
+        guard worker.isEnabled else { return .secondary.opacity(0.4) }
+        switch pool.states[worker.id] {
+        case .available: return .green
+        case .checking: return .orange
+        default: return .red
+        }
+    }
+
+    private func connectionText(_ worker: RemoteWorkerConfiguration) -> String {
+        guard worker.isEnabled else { return String(localized: "사용 중지") }
+        switch pool.states[worker.id] {
+        case let .available(status):
+            return String(localized: "연결됨 · STT \(status.capabilities.sttSlots)·번역 \(status.capabilities.translationSlots)")
+        case .checking:
+            return String(localized: "확인 중")
+        default:
+            return String(localized: "연결 안 됨")
+        }
+    }
+
+    /// 마지막 요청이 언제였는지, 지금 몇 건이 진행 중인지 보여 줍니다.
+    /// 연결은 됐는데 요청이 안 나가는 상황을 여기서 알아챌 수 있습니다.
+    private func activityText(_ worker: RemoteWorkerConfiguration) -> String {
+        guard let entry = metrics.stats[worker.id] else {
+            return worker.isEnabled ? String(localized: "요청 없음") : ""
+        }
+        if entry.totalInFlight > 0 {
+            return String(localized: "진행 \(entry.totalInFlight)건")
+        }
+        guard let last = entry.lastFinishedAt else { return String(localized: "요청 없음") }
+        let seconds = Int(Date.now.timeIntervalSince(last))
+        if seconds < 60 { return String(localized: "\(seconds)초 전 · 누적 \(entry.totalRequests)건") }
+        return String(localized: "\(seconds / 60)분 전 · 누적 \(entry.totalRequests)건")
+    }
+
+    /// 2분 넘게 요청이 없으면 주황색으로 표시해 눈에 띄게 합니다.
+    private func activityIsStale(_ worker: RemoteWorkerConfiguration) -> Bool {
+        guard worker.isEnabled, let entry = metrics.stats[worker.id], entry.totalInFlight == 0 else { return false }
+        guard let last = entry.lastFinishedAt else { return true }
+        return Date.now.timeIntervalSince(last) > 120
+    }
 }
 
 /// 주의가 필요한 영상(실패·취소·일시정지)의 원인을 실제로 진단하고, 손상된 파일을 정리합니다.
