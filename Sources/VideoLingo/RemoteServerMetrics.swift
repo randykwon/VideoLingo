@@ -69,7 +69,20 @@ final class RemoteServerMetrics {
         }
     }
 
+    /// 최근 요청 한 건의 기록입니다. "요청이 실제로 나가고 있는지"를 눈으로 확인하는 용도입니다.
+    struct RequestLogEntry: Identifiable {
+        let id = UUID()
+        let time: Date
+        let server: String
+        let kind: Kind
+        let roundTrip: Double
+        let uploadedBytes: Int64
+        let succeeded: Bool
+        let detail: String?
+    }
+
     private(set) var stats: [UUID: ServerStats] = [:]
+    private(set) var recentRequests: [RequestLogEntry] = []
     private(set) var startedAt: Date?
 
     var orderedStats: [ServerStats] {
@@ -122,6 +135,22 @@ final class RemoteServerMetrics {
         if (entry.inFlight[kind] ?? 0) == 0 { entry.inFlightSince[kind] = nil }
         entry.lastFinishedAt = .now
         stats[worker.id] = entry
+
+        // 최근 요청 목록에 남겨, 어느 서버로 무엇이 언제 나갔는지 바로 볼 수 있게 합니다.
+        recentRequests.insert(
+            RequestLogEntry(
+                time: .now,
+                server: entry.name,
+                kind: kind,
+                roundTrip: roundTrip,
+                uploadedBytes: uploadedBytes,
+                succeeded: failure == nil,
+                detail: failure
+            ),
+            at: 0
+        )
+        if recentRequests.count > 60 { recentRequests.removeLast(recentRequests.count - 60) }
+
         evaluateHealth()
     }
 
