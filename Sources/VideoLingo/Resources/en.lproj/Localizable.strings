@@ -564,3 +564,15 @@
 "파일은 정상입니다. 서버·디스크 등 다른 원인을 확인하세요." = "The file is fine — check other causes such as the server or disk.";
 "원인 불명" = "unknown";
 "%lld개를 목록에서 제거했습니다." = "Removed %lld from the list.";
+"등록 서버 %lld대" = "%lld registered servers";
+"최근 요청" = "Recent requests";
+"상태 다시 확인" = "Re-check status";
+"STT %lld자리 · 번역 %lld자리 · 예약 %lld" = "%lld STT slots · %lld translation slots · %lld reserved";
+"사용 중지" = "Disabled";
+"연결됨 · STT %lld·번역 %lld" = "Connected · STT %lld · translate %lld";
+"확인 중" = "Checking";
+"연결 안 됨" = "Not connected";
+"요청 없음" = "No requests";
+"진행 %lld건" = "%lld in flight";
+"%lld초 전 · 누적 %lld건" = "%llds ago · %lld total";
+"%lld분 전 · 누적 %lld건" = "%lldm ago · %lld total";
