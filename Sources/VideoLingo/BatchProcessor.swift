@@ -4405,13 +4405,71 @@ struct RemoteServerMonitorView: View {
                     }
                 }
 
-                HStack {
-                    if !pool.workers.isEmpty {
-                        Text("등록 서버 \(pool.workers.count)대 · STT \(pool.totalSTTSlots)자리 · 번역 \(pool.totalTranslationSlots)자리")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                Divider()
+
+                // 등록된 서버를 전부 보여 줍니다. 요청이 한 번도 안 간 서버도 여기서 드러납니다.
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("등록 서버 \(pool.workers.count)대")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    ForEach(pool.workers) { (worker: RemoteWorkerConfiguration) in
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(connectionColor(worker))
+                                .frame(width: 7, height: 7)
+                            Text(displayName(worker))
+                                .frame(minWidth: 120, alignment: .leading)
+                            Text(connectionText(worker))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(activityText(worker))
+                                .foregroundStyle(activityIsStale(worker) ? Color.orange : Color.secondary)
+                        }
+                        .font(.caption2.monospacedDigit())
                     }
+                }
+
+                if !metrics.recentRequests.isEmpty {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("최근 요청")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        ForEach(metrics.recentRequests.prefix(8)) { entry in
+                            HStack(spacing: 8) {
+                                Image(systemName: entry.succeeded ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                    .foregroundStyle(entry.succeeded ? Color.green : Color.orange)
+                                Text(entry.time, format: .dateTime.hour().minute().second())
+                                Text(entry.kind.title).frame(width: 30, alignment: .leading)
+                                Text(entry.server).frame(minWidth: 110, alignment: .leading).lineLimit(1)
+                                Text(entry.roundTrip < 1
+                                    ? String(format: "%.0fms", entry.roundTrip * 1000)
+                                    : String(format: "%.1fs", entry.roundTrip))
+                                if entry.uploadedBytes > 1024 {
+                                    Text(ByteCountFormatter.string(fromByteCount: entry.uploadedBytes, countStyle: .file))
+                                        .foregroundStyle(.tertiary)
+                                }
+                                if let detail = entry.detail {
+                                    Text(detail).foregroundStyle(.orange).lineLimit(1).truncationMode(.tail)
+                                }
+                                Spacer()
+                            }
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                HStack {
+                    Text("STT \(pool.totalSTTSlots)자리 · 번역 \(pool.totalTranslationSlots)자리 · 예약 \(pool.remoteSTTReservationCount)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                     Spacer()
+                    Button("상태 다시 확인", systemImage: "arrow.clockwise") {
+                        Task { await pool.refreshAll() }
+                    }
+                    .labelStyle(.titleOnly)
+                    .controlSize(.small)
                     Button("기록 지우기", systemImage: "arrow.counterclockwise") { metrics.reset() }
                         .labelStyle(.titleOnly)
                         .controlSize(.small)
