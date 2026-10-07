@@ -156,6 +156,7 @@ final class RemoteServerMetrics {
 
     func reset() {
         stats.removeAll()
+        recentRequests.removeAll()
         startedAt = nil
         warnings = []
         acknowledged = []
