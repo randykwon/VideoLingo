@@ -3001,34 +3001,99 @@ private struct BatchStartConfirmationView: View {
 }
 
 /// 대량 번역 창 안에서 멀티 미리보기와 처리량/서버 상태를 함께 보는 화면입니다.
+private enum BatchMonitoringLayout: String, CaseIterable, Identifiable {
+    case split
+    case previews
+    case metrics
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .split: String(localized: "분할 보기")
+        case .previews: String(localized: "화면만 크게")
+        case .metrics: String(localized: "모니터링만 크게")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .split: "rectangle.split.2x1"
+        case .previews: "rectangle.grid.2x2"
+        case .metrics: "chart.xyaxis.line"
+        }
+    }
+}
+
 private struct BatchMonitoringWorkspace: View {
     @Environment(BatchProcessor.self) private var processor
+    @AppStorage("batchMonitoringLayout") private var layout: BatchMonitoringLayout = .split
 
     var body: some View {
-        HSplitView {
-            BatchMultiMonitorView(isEmbedded: true, maximumDisplayedItems: 12)
-                .frame(minWidth: 560)
+        VStack(spacing: 0) {
+            HStack {
+                Label("모니터링 화면 구성", systemImage: layout.systemImage)
+                    .font(.headline)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if processor.isRunning || processor.completedCount > 0 {
-                        BatchLiveMonitorView()
-                    } else {
-                        ContentUnavailableView(
-                            "아직 처리 기록이 없습니다",
-                            systemImage: "chart.xyaxis.line",
-                            description: Text("파일 목록 탭에서 영상을 추가하고 대량 번역을 시작하세요.")
-                        )
-                    }
+                Spacer()
 
-                    if !RemoteWorkerPool.shared.workers.isEmpty {
-                        RemoteServerMonitorView()
-                            .remoteServerHealthAlert()
+                Picker("모니터링 화면 구성", selection: $layout) {
+                    ForEach(BatchMonitoringLayout.allCases) { option in
+                        Label(option.title, systemImage: option.systemImage)
+                            .tag(option)
                     }
                 }
-                .padding(16)
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 460)
+                .help("영상 미리보기와 처리 모니터링의 화면 배치를 선택합니다")
             }
-            .frame(minWidth: 360, idealWidth: 440)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.bar)
+
+            Divider()
+
+            Group {
+                switch layout {
+                case .split:
+                    HSplitView {
+                        BatchMultiMonitorView(isEmbedded: true, maximumDisplayedItems: 12)
+                            .frame(minWidth: 560)
+
+                        monitoringPane
+                            .frame(minWidth: 360, idealWidth: 440)
+                    }
+                case .previews:
+                    BatchMultiMonitorView(isEmbedded: true, maximumDisplayedItems: nil)
+                case .metrics:
+                    monitoringPane
+                }
+            }
+            .animation(.snappy(duration: 0.2), value: layout)
+        }
+    }
+
+    private var monitoringPane: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if processor.isRunning || processor.completedCount > 0 {
+                    BatchLiveMonitorView()
+                } else {
+                    ContentUnavailableView(
+                        "아직 처리 기록이 없습니다",
+                        systemImage: "chart.xyaxis.line",
+                        description: Text("파일 목록 탭에서 영상을 추가하고 대량 번역을 시작하세요.")
+                    )
+                }
+
+                if !RemoteWorkerPool.shared.workers.isEmpty {
+                    RemoteServerMonitorView()
+                        .remoteServerHealthAlert()
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
