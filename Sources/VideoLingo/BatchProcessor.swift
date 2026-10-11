@@ -3032,8 +3032,10 @@ private struct BatchMonitoringWorkspace: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Label("모니터링 화면 구성", systemImage: layout.systemImage)
-                    .font(.headline)
+                if layout != .previews {
+                    Label("모니터링 화면 구성", systemImage: layout.systemImage)
+                        .font(.headline)
+                }
 
                 Spacer()
 
@@ -3045,11 +3047,12 @@ private struct BatchMonitoringWorkspace: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(maxWidth: 460)
+                .controlSize(layout == .previews ? .small : .regular)
+                .frame(maxWidth: layout == .previews ? 360 : 460)
                 .help("영상 미리보기와 처리 모니터링의 화면 배치를 선택합니다")
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.vertical, layout == .previews ? 4 : 8)
             .background(.bar)
 
             Divider()
@@ -3202,6 +3205,85 @@ struct BatchMultiMonitorView: View {
     }
 
     private func monitorHeader(_ snapshot: BatchMonitorSnapshot) -> some View {
+        Group {
+            if isCompactHeader {
+                compactMonitorHeader(snapshot)
+            } else {
+                regularMonitorHeader(snapshot)
+            }
+        }
+        .background(.bar)
+    }
+
+    private var isCompactHeader: Bool {
+        isEmbedded && maximumDisplayedItems == nil
+    }
+
+    private func compactMonitorHeader(_ snapshot: BatchMonitorSnapshot) -> some View {
+        HStack(spacing: 8) {
+            Label(snapshot.overallProgress.formatted(.percent.precision(.fractionLength(0))), systemImage: "chart.bar.fill")
+                .font(.callout.weight(.semibold))
+                .monospacedDigit()
+                .help("전체 진행률")
+
+            Text("처리 (snapshot.runningCount) · 대기 (snapshot.queuedCount) · 완료 (snapshot.completedCount)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+
+            Menu {
+                ForEach(BatchMonitorFilter.allCases) { option in
+                    Button {
+                        filter = option
+                    } label: {
+                        Label("\(option.title) \(snapshot.count(for: option))", systemImage: filterSymbol(for: option, count: snapshot.count(for: option)))
+                    }
+                }
+            } label: {
+                Label(filter.title, systemImage: filterSymbol(for: filter, count: snapshot.count(for: filter)))
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+
+            Spacer(minLength: 8)
+
+            Button {
+                reconnectServersAndRetryFailures()
+            } label: {
+                Label("서버 다시 연결", systemImage: "bolt.horizontal.circle")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.borderless)
+            .disabled(isReconnectingServers)
+            .help(snapshot.failedCount > 0 ? "서버 재연결 후 실패 작업 재시도" : "서버 다시 연결")
+
+            Button {
+                if allVisibleItemsSelected(in: snapshot.displayedItems) {
+                    playbackSelection.subtract(snapshot.displayedItems.map(\.id))
+                } else {
+                    playbackSelection.formUnion(snapshot.displayedItems.map(\.id))
+                }
+            } label: {
+                Label("표시 영상 전체 선택", systemImage: allVisibleItemsSelected(in: snapshot.displayedItems) ? "checkmark.square.fill" : "square.stack")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.borderless)
+            .disabled(snapshot.displayedItems.isEmpty)
+            .help("표시 영상의 재생 선택 또는 해제")
+
+            Stepper(value: $columnCount, in: 1...4) {
+                Text("\(columnCount)열")
+                    .font(.caption)
+                    .monospacedDigit()
+            }
+            .fixedSize()
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+    }
+
+    private func regularMonitorHeader(_ snapshot: BatchMonitorSnapshot) -> some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
                 BatchMonitorMetric(
@@ -3303,7 +3385,6 @@ struct BatchMultiMonitorView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(.bar)
     }
 
     private func monitorFilterButton(_ option: BatchMonitorFilter, count itemCount: Int) -> some View {
