@@ -23,7 +23,9 @@ final class MediaLibrary {
     static let shared = MediaLibrary()
 
     private static let foldersKey = "mediaLibraryFolderPaths"
+    private static let disabledFoldersKey = "mediaLibraryDisabledFolderPaths"
     var folders: [URL] = []
+    private(set) var disabledFolderPaths: Set<String> = []
     private(set) var items: [MediaLibraryItem] = []
     private(set) var isScanning = false
     private(set) var statusMessage = ""
@@ -33,9 +35,9 @@ final class MediaLibrary {
     private init() {
         folders = (UserDefaults.standard.stringArray(forKey: Self.foldersKey) ?? [])
             .map { URL(filePath: $0, directoryHint: .isDirectory).standardizedFileURL }
-            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        disabledFolderPaths = Set(UserDefaults.standard.stringArray(forKey: Self.disabledFoldersKey) ?? [])
         persistFolders()
-        if !folders.isEmpty { refresh() }
+        if !enabledFolders.isEmpty { refresh() }
     }
 
     func chooseFolders() {
@@ -56,26 +58,71 @@ final class MediaLibrary {
             .map(\.standardizedFileURL)
             .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
         for url in additions where !folders.contains(url) { folders.append(url) }
+        additions.forEach { disabledFolderPaths.remove(folderKey($0)) }
         folders.sort { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
         persistFolders()
         refresh()
     }
 
     func removeFolder(_ url: URL) {
-        folders.removeAll { $0.standardizedFileURL == url.standardizedFileURL }
+        removeFolders([url])
+    }
+
+    func removeFolders(_ urls: [URL]) {
+        let keys = Set(urls.map(folderKey))
+        folders.removeAll { keys.contains(folderKey($0)) }
+        disabledFolderPaths.subtract(keys)
         persistFolders()
         refresh()
     }
 
+    func removeUnavailableFolders() {
+        removeFolders(folders.filter { !isFolderAvailable($0) })
+    }
+
+    func isFolderEnabled(_ url: URL) -> Bool {
+        !disabledFolderPaths.contains(folderKey(url))
+    }
+
+    func isFolderAvailable(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    func setFolder(_ url: URL, enabled: Bool) {
+        let key = folderKey(url)
+        if enabled {
+            disabledFolderPaths.remove(key)
+        } else {
+            disabledFolderPaths.insert(key)
+        }
+        persistFolders()
+        refresh()
+    }
+
+    var enabledFolders: [URL] {
+        folders.filter { isFolderEnabled($0) && isFolderAvailable($0) }
+    }
+
+    var unavailableFolderCount: Int {
+        folders.lazy.filter { !isFolderAvailable($0) }.count
+    }
+
+    func videoCount(in folder: URL) -> Int {
+        items.lazy.filter { $0.rootURL.standardizedFileURL == folder.standardizedFileURL }.count
+    }
+
     func refresh() {
         scanTask?.cancel()
-        guard !folders.isEmpty else {
+        let roots = enabledFolders
+        guard !roots.isEmpty else {
             items = []
             isScanning = false
-            statusMessage = "관리할 폴더를 추가하세요."
+            statusMessage = folders.isEmpty
+                ? "관리할 폴더를 추가하세요."
+                : "검색 가능한 활성 폴더가 없습니다. 폴더 상태를 확인하세요."
             return
         }
-        let roots = folders
         isScanning = true
         statusMessage = String(localized: "등록된 \(roots.count)개 폴더에서 영상과 번역 파일을 찾는 중…")
         scanTask = Task { [weak self] in
@@ -154,5 +201,10 @@ final class MediaLibrary {
 
     private func persistFolders() {
         UserDefaults.standard.set(folders.map { $0.path(percentEncoded: false) }, forKey: Self.foldersKey)
+        UserDefaults.standard.set(Array(disabledFolderPaths).sorted(), forKey: Self.disabledFoldersKey)
+    }
+
+    private func folderKey(_ url: URL) -> String {
+        url.standardizedFileURL.path(percentEncoded: false)
     }
 }
