@@ -121,6 +121,7 @@ struct BatchMediaLibraryView: View {
     @State private var presentation: LibraryPresentation = .list
     @State private var multiViewItems: [MediaLibraryItem] = []
     @State private var pendingFolderRemoval: URL?
+    @State private var showingFolderManager = false
 
     private enum LibraryPresentation: String, CaseIterable, Identifiable {
         case list, multiView
@@ -199,6 +200,9 @@ struct BatchMediaLibraryView: View {
         } message: { folder in
             Text("‘\(folder.lastPathComponent)’ 폴더의 실제 파일은 삭제되지 않습니다.")
         }
+        .sheet(isPresented: $showingFolderManager) {
+            LibraryFolderManagerView()
+        }
         .onChange(of: sourceSelection) { _, _ in selection.removeAll() }
         .onChange(of: Set(library.items.map(\.id))) { _, availableIDs in
             selection.formIntersection(availableIDs)
@@ -217,16 +221,29 @@ struct BatchMediaLibraryView: View {
             Section("라이브러리 폴더") {
                 ForEach(library.folders, id: \.path) { folder in
                     HStack(spacing: 8) {
-                        Label(folder.lastPathComponent, systemImage: "folder")
+                        Label(
+                            folder.lastPathComponent,
+                            systemImage: !library.isFolderAvailable(folder)
+                                ? "folder.badge.questionmark"
+                                : (library.isFolderEnabled(folder) ? "folder" : "folder.fill.badge.minus")
+                        )
                             .lineLimit(1)
                         Spacer(minLength: 4)
-                        Text("\(library.items.filter { $0.rootURL.standardizedFileURL == folder.standardizedFileURL }.count)")
+                        Text("\(library.videoCount(in: folder))")
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
+                    .foregroundStyle(library.isFolderEnabled(folder) && library.isFolderAvailable(folder) ? .primary : .secondary)
                     .tag("folder:\(folder.standardizedFileURL.path(percentEncoded: false))")
                     .contextMenu {
+                        Button(library.isFolderEnabled(folder) ? "검색에서 제외" : "검색에 포함",
+                               systemImage: library.isFolderEnabled(folder) ? "pause.circle" : "play.circle") {
+                            library.setFolder(folder, enabled: !library.isFolderEnabled(folder))
+                        }
+                        .disabled(!library.isFolderAvailable(folder))
                         Button("Finder에서 보기", systemImage: "finder") { NSWorkspace.shared.open(folder) }
+                            .disabled(!library.isFolderAvailable(folder))
+                        Divider()
                         Button("라이브러리에서 제거", systemImage: "minus.circle", role: .destructive) {
                             pendingFolderRemoval = folder
                         }
@@ -245,6 +262,11 @@ struct BatchMediaLibraryView: View {
                 .labelStyle(.iconOnly)
                 .disabled(selectedFolder == nil)
                 .help(selectedFolder == nil ? "제거할 폴더를 선택하세요" : "선택한 폴더를 라이브러리에서 제거")
+                Button("폴더 목록 관리", systemImage: "slider.horizontal.3") {
+                    showingFolderManager = true
+                }
+                .labelStyle(.iconOnly)
+                .help("폴더 상태 확인 및 여러 폴더 관리")
                 Spacer()
                 Button("새로 고침", systemImage: "arrow.clockwise") { library.refresh() }
                     .labelStyle(.iconOnly)
