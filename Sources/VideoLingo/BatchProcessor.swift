@@ -2220,8 +2220,8 @@ private enum BatchWorkspaceTab: String, CaseIterable, Identifiable {
     var id: Self { self }
     var title: String {
         switch self {
-        case .files: String(localized: "파일 목록")
-        case .library: String(localized: "영상 라이브러리")
+        case .files: String(localized: "번역 작업")
+        case .library: String(localized: "영상 가져오기")
         case .monitoring: String(localized: "모니터링")
         }
     }
@@ -2270,6 +2270,11 @@ struct BatchTranslationView: View {
 
             Divider()
 
+            if workspaceTab == .files {
+                batchFileToolbar
+                Divider()
+            }
+
             if workspaceTab == .monitoring {
                 if monitoringIsReady {
                     BatchMonitoringWorkspace()
@@ -2281,20 +2286,16 @@ struct BatchTranslationView: View {
                     }
                 }
             } else if workspaceTab == .library {
-                BatchMediaLibraryView()
+                BatchMediaLibraryView { addedCount in
+                    guard addedCount > 0 else { return }
+                    workspaceTab = .files
+                    listFilter = .all
+                }
             } else if processor.items.isEmpty {
                 ContentUnavailableView {
                     Label("대량 번역할 영상을 추가하세요", systemImage: "rectangle.stack.badge.plus")
                 } description: {
-                    Text("Finder에서 영상을 끌어 놓거나 직접 선택하면 현재 STT·LLM 설정으로 동시에 처리합니다.")
-                } actions: {
-                    HStack {
-                        Button("영상 추가…", systemImage: "plus") { processor.addFiles() }
-                            .buttonStyle(.borderedProminent)
-                        Button("폴더 추가…", systemImage: "folder.badge.plus") { processor.addFolders() }
-                            .buttonStyle(.bordered)
-                    }
-                    .controlSize(.large)
+                    Text("위의 추가 버튼을 사용하거나 Finder에서 영상과 폴더를 이 창으로 끌어 놓으세요.")
                 }
             } else {
                 VStack(spacing: 0) {
@@ -2720,6 +2721,54 @@ struct BatchTranslationView: View {
                 }
             }
         }
+    }
+
+    private var batchFileToolbar: some View {
+        HStack(spacing: 8) {
+            Menu {
+                Button("영상 파일 선택…", systemImage: "film.stack") { processor.addFiles() }
+                Button("폴더를 검색해서 추가…", systemImage: "folder.badge.plus") { processor.addFolders() }
+                Divider()
+                Button("영상 라이브러리에서 가져오기", systemImage: "rectangle.stack") {
+                    workspaceTab = .library
+                }
+            } label: {
+                Label("영상 추가", systemImage: "plus")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+
+            Button("폴더 검색 추가", systemImage: "folder.badge.plus") { processor.addFolders() }
+                .help("선택한 폴더와 하위 폴더의 영상을 찾아 작업 목록에 추가")
+
+            Button("라이브러리에서 가져오기", systemImage: "rectangle.stack") {
+                workspaceTab = .library
+            }
+            .help("등록한 영상 폴더를 탐색하고 골라서 추가")
+
+            Spacer()
+
+            Text("전체 \(processor.items.count)개")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+
+            Button("전체 선택", systemImage: "checkmark.square") {
+                selection = Set(filteredItems.map(\.id))
+            }
+            .disabled(filteredItems.isEmpty)
+
+            Button("선택 항목을 목록에서 제거", systemImage: "minus.circle", role: .destructive) {
+                requestSelectedRemoval()
+            }
+            .disabled(selection.isEmpty)
+            .help(selection.isEmpty
+                ? "제거할 작업을 먼저 선택하세요"
+                : "선택한 작업만 대량 번역 목록에서 제거하고 영상 파일은 유지")
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.bar)
     }
 
     /// 이름이 같은 영상마다 첫 번째만 남기고 나머지 파일을 휴지통으로 옮깁니다.
