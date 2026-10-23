@@ -172,7 +172,7 @@ final class MediaLibrary {
                     failed.append(url.lastPathComponent)
                 }
             }
-            return (removed, failed)
+            return (removed: removed, failed: failed)
         }.value
         refresh()
         if result.failed.isEmpty { return "영상 \(result.removed)개를 휴지통으로 이동했습니다." }
