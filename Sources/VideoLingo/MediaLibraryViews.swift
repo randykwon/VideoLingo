@@ -385,9 +385,9 @@ struct BatchMediaLibraryView: View {
 
     private func sortItems(_ lhs: MediaLibraryItem, _ rhs: MediaLibraryItem) -> Bool {
         switch sortOrder {
-        case .name: lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
-        case .modified: (lhs.modifiedAt ?? .distantPast) > (rhs.modifiedAt ?? .distantPast)
-        case .size: lhs.size > rhs.size
+        case .name: return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+        case .modified: return (lhs.modifiedAt ?? .distantPast) > (rhs.modifiedAt ?? .distantPast)
+        case .size: return lhs.size > rhs.size
         case .folder:
             let result = lhs.directoryName.localizedStandardCompare(rhs.directoryName)
             return result == .orderedSame
@@ -436,7 +436,13 @@ private struct LibraryMultiView: View {
                                 item: item,
                                 playsVideo: Binding(
                                     get: { playingItems.contains(item.id) },
-                                    set: { $0 ? playingItems.insert(item.id) : playingItems.remove(item.id) }
+                                    set: { shouldPlay in
+                                        if shouldPlay {
+                                            playingItems.insert(item.id)
+                                        } else {
+                                            playingItems.remove(item.id)
+                                        }
+                                    }
                                 )
                             )
                         }
