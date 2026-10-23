@@ -160,9 +160,17 @@ final class AppModel {
     /// macOS 네이티브 전체화면에서는 영상 이외의 앱 UI를 감추는 영화관 보기로 전환합니다.
     var isTheaterMode = false
     var snapshot: JobSnapshot?
-    var transcript: [TranscriptSegment] = []
+    var transcript: [TranscriptSegment] = [] {
+        didSet { updateActiveTranscriptSegment(for: currentTime) }
+    }
     var translations: [UUID: TranslationSegment] = [:]
-    var currentTime: TimeInterval = 0
+    var currentTime: TimeInterval = 0 {
+        didSet { updateActiveTranscriptSegment(for: currentTime) }
+    }
+    /// 자막 목록은 이 값만 관찰합니다. 재생 시간은 0.2초마다 변하지만 이 ID는 실제 자막이
+    /// 바뀔 때만 변하므로 긴 결과 목록 전체가 불필요하게 다시 그려지지 않습니다.
+    private(set) var activeTranscriptSegmentID: UUID?
+    @ObservationIgnored private var activeTranscriptSegmentIndex: Int?
     /// 영상 전체 길이입니다. AVPlayerItem의 길이는 비동기로 결정되고 관찰 대상도 아니라서,
     /// 정지 상태에서는 화면이 갱신되지 않아 타임라인이 비활성으로 남았습니다.
     var duration: TimeInterval = 0
@@ -296,13 +304,57 @@ final class AppModel {
     }
 
     var activeTranscriptSegment: TranscriptSegment? {
-        transcript.first { segment in
-            let cues = segment.cues ?? []
-            if cues.isEmpty {
-                return currentTime >= segment.startTime && currentTime < segment.endTime
-            }
-            return cues.contains { currentTime >= $0.startTime && currentTime < $0.endTime }
+        guard let index = activeTranscriptSegmentIndex,
+              transcript.indices.contains(index),
+              transcript[index].id == activeTranscriptSegmentID else { return nil }
+        return transcript[index]
+    }
+
+    private func updateActiveTranscriptSegment(for time: TimeInterval) {
+        guard time.isFinite, !transcript.isEmpty else {
+            activeTranscriptSegmentIndex = nil
+            if activeTranscriptSegmentID != nil { activeTranscriptSegmentID = nil }
+            return
         }
+
+        if let index = activeTranscriptSegmentIndex,
+           transcript.indices.contains(index),
+           contains(time, in: transcript[index]) {
+            return
+        }
+
+        let matchedIndex: Int?
+        if let previousIndex = activeTranscriptSegmentIndex,
+           transcript.indices.contains(previousIndex) {
+            if time >= transcript[previousIndex].endTime {
+                matchedIndex = transcript.indices.dropFirst(previousIndex + 1).first {
+                    contains(time, in: transcript[$0])
+                }
+            } else if time < transcript[previousIndex].startTime {
+                matchedIndex = transcript.indices.prefix(previousIndex).reversed().first {
+                    contains(time, in: transcript[$0])
+                }
+            } else {
+                // 한 세그먼트 안의 cue 사이 공백일 수 있습니다.
+                matchedIndex = nil
+            }
+        } else {
+            matchedIndex = transcript.firstIndex { contains(time, in: $0) }
+        }
+
+        activeTranscriptSegmentIndex = matchedIndex
+        let matchedID = matchedIndex.map { transcript[$0].id }
+        if activeTranscriptSegmentID != matchedID {
+            activeTranscriptSegmentID = matchedID
+        }
+    }
+
+    private func contains(_ time: TimeInterval, in segment: TranscriptSegment) -> Bool {
+        let cues = segment.cues ?? []
+        if cues.isEmpty {
+            return time >= segment.startTime && time < segment.endTime
+        }
+        return cues.contains { time >= $0.startTime && time < $0.endTime }
     }
 
     var activeOriginalSubtitle: String {

@@ -1689,7 +1689,7 @@ private struct TranscriptInspector: View {
                     }
                     .labelStyle(.iconOnly)
                     .help("현재 영상 재생 위치의 STT·번역 결과로 이동")
-                    .disabled(model.activeTranscriptSegment == nil)
+                    .disabled(model.activeTranscriptSegmentID == nil)
                     Button("새로 고침", systemImage: "arrow.clockwise") {
                         model.refreshResults()
                     }
@@ -1713,14 +1713,14 @@ private struct TranscriptInspector: View {
                     resultRow(segment)
                         .id(segment.id)
                         .listRowBackground(
-                            model.activeTranscriptSegment?.id == segment.id
+                            model.activeTranscriptSegmentID == segment.id
                                 ? Color.accentColor.opacity(0.12)
                                 : Color.clear
                         )
                 }
                 .listStyle(.inset)
                 .scrollContentBackground(theme.translucent ? .hidden : .automatic)
-                .onChange(of: model.activeTranscriptSegment?.id) { _, segmentID in
+                .onChange(of: model.activeTranscriptSegmentID) { _, segmentID in
                     guard searchText.isEmpty,
                           let segmentID,
                           segmentID != lastAutoScrolledSegmentID else { return }
