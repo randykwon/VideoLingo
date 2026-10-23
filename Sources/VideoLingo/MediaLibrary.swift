@@ -105,7 +105,7 @@ final class MediaLibrary {
     }
 
     var unavailableFolderCount: Int {
-        folders.lazy.filter { !isFolderAvailable($0) }.count
+        folders.lazy.filter { !self.isFolderAvailable($0) }.count
     }
 
     func videoCount(in folder: URL) -> Int {
