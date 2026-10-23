@@ -117,11 +117,15 @@ struct BatchMediaLibraryView: View {
     @State private var searchText = ""
     @State private var filter: MediaLibraryResultFilter = .all
     @State private var sourceSelection = "smart:all"
+    @State private var directorySelection = "directory:all"
     @State private var sortOrder: LibrarySortOrder = .name
     @State private var presentation: LibraryPresentation = .list
     @State private var multiViewItems: [MediaLibraryItem] = []
     @State private var pendingFolderRemoval: URL?
     @State private var showingFolderManager = false
+    @State private var showingTrashConfirmation = false
+    @State private var isTrashingFiles = false
+    @State private var fileActionMessage = ""
 
     private enum LibraryPresentation: String, CaseIterable, Identifiable {
         case list, multiView
@@ -151,10 +155,15 @@ struct BatchMediaLibraryView: View {
             case "smart:untranslated": matchesSource = !item.hasResults
             case "smart:recent":
                 matchesSource = item.modifiedAt.map { $0 >= Date.now.addingTimeInterval(-30 * 86_400) } ?? false
+            case "smart:duplicates": matchesSource = duplicateItemIDs.contains(item.id)
+            case "smart:large": matchesSource = item.size >= 1_000_000_000
             case let value where value.hasPrefix("folder:"):
                 matchesSource = item.rootURL.standardizedFileURL.path(percentEncoded: false) == String(value.dropFirst(7))
             default: matchesSource = true
             }
+            let matchesDirectory = directorySelection == "directory:all"
+                || item.videoURL.deletingLastPathComponent().standardizedFileURL.path(percentEncoded: false)
+                    == String(directorySelection.dropFirst("directory:".count))
             let matchesFilter = switch filter {
             case .all: true
             case .translated: item.hasResults
@@ -164,9 +173,28 @@ struct BatchMediaLibraryView: View {
                 || item.title.localizedCaseInsensitiveContains(searchText)
                 || item.videoURL.path.localizedCaseInsensitiveContains(searchText)
                 || item.resultSummary.translationLanguages.contains { $0.localizedCaseInsensitiveContains(searchText) }
-            return matchesSource && matchesFilter && matchesSearch
+            return matchesSource && matchesDirectory && matchesFilter && matchesSearch
         }
         .sorted(by: sortItems)
+    }
+
+    private var duplicateItemIDs: Set<String> {
+        let groups = Dictionary(grouping: library.items) {
+            $0.videoURL.lastPathComponent.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        }
+        return Set(groups.values.filter { $0.count > 1 }.flatMap { $0.map(\.id) })
+    }
+
+    private var availableDirectories: [URL] {
+        guard let selectedFolder else { return [] }
+        let unique = Dictionary(grouping: library.items.filter {
+            $0.rootURL.standardizedFileURL == selectedFolder.standardizedFileURL
+        }) { $0.videoURL.deletingLastPathComponent().standardizedFileURL }
+        return unique.keys.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    }
+
+    private var selectedItems: [MediaLibraryItem] {
+        library.items.filter { selection.contains($0.id) }
     }
 
     var body: some View {
@@ -203,7 +231,21 @@ struct BatchMediaLibraryView: View {
         .sheet(isPresented: $showingFolderManager) {
             LibraryFolderManagerView()
         }
-        .onChange(of: sourceSelection) { _, _ in selection.removeAll() }
+        .confirmationDialog(
+            "선택한 영상을 휴지통으로 이동할까요?",
+            isPresented: $showingTrashConfirmation
+        ) {
+            Button("영상 \(selectedItems.count)개를 휴지통으로 이동", role: .destructive) {
+                trashSelectedVideos()
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("STT·번역 결과 파일은 유지됩니다. 영상은 Finder의 휴지통에서 복구할 수 있습니다.")
+        }
+        .onChange(of: sourceSelection) { _, _ in
+            selection.removeAll()
+            directorySelection = "directory:all"
+        }
         .onChange(of: Set(library.items.map(\.id))) { _, availableIDs in
             selection.formIntersection(availableIDs)
             multiViewItems.removeAll { !availableIDs.contains($0.id) }
@@ -217,6 +259,8 @@ struct BatchMediaLibraryView: View {
                 librarySourceRow("번역 결과 있음", symbol: "checkmark.circle", count: library.items.filter(\.hasResults).count, tag: "smart:translated")
                 librarySourceRow("미처리", symbol: "circle.dashed", count: library.items.filter { !$0.hasResults }.count, tag: "smart:untranslated")
                 librarySourceRow("최근 30일", symbol: "clock", count: library.items.filter { $0.modifiedAt.map { $0 >= Date.now.addingTimeInterval(-30 * 86_400) } ?? false }.count, tag: "smart:recent")
+                librarySourceRow("중복 파일명", symbol: "square.on.square", count: duplicateItemIDs.count, tag: "smart:duplicates")
+                librarySourceRow("1GB 이상", symbol: "externaldrive", count: library.items.filter { $0.size >= 1_000_000_000 }.count, tag: "smart:large")
             }
             Section("라이브러리 폴더") {
                 ForEach(library.folders, id: \.path) { folder in
@@ -283,6 +327,16 @@ struct BatchMediaLibraryView: View {
             TextField("영상·경로·번역 언어 검색", text: $searchText)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 320)
+            if selectedFolder != nil {
+                Picker("하위 디렉터리", selection: $directorySelection) {
+                    Text("모든 하위 디렉터리").tag("directory:all")
+                    ForEach(availableDirectories, id: \.path) { directory in
+                        Text(directoryLabel(directory)).tag("directory:\(directory.path(percentEncoded: false))")
+                    }
+                }
+                .frame(maxWidth: 190)
+                .help("선택한 라이브러리 폴더 안에서 디렉터리별로 영상 보기")
+            }
             Picker("결과", selection: $filter) {
                 ForEach(MediaLibraryResultFilter.allCases) { Text($0.title).tag($0) }
             }
@@ -333,23 +387,54 @@ struct BatchMediaLibraryView: View {
     }
 
     private var libraryFooter: some View {
-        HStack(spacing: 12) {
-            Text(library.statusMessage).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            Spacer()
-            Text("\(selection.count)개 선택").font(.caption).foregroundStyle(.secondary).monospacedDigit()
-            Button("멀티뷰로 보기", systemImage: "rectangle.grid.2x2") {
-                multiViewItems = library.items.filter { selection.contains($0.id) }
-                presentation = .multiView
+        VStack(spacing: 8) {
+            if !fileActionMessage.isEmpty {
+                HStack {
+                    Label(fileActionMessage, systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer()
+                    Button("닫기", systemImage: "xmark") { fileActionMessage = "" }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                }
             }
-            .disabled(selection.isEmpty)
-            .help(selection.isEmpty ? "먼저 재생할 영상을 선택하세요" : "선택한 영상을 멀티뷰에서 열기")
-            Button("대량번역 목록에 추가", systemImage: "text.badge.plus") {
-                let urls = library.items.filter { selection.contains($0.id) }.map(\.videoURL)
-                _ = processor.add(urls)
-                selection.removeAll()
+            HStack(spacing: 12) {
+                Text(library.statusMessage).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Spacer()
+                Button(selection.count == visibleItems.count && !visibleItems.isEmpty ? "선택 해제" : "보이는 파일 전체 선택",
+                       systemImage: selection.count == visibleItems.count && !visibleItems.isEmpty ? "checkmark.square.fill" : "square.stack") {
+                    if selection.count == visibleItems.count && !visibleItems.isEmpty {
+                        selection.removeAll()
+                    } else {
+                        selection = Set(visibleItems.map(\.id))
+                    }
+                }
+                .disabled(visibleItems.isEmpty || presentation == .multiView)
+                Text("\(selection.count)개 선택").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                Menu("파일 작업", systemImage: "ellipsis.circle") {
+                    Button("Finder에서 선택 파일 보기", systemImage: "finder") { library.revealVideos(selectedItems) }
+                    Button("파일 경로 복사", systemImage: "doc.on.doc") { copySelectedPaths() }
+                    Divider()
+                    Button("휴지통으로 이동…", systemImage: "trash", role: .destructive) {
+                        showingTrashConfirmation = true
+                    }
+                }
+                .disabled(selection.isEmpty || isTrashingFiles)
+                Button("멀티뷰로 보기", systemImage: "rectangle.grid.2x2") {
+                    multiViewItems = selectedItems
+                    presentation = .multiView
+                }
+                .disabled(selection.isEmpty)
+                .help(selection.isEmpty ? "먼저 재생할 영상을 선택하세요" : "선택한 영상을 멀티뷰에서 열기")
+                Button("대량번역 목록에 추가", systemImage: "text.badge.plus") {
+                    _ = processor.add(selectedItems.map(\.videoURL))
+                    selection.removeAll()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(selection.isEmpty)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(selection.isEmpty)
         }
         .padding(12)
         .background(.bar)
@@ -415,6 +500,32 @@ struct BatchMediaLibraryView: View {
             return result == .orderedSame
                 ? lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
                 : result == .orderedAscending
+        }
+    }
+
+    private func directoryLabel(_ directory: URL) -> String {
+        guard let selectedFolder else { return directory.lastPathComponent }
+        let rootPath = selectedFolder.standardizedFileURL.path(percentEncoded: false)
+        let path = directory.path(percentEncoded: false)
+        if path == rootPath { return "폴더 바로 아래" }
+        return String(path.dropFirst(min(path.count, rootPath.count + 1)))
+    }
+
+    private func copySelectedPaths() {
+        let paths = selectedItems.map { $0.videoURL.path(percentEncoded: false) }.joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(paths, forType: .string)
+        fileActionMessage = "선택한 영상 \(selectedItems.count)개의 경로를 복사했습니다."
+    }
+
+    private func trashSelectedVideos() {
+        let items = selectedItems
+        guard !items.isEmpty, !isTrashingFiles else { return }
+        isTrashingFiles = true
+        Task {
+            fileActionMessage = await library.trashVideos(items)
+            selection.removeAll()
+            isTrashingFiles = false
         }
     }
 }
