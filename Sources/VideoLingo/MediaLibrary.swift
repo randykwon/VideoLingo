@@ -200,6 +200,7 @@ final class MediaLibrary {
     }
 
     private func persistFolders() {
+        disabledFolderPaths.formIntersection(Set(folders.map(folderKey)))
         UserDefaults.standard.set(folders.map { $0.path(percentEncoded: false) }, forKey: Self.foldersKey)
         UserDefaults.standard.set(Array(disabledFolderPaths).sorted(), forKey: Self.disabledFoldersKey)
     }

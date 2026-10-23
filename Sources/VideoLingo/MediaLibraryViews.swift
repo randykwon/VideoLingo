@@ -419,6 +419,186 @@ struct BatchMediaLibraryView: View {
     }
 }
 
+private struct LibraryFolderManagerView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var library = MediaLibrary.shared
+    @State private var selection: Set<String> = []
+    @State private var searchText = ""
+    @State private var showingRemovalConfirmation = false
+
+    private var visibleFolders: [URL] {
+        guard !searchText.isEmpty else { return library.folders }
+        return library.folders.filter {
+            $0.lastPathComponent.localizedCaseInsensitiveContains(searchText)
+                || $0.path.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    private var selectedFolders: [URL] {
+        library.folders.filter { selection.contains(folderKey($0)) }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("영상 라이브러리 폴더")
+                        .font(.title2.weight(.semibold))
+                    Text("검색에 포함할 폴더를 선택하고 연결 상태와 영상 수를 관리합니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("폴더 추가…", systemImage: "folder.badge.plus") { library.chooseFolders() }
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(16)
+
+            HStack(spacing: 12) {
+                TextField("폴더 이름 또는 경로 검색", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+                if library.isScanning {
+                    ProgressView().controlSize(.small)
+                    Button("검색 취소", role: .cancel) { library.cancelScan() }
+                        .controlSize(.small)
+                } else {
+                    Button("전체 다시 검색", systemImage: "arrow.clockwise") { library.refresh() }
+                        .disabled(library.enabledFolders.isEmpty)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+
+            Divider()
+
+            if library.folders.isEmpty {
+                ContentUnavailableView {
+                    Label("등록된 폴더가 없습니다", systemImage: "folder.badge.plus")
+                } description: {
+                    Text("영상이 있는 폴더를 하나 이상 추가하세요.")
+                } actions: {
+                    Button("폴더 추가…") { library.chooseFolders() }
+                        .buttonStyle(.borderedProminent)
+                }
+            } else if visibleFolders.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+            } else {
+                List(selection: $selection) {
+                    ForEach(visibleFolders, id: \.path) { folder in
+                        HStack(spacing: 12) {
+                            Toggle("검색 포함", isOn: Binding(
+                                get: { library.isFolderEnabled(folder) },
+                                set: { library.setFolder(folder, enabled: $0) }
+                            ))
+                            .labelsHidden()
+                            .disabled(!library.isFolderAvailable(folder))
+
+                            Image(systemName: folderSymbol(folder))
+                                .foregroundStyle(folderColor(folder))
+                                .frame(width: 20)
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(folder.lastPathComponent)
+                                    .font(.callout.weight(.semibold))
+                                    .lineLimit(1)
+                                Text(folder.path(percentEncoded: false))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            Spacer()
+                            Text(folderStatus(folder))
+                                .font(.caption)
+                                .foregroundStyle(folderColor(folder))
+                            Label("\(library.videoCount(in: folder))", systemImage: "film")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .frame(minWidth: 52, alignment: .trailing)
+                        }
+                        .tag(folderKey(folder))
+                        .contextMenu {
+                            Button("Finder에서 보기", systemImage: "finder") { NSWorkspace.shared.open(folder) }
+                                .disabled(!library.isFolderAvailable(folder))
+                            Button(library.isFolderEnabled(folder) ? "검색에서 제외" : "검색에 포함",
+                                   systemImage: library.isFolderEnabled(folder) ? "pause.circle" : "play.circle") {
+                                library.setFolder(folder, enabled: !library.isFolderEnabled(folder))
+                            }
+                            .disabled(!library.isFolderAvailable(folder))
+                            Divider()
+                            Button("라이브러리에서 제거", systemImage: "trash", role: .destructive) {
+                                selection = [folderKey(folder)]
+                                showingRemovalConfirmation = true
+                            }
+                        }
+                    }
+                }
+            }
+
+            Divider()
+            HStack(spacing: 12) {
+                Label("활성 \(library.enabledFolders.count)/\(library.folders.count)", systemImage: "folder")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                if library.unavailableFolderCount > 0 {
+                    Label("연결 끊김 \(library.unavailableFolderCount)", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.orange)
+                }
+                Spacer()
+                Button("누락 폴더 정리", systemImage: "folder.badge.minus") {
+                    selection = Set(library.folders.filter { !library.isFolderAvailable($0) }.map(folderKey))
+                    showingRemovalConfirmation = !selection.isEmpty
+                }
+                .disabled(library.unavailableFolderCount == 0)
+                Button("선택 제거", systemImage: "trash", role: .destructive) {
+                    showingRemovalConfirmation = true
+                }
+                .disabled(selection.isEmpty)
+                Button("완료") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
+            .background(.bar)
+        }
+        .frame(width: 760, height: 560)
+        .confirmationDialog(
+            "선택한 폴더를 라이브러리에서 제거할까요?",
+            isPresented: $showingRemovalConfirmation
+        ) {
+            Button("\(selectedFolders.count)개 폴더 제거", role: .destructive) {
+                library.removeFolders(selectedFolders)
+                selection.removeAll()
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("등록 정보만 제거하며 폴더와 영상 파일은 삭제하지 않습니다.")
+        }
+        .onChange(of: Set(library.folders.map(folderKey))) { _, availableKeys in
+            selection.formIntersection(availableKeys)
+        }
+    }
+
+    private func folderKey(_ folder: URL) -> String {
+        folder.standardizedFileURL.path(percentEncoded: false)
+    }
+
+    private func folderSymbol(_ folder: URL) -> String {
+        if !library.isFolderAvailable(folder) { return "folder.badge.questionmark" }
+        return library.isFolderEnabled(folder) ? "folder.fill" : "folder.fill.badge.minus"
+    }
+
+    private func folderColor(_ folder: URL) -> Color {
+        if !library.isFolderAvailable(folder) { return .orange }
+        return library.isFolderEnabled(folder) ? .accentColor : .secondary
+    }
+
+    private func folderStatus(_ folder: URL) -> String {
+        if !library.isFolderAvailable(folder) { return "연결 끊김" }
+        return library.isFolderEnabled(folder) ? "검색 중" : "제외됨"
+    }
+}
+
 private struct LibraryMultiView: View {
     let items: [MediaLibraryItem]
     @AppStorage("libraryMultiViewColumns") private var columnCount = 2
