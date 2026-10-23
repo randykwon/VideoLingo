@@ -112,6 +112,7 @@ struct PlayerMediaLibraryView: View {
 
 struct BatchMediaLibraryView: View {
     @Environment(BatchProcessor.self) private var processor
+    var onAddedToBatch: (Int) -> Void = { _ in }
     @State private var library = MediaLibrary.shared
     @State private var selection: Set<String> = []
     @State private var searchText = ""
@@ -297,28 +298,27 @@ struct BatchMediaLibraryView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            HStack {
-                Button("폴더 추가", systemImage: "plus") { library.chooseFolders() }
-                    .labelStyle(.iconOnly)
-                    .help("영상 라이브러리 폴더 추가")
-                Button("선택 폴더 제거", systemImage: "minus") {
-                    if let folder = selectedFolder { pendingFolderRemoval = folder }
-                }
-                .labelStyle(.iconOnly)
-                .disabled(selectedFolder == nil)
-                .help(selectedFolder == nil ? "제거할 폴더를 선택하세요" : "선택한 폴더를 라이브러리에서 제거")
-                Button("폴더 목록 관리", systemImage: "slider.horizontal.3") {
+            VStack(spacing: 8) {
+                Button("폴더 추가…", systemImage: "folder.badge.plus") { library.chooseFolders() }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button("폴더 관리…", systemImage: "slider.horizontal.3") {
                     showingFolderManager = true
                 }
-                .labelStyle(.iconOnly)
-                .help("폴더 상태 확인 및 여러 폴더 관리")
-                Spacer()
-                Button("새로 고침", systemImage: "arrow.clockwise") { library.refresh() }
-                    .labelStyle(.iconOnly)
-                    .disabled(library.isScanning || library.folders.isEmpty)
-                    .help("등록한 폴더 다시 검색")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                HStack {
+                    Button("새로 고침", systemImage: "arrow.clockwise") { library.refresh() }
+                        .disabled(library.isScanning || library.enabledFolders.isEmpty)
+                    Spacer()
+                    if let selectedFolder {
+                        Button("제거", systemImage: "minus.circle", role: .destructive) {
+                            pendingFolderRemoval = selectedFolder
+                        }
+                        .help("선택한 폴더 등록만 제거하고 파일은 유지")
+                    }
+                }
+                .controlSize(.small)
             }
-            .padding(8)
+            .padding(12)
             .background(.bar)
         }
     }
@@ -430,8 +430,10 @@ struct BatchMediaLibraryView: View {
                 .disabled(selection.isEmpty)
                 .help(selection.isEmpty ? "먼저 재생할 영상을 선택하세요" : "선택한 영상을 멀티뷰에서 열기")
                 Button("대량번역 목록에 추가", systemImage: "text.badge.plus") {
+                    let count = selectedItems.count
                     _ = processor.add(selectedItems.map(\.videoURL))
                     selection.removeAll()
+                    onAddedToBatch(count)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(selection.isEmpty)
@@ -478,7 +480,10 @@ struct BatchMediaLibraryView: View {
             selection.insert(item.id)
             multiViewItems = library.items.filter { selection.contains($0.id) }
         }
-        Button("대량번역 목록에 추가", systemImage: "text.badge.plus") { _ = processor.add([item.videoURL]) }
+        Button("대량번역 목록에 추가", systemImage: "text.badge.plus") {
+            _ = processor.add([item.videoURL])
+            onAddedToBatch(1)
+        }
         Divider()
         Button("Finder에서 영상 보기", systemImage: "finder") { library.revealVideo(item) }
         Button("번역 결과 폴더 열기", systemImage: "captions.bubble") { library.revealResults(item) }
