@@ -152,6 +152,33 @@ final class MediaLibrary {
         NSWorkspace.shared.activateFileViewerSelecting([item.videoURL])
     }
 
+    func revealVideos(_ items: [MediaLibraryItem]) {
+        let urls = items.map(\.videoURL)
+        guard !urls.isEmpty else { return }
+        NSWorkspace.shared.activateFileViewerSelecting(urls)
+    }
+
+    func trashVideos(_ items: [MediaLibraryItem]) async -> String {
+        let urls = items.map(\.videoURL)
+        guard !urls.isEmpty else { return "휴지통으로 이동할 영상이 없습니다." }
+        let result = await Task.detached(priority: .userInitiated) {
+            var removed = 0
+            var failed: [String] = []
+            for url in urls {
+                do {
+                    try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                    removed += 1
+                } catch {
+                    failed.append(url.lastPathComponent)
+                }
+            }
+            return (removed, failed)
+        }.value
+        refresh()
+        if result.failed.isEmpty { return "영상 \(result.removed)개를 휴지통으로 이동했습니다." }
+        return "영상 \(result.removed)개 이동 · 실패 \(result.failed.count)개: \(result.failed.prefix(3).joined(separator: ", "))"
+    }
+
     func revealResults(_ item: MediaLibraryItem) {
         guard let directory = MediaSidecarStore.existingResultsDirectoryURL(for: item.videoURL) else { return }
         NSWorkspace.shared.activateFileViewerSelecting([directory])
