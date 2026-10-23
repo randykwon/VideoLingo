@@ -148,14 +148,15 @@ struct BatchMediaLibraryView: View {
     }
 
     private var visibleItems: [MediaLibraryItem] {
-        library.items.filter { item in
+        let duplicateIDs = duplicateItemIDs
+        return library.items.filter { item in
             let matchesSource: Bool
             switch sourceSelection {
             case "smart:translated": matchesSource = item.hasResults
             case "smart:untranslated": matchesSource = !item.hasResults
             case "smart:recent":
                 matchesSource = item.modifiedAt.map { $0 >= Date.now.addingTimeInterval(-30 * 86_400) } ?? false
-            case "smart:duplicates": matchesSource = duplicateItemIDs.contains(item.id)
+            case "smart:duplicates": matchesSource = duplicateIDs.contains(item.id)
             case "smart:large": matchesSource = item.size >= 1_000_000_000
             case let value where value.hasPrefix("folder:"):
                 matchesSource = item.rootURL.standardizedFileURL.path(percentEncoded: false) == String(value.dropFirst(7))
