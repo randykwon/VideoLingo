@@ -673,12 +673,11 @@ final class AppModel {
     func selectVideoFolder(_ folder: URL) {
         playerFolderPath = folder.standardizedFileURL.path(percentEncoded: false)
         MediaLibrary.shared.addFolders([folder])
-        playerMode = .viewing
     }
 
     func playLibraryVideo(_ url: URL) {
         if mediaURL?.standardizedFileURL != url.standardizedFileURL {
-            openLibraryVideo(url)
+            loadVideo(url.standardizedFileURL, remember: true)
         }
         guard mediaURL?.standardizedFileURL == url.standardizedFileURL,
               player.currentItem != nil else { return }

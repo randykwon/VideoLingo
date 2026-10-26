@@ -107,7 +107,10 @@ struct ContentView: View {
                 .padding(16)
 
                 Divider()
-
+                VSplitView {
+                    PlayerMediaLibraryView()
+                        .padding(12)
+                        .frame(minHeight: 240, idealHeight: 300)
             Form {
                 Section("현재 영상") {
                     if let url = model.mediaURL {
@@ -294,6 +297,8 @@ struct ContentView: View {
             }
             .formStyle(.grouped)
             .scrollContentBackground(theme.translucent ? .hidden : .automatic)
+            .frame(minHeight: 120)
+                }
             }
             }
             }
@@ -370,7 +375,7 @@ private struct SimpleSidebarView: View {
 
     var body: some View {
         @Bindable var model = model
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 12) {
             Picker("플레이어 모드", selection: $model.playerMode) {
                 ForEach(PlayerWorkspaceMode.allCases) { mode in
                     Label(mode.title, systemImage: mode.symbol).tag(mode)
@@ -378,94 +383,50 @@ private struct SimpleSidebarView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-
-            // 영상
-            VStack(alignment: .leading, spacing: 8) {
-                Button {
-                    model.openVideo()
-                } label: {
-                    Label("영상 열기", systemImage: "film")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                Button("영상 폴더 열기…", systemImage: "folder") { model.openVideoFolder() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                if let url = model.mediaURL {
-                    Text(url.lastPathComponent)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+            HStack(spacing: 8) {
+                Button("영상 열기", systemImage: "film") { model.openVideo() }
+                Button("폴더 열기…", systemImage: "folder") { model.openVideoFolder() }
             }
-
-            // 작업 (하나의 포커스 CTA: 시작은 강조, 중지는 파괴적)
+            .buttonStyle(.bordered)
+            if let url = model.mediaURL {
+                Text(url.lastPathComponent)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            Divider()
+            PlayerMediaLibraryView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider()
             VStack(alignment: .leading, spacing: 8) {
                 if isRunning {
-                    Button(role: .destructive) {
-                        model.cancel()
-                    } label: {
-                        Label("STT·번역 중지", systemImage: "stop.fill")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(.bordered)
+                    Button("STT·번역 중지", systemImage: "stop.fill", role: .destructive) { model.cancel() }
+                        .buttonStyle(.bordered)
                 } else {
-                    Button {
-                        model.startOrResume()
-                    } label: {
-                        Label("STT·번역 시작/재개", systemImage: "waveform.and.magnifyingglass")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!model.canStart)
+                    Button("STT·번역 시작/재개", systemImage: "waveform.and.magnifyingglass") { model.startOrResume() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!model.canStart)
                 }
                 if let snapshot = model.snapshot {
                     ProgressView(value: snapshot.progress)
                     Text(snapshot.message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
-            }
-            .controlSize(.large)
-
-            // 서버 상태
-            VStack(alignment: .leading, spacing: 6) {
-                Label {
-                    Text(model.serviceMessage).lineLimit(2)
-                } icon: {
-                    Image(systemName: model.serviceIsAvailable ? "circle.fill" : "exclamationmark.circle.fill")
-                        .foregroundStyle(model.serviceIsAvailable ? .green : .orange)
-                        .imageScale(.small)
+                HStack(spacing: 8) {
+                    Label(model.serviceMessage, systemImage: model.serviceIsAvailable ? "checkmark.circle" : "exclamationmark.circle")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer(minLength: 0)
+                    Button("서버 상태 새로 고침", systemImage: "arrow.clockwise") { model.refreshServiceStatus() }
+                        .labelStyle(.iconOnly)
                 }
-                .font(.caption)
-                Button("서버 상태 새로 고침", systemImage: "arrow.clockwise") {
-                    model.refreshServiceStatus()
+                HStack(spacing: 12) {
+                    SettingsLink { Label("설정", systemImage: "gearshape") }
+                    Button("고급 메뉴", systemImage: "slider.horizontal.3") { simpleSidebar = false }
                 }
                 .buttonStyle(.borderless)
-                .controlSize(.small)
             }
-
-            Spacer(minLength: 0)
-
-            // 하단: 설정 / 고급 메뉴
-            VStack(alignment: .leading, spacing: 8) {
-                SettingsLink {
-                    Label("설정", systemImage: "gearshape")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                Button("고급 메뉴", systemImage: "slider.horizontal.3") {
-                    simpleSidebar = false
-                }
-                .buttonStyle(.borderless)
-                .controlSize(.small)
-            }
+            .controlSize(.small)
         }
-        .padding(20)
+        .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
