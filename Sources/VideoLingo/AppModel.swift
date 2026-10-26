@@ -59,6 +59,32 @@ enum PlayerWorkspaceMode: String, CaseIterable, Identifiable {
     var symbol: String { self == .translation ? "character.book.closed" : "play.rectangle.fill" }
 }
 
+/// AVPlayer transfers a retained, read-only frame to the OCR worker; no code mutates its bytes.
+private struct CapturedScreenFrame: @unchecked Sendable {
+    let buffer: CVPixelBuffer
+}
+
+/// One OCR request at a time across windows, off the main actor.
+private actor ScreenTextOCRWorker {
+    static let shared = ScreenTextOCRWorker()
+    func recognize(_ frame: CapturedScreenFrame) -> String? {
+        guard !Task.isCancelled else { return nil }
+        let handler = VNImageRequestHandler(cvPixelBuffer: frame.buffer, options: [:])
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        try? handler.perform([request])
+        let lines = (request.results ?? []).compactMap { observation -> String? in
+            guard let candidate = observation.topCandidates(1).first, candidate.confidence > 0.3 else { return nil }
+            let text = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.count >= 2 ? text : nil
+        }
+        let joined = lines.joined(separator: " ")
+        return joined.isEmpty ? nil : joined
+    }
+
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -1504,17 +1530,21 @@ final class AppModel {
         }
         screenTextTask = Task { [weak self] in
             while !Task.isCancelled {
-                if let self,
-                   self.screenTextTranslationEnabled,
-                   self.player.timeControlStatus == .playing,
-                   let buffer = self.currentVideoFrame(),
-                   let text = self.recognizeScreenText(in: buffer),
-                   text != self.recognizedScreenText {
-                    self.recognizedScreenText = text
-                }
+                guard self != nil else { return }
+                await self?.recognizeCurrentScreenText()
                 try? await Task.sleep(for: .milliseconds(800))
             }
         }
+    }
+
+    private func recognizeCurrentScreenText() async {
+        guard screenTextTranslationEnabled, !playerWindowClosed,
+              player.timeControlStatus == .playing,
+              let item = player.currentItem, let buffer = currentVideoFrame() else { return }
+        let text = await ScreenTextOCRWorker.shared.recognize(CapturedScreenFrame(buffer: buffer))
+        guard !Task.isCancelled, screenTextTranslationEnabled, !playerWindowClosed,
+              player.currentItem === item else { return }
+        if recognizedScreenText != text { recognizedScreenText = text }
     }
 
     private func configureVideoOutput() {
@@ -1534,21 +1564,6 @@ final class AppModel {
         let time = player.currentTime()
         guard output.hasNewPixelBuffer(forItemTime: time) else { return nil }
         return output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
-    }
-
-    private func recognizeScreenText(in buffer: CVPixelBuffer) -> String? {
-        let handler = VNImageRequestHandler(cvPixelBuffer: buffer, options: [:])
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        try? handler.perform([request])
-        let lines = (request.results ?? []).compactMap { observation -> String? in
-            guard let candidate = observation.topCandidates(1).first, candidate.confidence > 0.3 else { return nil }
-            let text = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
-            return text.count >= 2 ? text : nil
-        }
-        let joined = lines.joined(separator: " ")
-        return joined.isEmpty ? nil : joined
     }
 
     private func setupPlayerObserver() {

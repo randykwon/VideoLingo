@@ -807,7 +807,10 @@ private struct PlayerPane: View {
                 model.translatedScreenText = nil
                 return
             }
-            if let response = try? await session.translate(text) {
+            let language = model.selectedLanguage
+            if let response = try? await session.translate(text),
+               !Task.isCancelled, model.screenTextTranslationEnabled,
+               model.recognizedScreenText == text, model.selectedLanguage == language {
                 model.translatedScreenText = response.targetText
             }
         }
@@ -822,7 +825,11 @@ private struct PlayerPane: View {
                 screenTextConfig?.invalidate()
             }
         }
+        .onChange(of: model.screenTextTranslationEnabled) { _, enabled in
+            if !enabled { screenTextConfig = nil }
+        }
         .onChange(of: model.selectedLanguage) { _, language in
+            guard model.screenTextTranslationEnabled else { screenTextConfig = nil; return }
             screenTextConfig = TranslationSession.Configuration(
                 source: nil,
                 target: Locale.Language(identifier: language)
