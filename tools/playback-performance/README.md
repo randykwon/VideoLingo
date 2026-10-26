@@ -40,3 +40,12 @@ Verified on 2026-10-26 using a generated 12-second 1280×720 H.264 fixture: all 
 The standalone process intentionally has no embedded XPC service, which also exercises the service-error callback path.
 
 4K/HDR frame drops, GPU load, and overall CPU/RAM savings still require profiling visible windows with representative media. No automatic resolution reduction or frame-rate cap was introduced.
+
+## Folder list and Trash regression checks (2026-10-26)
+
+- Core suite: 33 tests passed, including filename case variants, meaningful accents, canonical Unicode spellings, extension differences, and preferred currently open copies.
+- A standalone process built from the app sources scanned 55 fixture files and produced 45 representative filenames.
+- Moving one selected fixture to Trash preserved its same-name copy and its sidecar results folder; both models displaying the removed file released their player items. The remaining copy became the representative and the file-operation lock was released.
+- Release build and installed app signature/hash checks passed.
+- The viewing sidebar now reserves a bounded middle region for the native file list; transport and deletion controls remain outside that scroll region. Clock updates stay in the transport child view.
+- The Mac became screen-locked during visual checks; final interactive scroll validation remains to be performed after unlocking. No production media files were deleted by the agent.
