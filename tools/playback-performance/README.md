@@ -35,6 +35,8 @@ python3 tools/playback-performance/run_smoke.py /path/to/video.mp4
 
 This compiles the actual app sources into an independent test process, exercises three AVPlayer timelines, changes effects on one player, seeks another, closes the third and checks that its model and current item are released. It does not open visible windows or measure rendered frame drops. The test process has its own preferences domain; the fixture's media path must not have active AI work associated with it.
 
+Verified on 2026-10-26 using a generated 12-second 1280×720 H.264 fixture: all three timelines reached approximately 3.77 seconds after four seconds; independent effect/seek and closed-model release checks passed. All 32 core tests passed in a temporary Swift Package test configuration. The existing Xcode Release test action cannot import its core module with `@testable` because Release does not enable testability; the Release application build is checked separately.
+
 The standalone process intentionally has no embedded XPC service, which also exercises the service-error callback path.
 
 4K/HDR frame drops, GPU load, and overall CPU/RAM savings still require profiling visible windows with representative media. No automatic resolution reduction or frame-rate cap was introduced.
