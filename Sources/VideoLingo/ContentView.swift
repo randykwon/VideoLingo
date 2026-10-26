@@ -649,6 +649,7 @@ private struct VideoAppearancePanel: View {
 private struct PlayerPane: View {
     @Environment(AppModel.self) private var model
     @Environment(ThemeManager.self) private var theme
+    @State private var showSubtitleAppearance = false
     @State private var showVideoAppearance = false
     @State private var screenTextConfig: TranslationSession.Configuration?
     @AppStorage("transcriptPanelHeight") private var transcriptPanelHeight: Double = 320
@@ -681,17 +682,21 @@ private struct PlayerPane: View {
                                 PlayerCaption(
                                     text: model.activeSubtitle,
                                     color: theme.subtitleColor,
-                                    opacity: theme.subtitleOpacity
+                                    opacity: theme.subtitleOpacity,
+                                    backgroundColor: theme.subtitleBackgroundColor,
+                                    backgroundOpacity: theme.subtitleBackgroundOpacity
                                 )
                                 if model.showOriginalWithTranslation,
                                    model.activeTranslationSubtitle != nil,
                                    !model.activeOriginalSubtitle.isEmpty {
                                     PlayerCaption(
                                         text: model.activeOriginalSubtitle,
-                                        color: .white,
+                                        color: theme.subtitleOriginalColor,
                                         isSecondary: true,
                                         isItalic: model.originalSubtitleItalic,
-                                        opacity: theme.subtitleOpacity * (model.originalSubtitleTranslucent ? 0.68 : 1)
+                                        opacity: theme.subtitleOpacity * (model.originalSubtitleTranslucent ? 0.68 : 1),
+                                        backgroundColor: theme.subtitleBackgroundColor,
+                                        backgroundOpacity: theme.subtitleBackgroundOpacity
                                     )
                                 }
                             }
@@ -729,6 +734,20 @@ private struct PlayerPane: View {
                                 systemImage: model.subtitlesEnabled ? "captions.bubble.fill" : "captions.bubble"
                             ) {
                                 withAnimation(.snappy) { model.subtitlesEnabled.toggle() }
+                            }
+                            CaptionOverlayButton(title: "자막 가독성", systemImage: "textformat") {
+                                showSubtitleAppearance.toggle()
+                            }
+                            .popover(isPresented: $showSubtitleAppearance) {
+                                VStack(alignment: .leading, spacing: 16) {
+                                    Text("자막 가독성").font(.headline)
+                                    Form { SubtitleAppearanceControls() }
+                                    Text("변경 사항은 바로 적용되며 자동으로 저장됩니다.")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                .padding(20)
+                                .frame(width: 400)
+                                .environment(theme)
                             }
                             // 자막을 반투명하게 만들어 화면을 덜 가리게 합니다.
                             CaptionOverlayButton(
@@ -1458,32 +1477,83 @@ private struct CaptionOverlayButton: View {
     }
 }
 
+private struct SubtitleAppearanceControls: View {
+    @Environment(ThemeManager.self) private var theme
+
+    var body: some View {
+        @Bindable var theme = theme
+        Menu {
+            ForEach(SubtitleColorPreset.allCases) { preset in
+                Button(preset.title) { theme.applySubtitlePreset(preset) }
+            }
+        } label: {
+            Label("색상 조합 프리셋", systemImage: "paintpalette")
+        }
+        ColorPicker("자막 색상", selection: $theme.subtitleColor, supportsOpacity: false)
+        ColorPicker("원문 자막 색상", selection: $theme.subtitleOriginalColor, supportsOpacity: false)
+        ColorPicker("자막 배경 색상", selection: $theme.subtitleBackgroundColor, supportsOpacity: false)
+        opacitySlider("글자 불투명도", value: $theme.subtitleOpacity, range: 0.35...1)
+        opacitySlider("배경 불투명도", value: $theme.subtitleBackgroundOpacity, range: 0...1)
+        Text("배경 0%는 투명, 100%는 불투명입니다.")
+            .font(.caption).foregroundStyle(.secondary)
+        PlayerCaption(
+            text: String(localized: "자막 미리보기"),
+            color: theme.subtitleColor,
+            opacity: theme.subtitleOpacity,
+            backgroundColor: theme.subtitleBackgroundColor,
+            backgroundOpacity: theme.subtitleBackgroundOpacity
+        )
+        .frame(maxWidth: .infinity)
+        Button("자막 스타일 초기화", systemImage: "arrow.counterclockwise") {
+            theme.applySubtitlePreset(.standard)
+        }
+    }
+
+    private func opacitySlider(_ title: LocalizedStringKey, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(value.wrappedValue, format: .percent.precision(.fractionLength(0)))
+                    .monospacedDigit().foregroundStyle(.secondary)
+            }
+            Slider(value: value, in: range, step: 0.01) { Text(title) }.labelsHidden()
+        }
+    }
+}
+
 private struct PlayerCaption: View {
     let text: String
     var color: Color?
     var isSecondary: Bool
     var isItalic: Bool
     var opacity: Double
+    var backgroundColor: Color
+    var backgroundOpacity: Double
 
     init(
         text: String,
         color: Color? = nil,
         isSecondary: Bool = false,
         isItalic: Bool = false,
-        opacity: Double = 1
+        opacity: Double = 1,
+        backgroundColor: Color = .black,
+        backgroundOpacity: Double = 0.42
     ) {
         self.text = text
         self.color = color
         self.isSecondary = isSecondary
         self.isItalic = isItalic
         self.opacity = opacity
+        self.backgroundColor = backgroundColor
+        self.backgroundOpacity = backgroundOpacity
     }
 
     var body: some View {
         if !text.isEmpty {
             Group {
                 if let color {
-                    Text(text).foregroundStyle(color)
+                    Text(text).foregroundStyle(color.opacity(min(1, max(0.35, opacity))))
                 } else {
                     SpeakerColoredText(text: text, defaultColor: .white)
                 }
@@ -1492,12 +1562,11 @@ private struct PlayerCaption: View {
             .multilineTextAlignment(.center)
             .lineLimit(isSecondary ? 2 : 3)
             .truncationMode(.tail)
-            .shadow(color: .black.opacity(0.85), radius: 3)
+            .shadow(color: .black.opacity(backgroundOpacity < 0.1 ? 0.85 : 0.25), radius: 3)
             .padding(.horizontal, isSecondary ? 12 : 16)
             .padding(.vertical, isSecondary ? 6 : 8)
-            .background(.black.opacity(isSecondary ? 0.32 : 0.42), in: RoundedRectangle(cornerRadius: 10))
+            .background(backgroundColor.opacity(min(1, max(0, backgroundOpacity))), in: RoundedRectangle(cornerRadius: 10))
             .padding(.horizontal, 24)
-            .opacity(min(1, max(0.35, opacity)))
             .accessibilityLabel(text)
         }
     }
@@ -2100,13 +2169,7 @@ private struct GeneralSettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Section("화면 자막") {
-                ColorPicker("자막 색상", selection: $theme.subtitleColor, supportsOpacity: false)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("자막 불투명도 \(Int((theme.subtitleOpacity * 100).rounded()))%")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Slider(value: $theme.subtitleOpacity, in: 0.35...1)
-                }
+                SubtitleAppearanceControls()
                 Picker("음량 바 위치", selection: $theme.volumeBarPosition) {
                     ForEach(VolumeBarPosition.allCases) { Text($0.displayName).tag($0) }
                 }

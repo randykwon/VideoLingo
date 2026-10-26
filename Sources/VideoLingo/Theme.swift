@@ -121,6 +121,35 @@ final class ThemeManager {
         didSet { Self.saveSubtitleColor(subtitleColor) }
     }
 
+    var subtitleBackgroundColor: Color {
+        didSet { Self.saveCaptionColor(subtitleBackgroundColor, key: "subtitleBackground") }
+    }
+    var subtitleOriginalColor: Color {
+        didSet { Self.saveCaptionColor(subtitleOriginalColor, key: "subtitleOriginal") }
+    }
+    var subtitleBackgroundOpacity: Double {
+        didSet { UserDefaults.standard.set(subtitleBackgroundOpacity, forKey: "subtitleBackgroundOpacity") }
+    }
+
+    func applySubtitlePreset(_ preset: SubtitleColorPreset) {
+        subtitleColor = preset.foreground
+        subtitleOriginalColor = preset.secondary
+        subtitleBackgroundColor = preset.background
+        subtitleBackgroundOpacity = preset.opacity
+        subtitleOpacity = 1
+    }
+
+    private static func loadCaptionColor(key: String, fallback: Color) -> Color {
+        guard let values = UserDefaults.standard.array(forKey: key) as? [Double],
+              values.count == 3, values.allSatisfy({ $0.isFinite && (0...1).contains($0) }) else { return fallback }
+        return Color(.sRGB, red: values[0], green: values[1], blue: values[2])
+    }
+
+    private static func saveCaptionColor(_ color: Color, key: String) {
+        guard let rgb = NSColor(color).usingColorSpace(.sRGB) else { return }
+        UserDefaults.standard.set([rgb.redComponent, rgb.greenComponent, rgb.blueComponent], forKey: key)
+    }
+
     /// 영상 위 음량 바의 위치입니다. 기본은 일반적인 플레이어와 같은 아래쪽입니다.
     var volumeBarPosition: VolumeBarPosition {
         didSet { UserDefaults.standard.set(volumeBarPosition.rawValue, forKey: "volumeBarPosition") }
@@ -144,6 +173,10 @@ final class ThemeManager {
         density = InterfaceDensity(rawValue: UserDefaults.standard.string(forKey: "themeDensity") ?? "") ?? .comfortable
         translucent = UserDefaults.standard.bool(forKey: "themeTranslucent")
         subtitleColor = Self.loadSubtitleColor()
+        subtitleBackgroundColor = Self.loadCaptionColor(key: "subtitleBackground", fallback: .black)
+        subtitleOriginalColor = Self.loadCaptionColor(key: "subtitleOriginal", fallback: .white)
+        subtitleBackgroundOpacity = (UserDefaults.standard.object(forKey: "subtitleBackgroundOpacity") as? Double)
+            .map { $0.isFinite ? min(1, max(0, $0)) : 0.42 } ?? 0.42
         subtitleOpacity = (UserDefaults.standard.object(forKey: "subtitleOpacity") as? Double)
             .map { min(1, max(0.35, $0)) } ?? 1
         volumeBarPosition = VolumeBarPosition(
@@ -250,5 +283,40 @@ struct VisualEffectView: NSViewRepresentable {
         view.material = material
         view.blendingMode = blending
         view.state = .active
+    }
+}
+
+/// Fixed caption colors keep their contrast independent of the app's light/dark appearance.
+enum SubtitleColorPreset: String, CaseIterable, Identifiable {
+    case standard, yellow, light, cinema
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .standard: String(localized: "흰 글자 · 검정 배경")
+        case .yellow: String(localized: "노란 글자 · 검정 배경")
+        case .light: String(localized: "검정 글자 · 흰 배경")
+        case .cinema: String(localized: "흰 글자 · 배경 없음")
+        }
+    }
+    var foreground: Color {
+        switch self {
+        case .standard, .cinema: Color(.sRGB, white: 1, opacity: 1)
+        case .yellow: Color(.sRGB, red: 1, green: 0.9, blue: 0.2)
+        case .light: Color(.sRGB, white: 0, opacity: 1)
+        }
+    }
+    var secondary: Color {
+        self == .light ? Color(.sRGB, white: 0.15, opacity: 1) : Color(.sRGB, white: 1, opacity: 1)
+    }
+    var background: Color {
+        Color(.sRGB, white: self == .light ? 1 : 0, opacity: 1)
+    }
+    var opacity: Double {
+        switch self {
+        case .standard: 0.42
+        case .yellow: 0.65
+        case .light: 0.85
+        case .cinema: 0
+        }
     }
 }
