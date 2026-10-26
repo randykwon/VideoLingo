@@ -588,11 +588,68 @@ private struct ViewingSidebarView: View {
     }
 }
 
+private struct VideoAppearancePanel: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Label("화면 조정", systemImage: "slider.horizontal.3").font(.headline)
+                Spacer()
+                Button("초기화") {
+                    model.videoAppearance = VideoAppearance()
+                    model.videoAppearanceEnabled = true
+                }
+                .disabled(model.videoAppearance == VideoAppearance() && model.videoAppearanceEnabled)
+            }
+            Toggle("조정 효과 적용", isOn: $model.videoAppearanceEnabled)
+                .help("끄면 원본 화면과 비교할 수 있습니다. 조정값은 유지됩니다.")
+            Form {
+                Picker("프리셋", selection: Binding(
+                    get: { VideoAppearancePreset.allCases.first { $0.appearance == model.videoAppearance }?.rawValue ?? "custom" },
+                    set: { if let preset = VideoAppearancePreset(rawValue: $0) { model.videoAppearance = preset.appearance } }
+                )) {
+                    ForEach(VideoAppearancePreset.allCases) { preset in
+                        Text(preset.title).tag(preset.rawValue)
+                    }
+                    if !VideoAppearancePreset.allCases.contains(where: { $0.appearance == model.videoAppearance }) {
+                        Text("사용자 지정").tag("custom")
+                    }
+                }
+                adjustment("밝기", value: $model.videoAppearance.brightness, range: -0.3...0.3)
+                adjustment("명암", value: $model.videoAppearance.contrast, range: 0.5...1.8)
+                adjustment("채도", value: $model.videoAppearance.saturation, range: 0...2)
+                adjustment("색온도", value: $model.videoAppearance.warmth, range: -1...1)
+                adjustment("선명도", value: $model.videoAppearance.sharpness, range: 0...1.5)
+            }
+            .disabled(!model.videoAppearanceEnabled)
+            Text("재생 화면에만 적용되며 원본 파일은 변경되지 않습니다. 조정값은 다음 영상에도 유지됩니다.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(20)
+        .frame(width: 360)
+    }
+
+    private func adjustment(_ title: LocalizedStringKey, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+        LabeledContent(title) {
+            HStack(spacing: 8) {
+                Slider(value: value, in: range, step: 0.01) { Text(title) }
+                    .labelsHidden()
+                Text(value.wrappedValue, format: .number.precision(.fractionLength(2)))
+                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    .frame(width: 40, alignment: .trailing)
+            }
+        }
+    }
+}
+
 /// 영상 재생 영역. 화면글자 OCR 번역의 실시간 상태 변화를 이 뷰 안으로 가둬,
 /// 툴바를 호스팅하는 ContentView가 매번 다시 계산되어 크래시하는 것을 방지합니다.
 private struct PlayerPane: View {
     @Environment(AppModel.self) private var model
     @Environment(ThemeManager.self) private var theme
+    @State private var showVideoAppearance = false
     @State private var screenTextConfig: TranslationSession.Configuration?
     @AppStorage("transcriptPanelHeight") private var transcriptPanelHeight: Double = 320
     @AppStorage("subtitlePositionX") private var subtitlePositionX = 0.5
@@ -660,6 +717,12 @@ private struct PlayerPane: View {
                 .overlay(alignment: .topTrailing) {
                     if model.mediaURL != nil {
                         HStack(spacing: 8) {
+                            CaptionOverlayButton(title: "화면 조정", systemImage: "slider.horizontal.3") {
+                                showVideoAppearance.toggle()
+                            }
+                            .popover(isPresented: $showVideoAppearance) {
+                                VideoAppearancePanel().environment(model)
+                            }
                             // 번역 자막을 화면에서 없앴다 되돌리는 토글입니다.
                             CaptionOverlayButton(
                                 title: model.subtitlesEnabled ? "자막 끄기" : "자막 켜기",

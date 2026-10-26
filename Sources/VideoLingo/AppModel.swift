@@ -1,10 +1,54 @@
 import AppKit
 import AVFoundation
 import CryptoKit
+import CoreImage
 import Foundation
 import Observation
 import Vision
 import VideoLingoCore
+
+/// Playback-only adjustments. Defaults are shared across videos and restored on launch.
+struct VideoAppearance: Codable, Equatable, Sendable {
+    var brightness = 0.0
+    var contrast = 1.0
+    var saturation = 1.0
+    var warmth = 0.0
+    var sharpness = 0.0
+
+    static func restored() -> Self {
+        guard let data = UserDefaults.standard.data(forKey: "videoAppearance"),
+              let value = try? JSONDecoder().decode(Self.self, from: data),
+              (-0.3...0.3).contains(value.brightness), (0.5...1.8).contains(value.contrast),
+              (0...2.0).contains(value.saturation), (-1.0...1.0).contains(value.warmth),
+              (0...1.5).contains(value.sharpness) else { return Self() }
+        return value
+    }
+}
+
+enum VideoAppearancePreset: String, CaseIterable, Identifiable {
+    case original, vivid, warm, cool, cinema, monochrome
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .original: "원본"
+        case .vivid: "선명하게"
+        case .warm: "따뜻하게"
+        case .cool: "차갑게"
+        case .cinema: "시네마"
+        case .monochrome: "흑백"
+        }
+    }
+    var appearance: VideoAppearance {
+        switch self {
+        case .original: VideoAppearance()
+        case .vivid: VideoAppearance(contrast: 1.15, saturation: 1.25, sharpness: 0.6)
+        case .warm: VideoAppearance(saturation: 1.05, warmth: 0.45)
+        case .cool: VideoAppearance(contrast: 1.05, warmth: -0.4)
+        case .cinema: VideoAppearance(brightness: -0.03, contrast: 1.18, saturation: 0.85, warmth: 0.15, sharpness: 0.2)
+        case .monochrome: VideoAppearance(contrast: 1.12, saturation: 0)
+        }
+    }
+}
 
 enum PlayerWorkspaceMode: String, CaseIterable, Identifiable {
     case translation
@@ -23,6 +67,50 @@ final class AppModel {
 
     var mediaURL: URL?
     var player = AVPlayer()
+    var videoAppearance = VideoAppearance.restored() {
+        didSet {
+            if let data = try? JSONEncoder().encode(videoAppearance) {
+                UserDefaults.standard.set(data, forKey: "videoAppearance")
+            }
+            applyVideoAppearance()
+        }
+    }
+    var videoAppearanceEnabled = true {
+        didSet { applyVideoAppearance() }
+    }
+
+    private func applyVideoAppearance() {
+        guard let item = player.currentItem else { return }
+        let settings = videoAppearance
+        if !videoAppearanceEnabled || settings == VideoAppearance() {
+            item.videoComposition = nil
+        } else {
+            item.videoComposition = AVVideoComposition(asset: item.asset, applyingCIFiltersWithHandler: { request in
+                let extent = request.sourceImage.extent
+                var image = request.sourceImage.clampedToExtent().applyingFilter("CIColorControls", parameters: [
+                    kCIInputBrightnessKey: settings.brightness,
+                    kCIInputContrastKey: settings.contrast,
+                    kCIInputSaturationKey: settings.saturation
+                ])
+                if settings.warmth != 0 {
+                    image = image.applyingFilter("CITemperatureAndTint", parameters: [
+                        "inputNeutral": CIVector(x: 6500 + settings.warmth * 2000, y: 0),
+                        "inputTargetNeutral": CIVector(x: 6500, y: 0)
+                    ])
+                }
+                if settings.sharpness > 0 {
+                    image = image.applyingFilter("CISharpenLuminance", parameters: [kCIInputSharpnessKey: settings.sharpness])
+                }
+                request.finish(with: image.cropped(to: extent), context: nil)
+            })
+        }
+        // Ask AVPlayer to redraw the current frame when editing while paused.
+        if player.rate == 0 {
+            let time = player.currentTime()
+            if time.isValid { player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) }
+        }
+    }
+
     var selectedLanguage = UserDefaults.standard.string(forKey: "selectedLanguage") ?? "ko" {
         didSet { UserDefaults.standard.set(selectedLanguage, forKey: "selectedLanguage") }
     }
@@ -1478,6 +1566,7 @@ final class AppModel {
         item.add(output)
         videoOutput = output
         player.replaceCurrentItem(with: item)
+        applyVideoAppearance()
         duration = 0
         // 길이는 비동기로 결정되므로, 확정되면 반영해 정지 상태에서도 타임라인이 동작하게 합니다.
         Task { [weak self] in
