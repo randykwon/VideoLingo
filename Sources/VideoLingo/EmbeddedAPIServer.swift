@@ -263,7 +263,7 @@ final class EmbeddedAPIServer {
         connection.resume()
         defer { connection.invalidate() }
         return try await withCheckedThrowingContinuation { continuation in
-            guard let service = connection.remoteObjectProxyWithErrorHandler({ error in continuation.resume(throwing: error) }) as? VideoLingoAIServiceProtocol else {
+            guard let service = connection.remoteObjectProxyWithErrorHandler({ @Sendable error in continuation.resume(throwing: error) }) as? VideoLingoAIServiceProtocol else {
                 continuation.resume(throwing: APIError.badRequest("내장 AI 서비스에 연결할 수 없습니다.")); return
             }
             method(service, payload) { data, error in

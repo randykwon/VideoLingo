@@ -2135,13 +2135,13 @@ final class BatchProcessor {
         if connection == nil {
             let connection = NSXPCConnection(serviceName: "com.vvv.VideoLingo.AIService")
             connection.remoteObjectInterface = NSXPCInterface(with: VideoLingoAIServiceProtocol.self)
-            connection.invalidationHandler = { [weak self, weak connection] in
+            connection.invalidationHandler = { @Sendable [weak self, weak connection] in
                 Task { @MainActor in
                     guard let self, self.connection === connection else { return }
                     self.connection = nil
                 }
             }
-            connection.interruptionHandler = { [weak self, weak connection] in
+            connection.interruptionHandler = { @Sendable [weak self, weak connection] in
                 Task { @MainActor in
                     guard let self, self.connection === connection else { return }
                     self.connection = nil
@@ -2150,7 +2150,7 @@ final class BatchProcessor {
             connection.resume()
             self.connection = connection
         }
-        return connection?.remoteObjectProxyWithErrorHandler { _ in } as? VideoLingoAIServiceProtocol
+        return connection?.remoteObjectProxyWithErrorHandler { @Sendable _ in } as? VideoLingoAIServiceProtocol
     }
 
     private func recoveryDelay(for attempt: Int) -> Duration {

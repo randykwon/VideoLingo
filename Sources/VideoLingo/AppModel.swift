@@ -1344,10 +1344,10 @@ final class AppModel {
         let generation = UUID()
         connectionGeneration = generation
         connection.remoteObjectInterface = NSXPCInterface(with: VideoLingoAIServiceProtocol.self)
-        connection.interruptionHandler = { [weak self] in
+        connection.interruptionHandler = { @Sendable [weak self] in
             Task { @MainActor in self?.handleConnectionLoss(generation, message: String(localized: "내장 AI 서버 연결 중단")) }
         }
-        connection.invalidationHandler = { [weak self] in
+        connection.invalidationHandler = { @Sendable [weak self] in
             Task { @MainActor in self?.handleConnectionLoss(generation, message: String(localized: "내장 AI 서버 연결 종료")) }
         }
         connection.resume()
@@ -1362,7 +1362,7 @@ final class AppModel {
 
     private func remoteService(on connection: NSXPCConnection) -> VideoLingoAIServiceProtocol? {
         let generation = connectionGeneration
-        return connection.remoteObjectProxyWithErrorHandler { [weak self] _ in
+        return connection.remoteObjectProxyWithErrorHandler { @Sendable [weak self] _ in
             Task { @MainActor in self?.handleConnectionLoss(generation, message: String(localized: "내장 AI 서버 응답 없음")) }
         } as? VideoLingoAIServiceProtocol
     }
