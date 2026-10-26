@@ -9,7 +9,6 @@ struct ContentView: View {
     @Environment(ThemeManager.self) private var theme
     @Environment(\.openWindow) private var openWindow
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var showDemosaicSheet = false
     @AppStorage("simpleSidebar") private var simpleSidebar = false
     @State private var regenerationRequest: RegenerationRequest?
     @State private var showAdvancedSettings = false
@@ -257,22 +256,6 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                Section("얼굴 모자이크 제거") {
-                    Button("얼굴 모자이크 제거…", systemImage: "wand.and.stars") { showDemosaicSheet = true }
-                        .disabled(!model.canStartDemosaic)
-                    Text("실험적 · 결과는 AI로 재구성된 합성이며 실제 인물이 아닙니다. 권리 있는 영상에만 사용하세요.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                Section("화면 글자 번역 자막") {
-                    Toggle("재생 중 화면 글자 인식·번역", isOn: $model.screenTextTranslationEnabled)
-                        .disabled(AppModel.screenTextTranslationTemporarilyDisabled)
-                    Text(AppModel.screenTextTranslationTemporarilyDisabled
-                        ? "성능 보호를 위해 임시 비활성화되었습니다. 다른 방식으로 다시 제공할 예정입니다."
-                        : "영상에 박힌 글자(간판·자막 등)를 재생 중 OCR로 읽어 선택한 언어로 번역해 하단 자막으로 보여줍니다. 온디바이스 처리.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
                 Section("STT·번역 품질 개선") {
                     QualityImprovementStatusView(
                         snapshot: model.snapshot,
@@ -361,10 +344,6 @@ struct ContentView: View {
             Text(model.errorMessage ?? "")
         }
         .background(WindowModeAccessor(model: model, mini: model.isMiniViewer, opacity: model.windowOpacity, translucent: theme.translucent))
-        .sheet(isPresented: $showDemosaicSheet) {
-            DemosaicSheet()
-                .environment(model)
-        }
         .overlay {
             if model.isMiniViewer {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -2091,12 +2070,49 @@ struct SettingsView: View {
                 .tabItem { Label("LLM 서버", systemImage: "server.rack") }
             ModelFilesSettingsView()
                 .tabItem { Label("모델 파일", systemImage: "square.and.arrow.down") }
+            AdvancedFeatureSettingsView()
+                .tabItem { Label("고급", systemImage: "slider.horizontal.3") }
             KeyboardShortcutSettingsView()
                 .tabItem { Label("단축키", systemImage: "keyboard") }
         }
         .frame(width: 680, height: 520)
         .task { model.refreshSettings() }
         .onAppear { model.applyWindowTransparency() }
+    }
+}
+
+/// Experimental processing tools are deliberately available only in Settings.
+private struct AdvancedFeatureSettingsView: View {
+    @Environment(AppModel.self) private var model
+    @State private var showDemosaicSheet = false
+
+    var body: some View {
+        @Bindable var model = model
+        Form {
+            Section("얼굴 모자이크 제거") {
+                Button("얼굴 모자이크 제거…", systemImage: "wand.and.stars") {
+                    showDemosaicSheet = true
+                }
+                .disabled(!model.canStartDemosaic)
+                Text("실험적 · 결과는 AI로 재구성된 합성이며 실제 인물이 아닙니다. 권리 있는 영상에만 사용하세요.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if model.mediaURL == nil {
+                    Text("플레이어에서 영상을 연 뒤 사용할 수 있습니다.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Section("화면 글자 번역 자막") {
+                Toggle("재생 중 화면 글자 인식·번역", isOn: $model.screenTextTranslationEnabled)
+                Text("영상에 박힌 글자(간판·자막 등)를 재생 중 OCR로 읽어 선택한 언어로 번역해 하단 자막으로 보여줍니다. 온디바이스 처리.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("실험적 기능입니다. 켜면 재생 성능에 영향을 줄 수 있습니다.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .sheet(isPresented: $showDemosaicSheet) {
+            DemosaicSheet().environment(model)
+        }
     }
 }
 
@@ -2907,7 +2923,7 @@ private struct ModelFilesSettingsView: View {
     var body: some View {
         @Bindable var model = model
         Form {
-            Section("얼굴 모자이크 제거 모델") {
+            DisclosureGroup("고급 · 얼굴 모자이크 제거 모델") {
                 Picker("모델 이름", selection: $demosaicModelName) {
                     Text("realesrgan").tag("realesrgan")
                     Text("codeformer").tag("codeformer")

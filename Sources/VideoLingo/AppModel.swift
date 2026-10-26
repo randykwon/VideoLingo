@@ -158,17 +158,8 @@ final class AppModel {
     }
 
     // 화면 글자 OCR 번역 자막 (재생 중 실시간). recognized→translated는 Translation 프레임워크가 채웁니다.
-    static let screenTextTranslationTemporarilyDisabled = true
     var screenTextTranslationEnabled = false {
         didSet {
-            guard !Self.screenTextTranslationTemporarilyDisabled else {
-                screenTextTranslationEnabled = false
-                UserDefaults.standard.set(false, forKey: "screenTextTranslation")
-                screenTextTask?.cancel()
-                recognizedScreenText = nil
-                translatedScreenText = nil
-                return
-            }
             UserDefaults.standard.set(screenTextTranslationEnabled, forKey: "screenTextTranslation")
             startScreenTextLoop()
         }

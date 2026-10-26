@@ -641,3 +641,11 @@
 "검정 글자 · 흰 배경" = "Black on White";
 
 "흰 글자 · 배경 없음" = "White without Background";
+
+"고급" = "Advanced";
+
+"고급 · 얼굴 모자이크 제거 모델" = "Advanced · Face Mosaic Removal Models";
+
+"플레이어에서 영상을 연 뒤 사용할 수 있습니다." = "Open a video in the player to use this feature.";
+
+"실험적 기능입니다. 켜면 재생 성능에 영향을 줄 수 있습니다." = "Experimental feature. Enabling it may affect playback performance.";
