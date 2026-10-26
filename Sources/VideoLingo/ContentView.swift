@@ -65,6 +65,10 @@ struct ContentView: View {
                         .help("여러 영상을 새 창에서 동시에 STT·LLM 번역합니다")
                     }
                     .buttonStyle(.bordered)
+                    Button("영상 폴더 열기…", systemImage: "folder") { model.openVideoFolder() }
+                        .buttonStyle(.bordered)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .help("폴더 안의 영상 목록을 보고 선택해서 재생합니다")
 
                     if isCurrentJobRunning {
                         Button(role: .destructive) {
@@ -385,6 +389,9 @@ private struct SimpleSidebarView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
+                Button("영상 폴더 열기…", systemImage: "folder") { model.openVideoFolder() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
                 if let url = model.mediaURL {
                     Text(url.lastPathComponent)
                         .font(.caption)
@@ -482,6 +489,8 @@ private struct ViewingSidebarView: View {
             Section("영상") {
                 Button("영상 열기…", systemImage: "film") { model.openVideo() }
                     .buttonStyle(.borderedProminent)
+                Button("영상 폴더 열기…", systemImage: "folder") { model.openVideoFolder() }
+                    .buttonStyle(.bordered)
                 if let url = model.mediaURL {
                     Text(url.lastPathComponent)
                         .font(.caption)

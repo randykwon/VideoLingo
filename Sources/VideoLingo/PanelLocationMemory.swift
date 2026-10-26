@@ -7,6 +7,8 @@ enum PanelLocationMemory {
     enum Purpose: String {
         /// 단일 영상 열기
         case video
+        /// 플레이어: 영상 목록을 표시할 폴더
+        case playerFolder
         /// 대량 번역: 영상 파일 추가
         case batchFiles
         /// 대량 번역: 검색할 폴더 추가

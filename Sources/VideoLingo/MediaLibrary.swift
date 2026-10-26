@@ -135,7 +135,7 @@ final class MediaLibrary {
                 let translated = discovered.filter(\.hasResults).count
                 self.statusMessage = String(localized: "영상 \(discovered.count)개 · STT/번역 결과 있음 \(translated)개")
             } catch is CancellationError {
-                self?.statusMessage = String(localized: "라이브러리 검색을 취소했습니다.")
+                return // A replaced scan must not clear the newer scan's progress state.
             } catch {
                 self?.statusMessage = String(localized: "라이브러리를 검색하지 못했습니다: \(error.localizedDescription)")
             }
@@ -146,6 +146,9 @@ final class MediaLibrary {
 
     func cancelScan() {
         scanTask?.cancel()
+        scanTask = nil
+        isScanning = false
+        statusMessage = String(localized: "라이브러리 검색을 취소했습니다.")
     }
 
     func revealVideo(_ item: MediaLibraryItem) {

@@ -152,6 +152,11 @@ final class AppModel {
         }
     }
 
+    /// Each window keeps its own selection; new windows restore the last chosen folder.
+    var playerFolderPath = UserDefaults.standard.string(forKey: "playerFolderPath") ?? "" {
+        didSet { UserDefaults.standard.set(playerFolderPath, forKey: "playerFolderPath") }
+    }
+
     var selectedLanguage = UserDefaults.standard.string(forKey: "selectedLanguage") ?? "ko" {
         didSet { UserDefaults.standard.set(selectedLanguage, forKey: "selectedLanguage") }
     }
@@ -615,6 +620,35 @@ final class AppModel {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         PanelLocationMemory.remember(url, purpose: .video)
         loadVideo(url, remember: true)
+    }
+
+    func openVideoFolder() {
+        let panel = NSOpenPanel()
+        panel.title = String(localized: "재생할 영상 폴더를 선택하세요")
+        panel.prompt = String(localized: "폴더 열기")
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        PanelLocationMemory.restore(into: panel, purpose: .playerFolder)
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        PanelLocationMemory.remember(folder, purpose: .playerFolder)
+        selectVideoFolder(folder)
+    }
+
+    func selectVideoFolder(_ folder: URL) {
+        playerFolderPath = folder.standardizedFileURL.path(percentEncoded: false)
+        MediaLibrary.shared.addFolders([folder])
+        playerMode = .viewing
+    }
+
+    func playLibraryVideo(_ url: URL) {
+        if mediaURL?.standardizedFileURL != url.standardizedFileURL {
+            openLibraryVideo(url)
+        }
+        guard mediaURL?.standardizedFileURL == url.standardizedFileURL,
+              player.currentItem != nil else { return }
+        player.play()
+        isPlaying = true
     }
 
     func openLibraryVideo(_ url: URL) {

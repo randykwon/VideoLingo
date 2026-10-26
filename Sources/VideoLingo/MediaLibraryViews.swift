@@ -20,37 +20,54 @@ struct PlayerMediaLibraryView: View {
     @State private var searchText = ""
 
     private var visibleItems: [MediaLibraryItem] {
-        guard !searchText.isEmpty else { return library.items }
-        return library.items.filter {
-            $0.title.localizedCaseInsensitiveContains(searchText)
-                || $0.videoURL.path.localizedCaseInsensitiveContains(searchText)
-                || $0.resultSummary.translationLanguages.contains { $0.localizedCaseInsensitiveContains(searchText) }
+        library.items.filter { item in
+            let folderMatches = model.playerFolderPath.isEmpty
+                || item.rootURL.standardizedFileURL.path(percentEncoded: false) == model.playerFolderPath
+            return folderMatches && (searchText.isEmpty
+                || item.title.localizedCaseInsensitiveContains(searchText)
+                || item.videoURL.path.localizedCaseInsensitiveContains(searchText)
+                || item.resultSummary.translationLanguages.contains { $0.localizedCaseInsensitiveContains(searchText) })
         }
     }
 
+    private var playbackSelection: Binding<String?> {
+        Binding(
+            get: { model.mediaURL?.standardizedFileURL.path(percentEncoded: false) },
+            set: { selected in
+                guard let item = visibleItems.first(where: { $0.id == selected }) else { return }
+                model.playLibraryVideo(item.videoURL)
+            }
+        )
+    }
+
     var body: some View {
+        @Bindable var model = model
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                TextField("영상·폴더·번역 언어 검색", text: $searchText)
+            Picker("영상 폴더", selection: $model.playerFolderPath) {
+                Text("모든 폴더").tag("")
+                ForEach(library.folders, id: \.path) { folder in
+                    Text(folder.lastPathComponent)
+                        .help(folder.path)
+                        .tag(folder.standardizedFileURL.path(percentEncoded: false))
+                }
+                if !model.playerFolderPath.isEmpty,
+                   !library.folders.contains(where: { $0.standardizedFileURL.path(percentEncoded: false) == model.playerFolderPath }) {
+                    Text("선택한 폴더 (사용 불가)").tag(model.playerFolderPath)
+                }
+            }
+            if !model.playerFolderPath.isEmpty {
+                Text(model.playerFolderPath)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+                    .help(model.playerFolderPath)
+            }
+            HStack(spacing: 8) {
+                TextField("영상 검색", text: $searchText)
                     .textFieldStyle(.roundedBorder)
                 Button("새로 고침", systemImage: "arrow.clockwise") { library.refresh() }
                     .labelStyle(.iconOnly)
                     .disabled(library.isScanning || library.folders.isEmpty)
                     .help("등록한 모든 폴더 다시 검색")
-                Menu("라이브러리 폴더", systemImage: "folder") {
-                    Button("폴더 추가…", systemImage: "folder.badge.plus") { library.chooseFolders() }
-                    if !library.folders.isEmpty {
-                        Divider()
-                        ForEach(library.folders, id: \.path) { folder in
-                            Menu(folder.lastPathComponent) {
-                                Button("Finder에서 보기", systemImage: "finder") { NSWorkspace.shared.open(folder) }
-                                Button("라이브러리에서 제거", systemImage: "minus.circle", role: .destructive) { library.removeFolder(folder) }
-                            }
-                        }
-                    }
-                }
-                .labelStyle(.iconOnly)
-                .help("라이브러리 폴더 관리")
             }
 
             if library.isScanning {
@@ -60,24 +77,30 @@ struct PlayerMediaLibraryView: View {
                     Spacer()
                     Button("취소", role: .cancel) { library.cancelScan() }.controlSize(.small)
                 }
-            } else if library.folders.isEmpty {
+            }
+            if library.folders.isEmpty {
                 ContentUnavailableView {
                     Label("영상 폴더를 추가하세요", systemImage: "folder.badge.plus")
                 } description: {
-                    Text("여러 폴더의 영상과 번역 결과를 한곳에서 찾을 수 있습니다.")
+                    Text("폴더와 하위 폴더의 영상을 목록에서 선택해 재생할 수 있습니다.")
                 } actions: {
-                    Button("폴더 추가…") { library.chooseFolders() }.buttonStyle(.borderedProminent)
+                    Button("영상 폴더 열기…") { model.openVideoFolder() }
+                        .buttonStyle(.borderedProminent)
                 }
-            } else if visibleItems.isEmpty {
-                ContentUnavailableView.search(text: searchText)
+            } else if visibleItems.isEmpty, !library.isScanning {
+                if !searchText.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                } else {
+                    ContentUnavailableView("영상이 없습니다", systemImage: "film.stack", description: Text("폴더가 연결되어 있는지 확인하거나 다른 폴더를 선택하세요."))
+                }
             } else {
-                List(visibleItems) { item in
-                    Button { model.openLibraryVideo(item.videoURL) } label: {
+                List(selection: playbackSelection) {
+                    ForEach(visibleItems) { item in
                         HStack(spacing: 8) {
-                            Image(systemName: item.hasResults ? "play.rectangle.fill" : "play.rectangle")
-                                .foregroundStyle(item.hasResults ? Color.green : Color.secondary)
+                            Image(systemName: model.mediaURL?.standardizedFileURL == item.videoURL.standardizedFileURL ? "play.circle.fill" : "film")
+                                .foregroundStyle(model.mediaURL?.standardizedFileURL == item.videoURL.standardizedFileURL ? Color.accentColor : Color.secondary)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(item.title).lineLimit(1)
+                                Text(item.videoURL.lastPathComponent).lineLimit(1)
                                 HStack(spacing: 6) {
                                     Text(item.directoryName)
                                     if item.resultSummary.hasTranscript { Text("STT \(item.resultSummary.transcriptSegmentCount)") }
@@ -85,27 +108,24 @@ struct PlayerMediaLibraryView: View {
                                         Text(item.resultSummary.translationLanguages.map { $0.uppercased() }.joined(separator: ", "))
                                     }
                                 }
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                                .font(.caption2).foregroundStyle(.secondary)
                             }
                             Spacer(minLength: 0)
                         }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        Button("재생", systemImage: "play.fill") { model.openLibraryVideo(item.videoURL) }
-                        Button("Finder에서 영상 보기", systemImage: "finder") { library.revealVideo(item) }
-                        Button("번역 결과 폴더 열기", systemImage: "captions.bubble") { library.revealResults(item) }
-                            .disabled(!item.hasResults)
+                        .tag(item.id)
+                        .help(item.videoURL.path)
+                        .contextMenu {
+                            Button("재생", systemImage: "play.fill") { model.playLibraryVideo(item.videoURL) }
+                            Button("Finder에서 영상 보기", systemImage: "finder") { library.revealVideo(item) }
+                            Button("번역 결과 폴더 열기", systemImage: "captions.bubble") { library.revealResults(item) }
+                                .disabled(!item.hasResults)
+                        }
                     }
                 }
-                .frame(minHeight: 180, idealHeight: 280)
+                .frame(minHeight: 200, idealHeight: 280, maxHeight: 400)
             }
-
-            if !library.statusMessage.isEmpty, !library.isScanning, !library.folders.isEmpty {
-                Text(library.statusMessage).font(.caption).foregroundStyle(.secondary).monospacedDigit()
-            }
+            Text("영상 \(visibleItems.count)개 · 선택하면 바로 재생됩니다.")
+                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
         }
     }
 }
