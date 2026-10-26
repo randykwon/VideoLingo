@@ -776,17 +776,7 @@ private struct PlayerPane: View {
                 .overlay(alignment: theme.volumeBarPosition.alignment) {
                     // 재생 조작 레이어보다 뒤에 놓아야 슬라이더 드래그가 가려지지 않습니다.
                     if model.mediaURL != nil {
-                        PlayerControlBar(
-                            volume: Binding(
-                                get: { Double(model.player.volume) },
-                                set: { model.player.volume = Float($0) }
-                            ),
-                            currentTime: model.currentTime,
-                            duration: model.duration,
-                            isPlaying: model.isPlaying,
-                            onTogglePlayback: { model.togglePlayback() },
-                            onSeek: { model.seekVideo(to: $0) }
-                        )
+                        LivePlayerControlBar()
                         .padding(theme.volumeBarPosition.edge, 12)
                     }
                 }
@@ -1321,6 +1311,21 @@ struct PlayerVideoSurface: NSViewRepresentable {
 }
 
 /// 영상 위에 겹쳐 놓는 재생 컨트롤 바입니다. 재생·타임라인·음량을 하나로 모았습니다.
+private struct LivePlayerControlBar: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        PlayerControlBar(
+            volume: Binding(get: { Double(model.player.volume) }, set: { model.player.volume = Float($0) }),
+            currentTime: model.currentTime,
+            duration: model.duration,
+            isPlaying: model.isPlaying,
+            onTogglePlayback: { model.togglePlayback() },
+            onSeek: { model.seekVideo(to: $0) }
+        )
+    }
+}
+
 struct PlayerControlBar: View {
     @Binding var volume: Double
     let currentTime: TimeInterval

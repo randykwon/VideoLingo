@@ -323,6 +323,14 @@ struct WindowModeAccessor: NSViewRepresentable {
                 }
             })
 
+            fullScreenObservers.append(center.addObserver(
+                forName: NSWindow.willCloseNotification,
+                object: window,
+                queue: .main
+            ) { [weak model] _ in
+                MainActor.assumeIsolated { model?.closePlayerWindow() }
+            })
+
             if window.styleMask.contains(.fullScreen) {
                 window.toolbar?.isVisible = false
                 model.isTheaterMode = true

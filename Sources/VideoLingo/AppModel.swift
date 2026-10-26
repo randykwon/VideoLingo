@@ -82,9 +82,21 @@ final class AppModel {
         }
     }
 
+    private static let playbackImageContext = CIContext(options: [.cacheIntermediates: false])
+
     private func applyVideoAppearance() {
+        appearanceTask?.cancel()
+        appearanceTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            guard let self, !self.playerWindowClosed else { return }
+            self.rebuildVideoAppearance()
+        }
+    }
+
+    private func rebuildVideoAppearance() {
         guard let item = player.currentItem else { return }
         let settings = videoAppearance
+        let context = Self.playbackImageContext
         if !videoAppearanceEnabled || settings == VideoAppearance() {
             item.videoComposition = nil
         } else {
@@ -104,7 +116,7 @@ final class AppModel {
                 if settings.sharpness > 0 {
                     image = image.applyingFilter("CISharpenLuminance", parameters: [kCIInputSharpnessKey: settings.sharpness])
                 }
-                request.finish(with: image.cropped(to: extent), context: nil)
+                request.finish(with: image.cropped(to: extent), context: context)
             })
         }
         // Ask AVPlayer to redraw the current frame when editing while paused.
@@ -161,6 +173,7 @@ final class AppModel {
     var screenTextTranslationEnabled = false {
         didSet {
             UserDefaults.standard.set(screenTextTranslationEnabled, forKey: "screenTextTranslation")
+            configureVideoOutput()
             startScreenTextLoop()
         }
     }
@@ -243,9 +256,15 @@ final class AppModel {
     var isTheaterMode = false
     var snapshot: JobSnapshot?
     var transcript: [TranscriptSegment] = [] {
-        didSet { updateActiveTranscriptSegment(for: currentTime) }
+        didSet {
+            subtitleIndex = PlaybackSubtitleIndex(transcript)
+            activeTranscriptSegmentIndex = nil
+            updateActiveTranscriptSegment(for: currentTime)
+        }
     }
-    var translations: [UUID: TranslationSegment] = [:]
+    var translations: [UUID: TranslationSegment] = [:] {
+        didSet { updateSubtitleText() }
+    }
     var currentTime: TimeInterval = 0 {
         didSet { updateActiveTranscriptSegment(for: currentTime) }
     }
@@ -253,6 +272,9 @@ final class AppModel {
     /// 바뀔 때만 변하므로 긴 결과 목록 전체가 불필요하게 다시 그려지지 않습니다.
     private(set) var activeTranscriptSegmentID: UUID?
     @ObservationIgnored private var activeTranscriptSegmentIndex: Int?
+    @ObservationIgnored private var subtitleIndex = PlaybackSubtitleIndex([])
+    private(set) var activeOriginalSubtitle = ""
+    private(set) var activeTranslationSubtitle: String?
     /// 영상 전체 길이입니다. AVPlayerItem의 길이는 비동기로 결정되고 관찰 대상도 아니라서,
     /// 정지 상태에서는 화면이 갱신되지 않아 타임라인이 비활성으로 남았습니다.
     var duration: TimeInterval = 0
@@ -333,6 +355,8 @@ final class AppModel {
         "mlx-community/gemma-3-1b-it-qat-4bit"
     ]
 
+    @ObservationIgnored private var playerWindowClosed = false
+    private var appearanceTask: Task<Void, Never>?
     private var videoOutput: AVPlayerItemVideoOutput?
     /// 새 작업은 60초를 사용하고, 저장된 작업을 재개할 때는 기존 청크 경계를 보존합니다.
     private var processingChunkDuration = ProcessingOptions.defaultChunkDuration
@@ -385,6 +409,35 @@ final class AppModel {
         if screenTextTranslationEnabled { startScreenTextLoop() }
     }
 
+    /// Release the decoder immediately; active AI jobs keep their checkpoint monitor until completion.
+    func closePlayerWindow() {
+        guard !playerWindowClosed else { return }
+        lastPositionSaveWallTime = 0
+        savePlaybackPositionIfNeeded()
+        playerWindowClosed = true
+        player.pause()
+        if let timeObserver { player.removeTimeObserver(timeObserver) }
+        timeObserver = nil
+        screenTextTask?.cancel()
+        appearanceTask?.cancel()
+        videoOutput = nil
+        player.replaceCurrentItem(with: nil)
+        if snapshot.map({ activeStatuses.contains($0.status) }) != true {
+            stopServiceMonitoring()
+        }
+    }
+
+    private func stopServiceMonitoring() {
+        statusTask?.cancel()
+        serviceHealthTask?.cancel()
+        reconnectTask?.cancel()
+        let oldConnection = connection
+        connection = nil
+        oldConnection?.interruptionHandler = nil
+        oldConnection?.invalidationHandler = nil
+        oldConnection?.invalidate()
+    }
+
     var activeTranscriptSegment: TranscriptSegment? {
         guard let index = activeTranscriptSegmentIndex,
               transcript.indices.contains(index),
@@ -393,42 +446,18 @@ final class AppModel {
     }
 
     private func updateActiveTranscriptSegment(for time: TimeInterval) {
-        guard time.isFinite, !transcript.isEmpty else {
-            activeTranscriptSegmentIndex = nil
-            if activeTranscriptSegmentID != nil { activeTranscriptSegmentID = nil }
-            return
-        }
-
-        if let index = activeTranscriptSegmentIndex,
-           transcript.indices.contains(index),
-           contains(time, in: transcript[index]) {
-            return
-        }
-
-        let matchedIndex: Int?
-        if let previousIndex = activeTranscriptSegmentIndex,
-           transcript.indices.contains(previousIndex) {
-            if time >= transcript[previousIndex].endTime {
-                matchedIndex = transcript.indices.dropFirst(previousIndex + 1).first {
-                    contains(time, in: transcript[$0])
-                }
-            } else if time < transcript[previousIndex].startTime {
-                matchedIndex = transcript.indices.prefix(previousIndex).reversed().first {
-                    contains(time, in: transcript[$0])
-                }
-            } else {
-                // 한 세그먼트 안의 cue 사이 공백일 수 있습니다.
-                matchedIndex = nil
-            }
-        } else {
-            matchedIndex = transcript.firstIndex { contains(time, in: $0) }
-        }
-
+        let matchedIndex = subtitleIndex.segmentIndex(at: time)
         activeTranscriptSegmentIndex = matchedIndex
         let matchedID = matchedIndex.map { transcript[$0].id }
-        if activeTranscriptSegmentID != matchedID {
-            activeTranscriptSegmentID = matchedID
-        }
+        if activeTranscriptSegmentID != matchedID { activeTranscriptSegmentID = matchedID }
+        updateSubtitleText()
+    }
+
+    private func updateSubtitleText() {
+        let original = resolvedOriginalSubtitle
+        let translation = resolvedTranslationSubtitle
+        if activeOriginalSubtitle != original { activeOriginalSubtitle = original }
+        if activeTranslationSubtitle != translation { activeTranslationSubtitle = translation }
     }
 
     private func contains(_ time: TimeInterval, in segment: TranscriptSegment) -> Bool {
@@ -439,7 +468,7 @@ final class AppModel {
         return cues.contains { time >= $0.startTime && time < $0.endTime }
     }
 
-    var activeOriginalSubtitle: String {
+    private var resolvedOriginalSubtitle: String {
         guard let segment = activeTranscriptSegment else { return "" }
         let cues = segment.cues ?? []
         guard !cues.isEmpty,
@@ -449,7 +478,7 @@ final class AppModel {
         return cue.text
     }
 
-    var activeTranslationSubtitle: String? {
+    private var resolvedTranslationSubtitle: String? {
         guard let segment = activeTranscriptSegment,
               let translation = translations[segment.id]?.text,
               !translation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
@@ -1285,6 +1314,7 @@ final class AppModel {
     }
 
     private func connectService() {
+        guard !playerWindowClosed || snapshot.map({ activeStatuses.contains($0.status) }) == true else { return }
         guard connection == nil else { return }
         serviceMessage = String(localized: "내장 AI 서버 연결 중")
         let connection = NSXPCConnection(serviceName: "com.vvv.VideoLingo.AIService")
@@ -1338,8 +1368,8 @@ final class AppModel {
         statusTask?.cancel()
         statusTask = Task { [weak self] in
             while !Task.isCancelled {
-                guard let self else { return }
-                await self.pollOnce()
+                guard self != nil else { return }
+                await self?.pollOnce()
                 // 고빈도 실시간 갱신은 재설계 전까지 중단하고 저빈도 상태 확인만 유지합니다.
                 try? await Task.sleep(for: .seconds(2))
             }
@@ -1367,6 +1397,10 @@ final class AppModel {
                 || snapshot?.refinementRevision != value.refinementRevision
             snapshot = value
             if checkpointChanged { refreshResults() }
+            if playerWindowClosed, [.completed, .failed, .cancelled].contains(value.status) {
+                stopServiceMonitoring()
+                return
+            }
             if [.completed, .failed, .cancelled].contains(value.status) {
                 statusTask?.cancel()
                 if !pendingRetryChunkIndices.isEmpty {
@@ -1397,9 +1431,11 @@ final class AppModel {
         serviceHealthTask?.cancel()
         serviceHealthTask = Task { [weak self] in
             while !Task.isCancelled {
-                guard let self else { return }
-                self.refreshServiceStatus()
-                try? await Task.sleep(for: .seconds(3))
+                guard self != nil else { return }
+                self?.refreshServiceStatus()
+                // Idle playback needs no high-frequency AI service health checks.
+                let busy = self?.snapshot.map { [.queued, .extracting, .transcribing, .translating, .synthesizing, .refining].contains($0.status) } ?? false
+                try? await Task.sleep(for: .seconds(busy ? 3 : 15))
             }
         }
     }
@@ -1484,6 +1520,18 @@ final class AppModel {
         }
     }
 
+    private func configureVideoOutput() {
+        guard let item = player.currentItem else { return }
+        if let videoOutput { item.remove(videoOutput) }
+        videoOutput = nil
+        guard screenTextTranslationEnabled else { return }
+        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+        ])
+        item.add(output)
+        videoOutput = output
+    }
+
     private func currentVideoFrame() -> CVPixelBuffer? {
         guard let output = videoOutput else { return nil }
         let time = player.currentTime()
@@ -1509,13 +1557,17 @@ final class AppModel {
     private func setupPlayerObserver() {
         let interval = CMTime(seconds: 0.2, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            Task { @MainActor in
-                self?.currentTime = time.seconds.isFinite ? time.seconds : 0
-                self?.isPlaying = self?.player.timeControlStatus == .playing
-                if let seconds = self?.player.currentItem?.duration.seconds, seconds.isFinite, seconds > 0 {
-                    self?.duration = seconds
+            MainActor.assumeIsolated {
+                guard let self, !self.playerWindowClosed else { return }
+                let seconds = time.seconds.isFinite ? time.seconds : 0
+                if self.currentTime != seconds { self.currentTime = seconds }
+                let playing = self.player.timeControlStatus == .playing
+                if self.isPlaying != playing { self.isPlaying = playing }
+                if let duration = self.player.currentItem?.duration.seconds,
+                   duration.isFinite, duration > 0, self.duration != duration {
+                    self.duration = duration
                 }
-                self?.savePlaybackPositionIfNeeded()
+                self.savePlaybackPositionIfNeeded()
             }
         }
     }
@@ -1554,12 +1606,9 @@ final class AppModel {
         demosaicManualRegions.removeAll()
         mediaURL = url
         let item = AVPlayerItem(url: url)
-        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
-        ])
-        item.add(output)
-        videoOutput = output
+        videoOutput = nil
         player.replaceCurrentItem(with: item)
+        configureVideoOutput()
         applyVideoAppearance()
         duration = 0
         // 길이는 비동기로 결정되므로, 확정되면 반영해 정지 상태에서도 타임라인이 동작하게 합니다.
@@ -1568,7 +1617,8 @@ final class AppModel {
             guard let loaded = try? await asset.load(.duration) else { return }
             let seconds = loaded.seconds
             guard seconds.isFinite, seconds > 0 else { return }
-            await MainActor.run { self?.duration = seconds }
+            guard let self, self.player.currentItem === item, !self.playerWindowClosed else { return }
+            self.duration = seconds
         }
         recognizedScreenText = nil
         translatedScreenText = nil
