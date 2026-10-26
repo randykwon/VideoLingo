@@ -165,10 +165,10 @@ struct PlayerMediaLibraryView: View {
                     .font(.caption).foregroundStyle(.secondary).monospacedDigit()
                 Spacer(minLength: 0)
                 if isTrashing { ProgressView().controlSize(.small) }
-                Button("선택 영상 휴지통 이동…", systemImage: "trash", role: .destructive) {
+                Button("삭제…", systemImage: "trash", role: .destructive) {
                     pendingTrash = selectedItem
                 }
-                .labelStyle(.iconOnly)
+                .labelStyle(.titleAndIcon)
                 .disabled(isTrashing || selectedItem == nil || selectedItem.map { AppModel.videoIsBeingProcessed($0.videoURL) } == true)
                 .help("선택한 실제 영상 파일 하나를 휴지통으로 이동합니다. 번역 중인 영상은 이동할 수 없습니다.")
             }

@@ -175,6 +175,7 @@ final class MediaLibrary {
         defer { movingVideoPaths.subtract(paths) }
         let result = await Task.detached(priority: .userInitiated) {
             var removed = 0
+            var removedPaths: Set<String> = []
             var failed: [String] = []
             for url in urls {
                 do {
@@ -186,12 +187,14 @@ final class MediaLibrary {
                     }
                     try FileManager.default.trashItem(at: url, resultingItemURL: nil)
                     removed += 1
+                    removedPaths.insert(url.standardizedFileURL.path(percentEncoded: false))
                 } catch {
                     failed.append(url.lastPathComponent)
                 }
             }
-            return (removed: removed, failed: failed)
+            return (removed: removed, failed: failed, removedPaths: removedPaths)
         }.value
+        items.removeAll { result.removedPaths.contains($0.id) }
         refresh()
         if result.failed.isEmpty { return "영상 \(result.removed)개를 휴지통으로 이동했습니다." }
         return "영상 \(result.removed)개 이동 · 실패 \(result.failed.count)개: \(result.failed.prefix(3).joined(separator: ", "))"
