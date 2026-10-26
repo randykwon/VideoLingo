@@ -49,3 +49,7 @@ The standalone process intentionally has no embedded XPC service, which also exe
 - Release build and installed app signature/hash checks passed.
 - The viewing sidebar now reserves a bounded middle region for the native file list; transport and deletion controls remain outside that scroll region. Clock updates stay in the transport child view.
 - The Mac became screen-locked during visual checks; final interactive scroll validation remains to be performed after unlocking. No production media files were deleted by the agent.
+
+## Translation-mode folder list (2026-10-26)
+
+Both advanced and simple translation sidebars reuse the viewing-mode folder list. The advanced sidebar separates the list and translation settings with a native vertical split view. Opening a folder or starting a video from this shared list preserves the current workspace mode. A standalone app-model test confirmed translation mode remains active and playback time advances; viewing-mode playback was also checked. Release build, installed signature, and binary hash checks passed.
