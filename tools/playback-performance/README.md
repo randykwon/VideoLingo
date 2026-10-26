@@ -48,7 +48,7 @@ The standalone process intentionally has no embedded XPC service, which also exe
 - Moving one selected fixture to Trash preserved its same-name copy and its sidecar results folder; both models displaying the removed file released their player items. The remaining copy became the representative and the file-operation lock was released.
 - Release build and installed app signature/hash checks passed.
 - The viewing sidebar now reserves a bounded middle region for the native file list; transport and deletion controls remain outside that scroll region. Clock updates stay in the transport child view.
-- The Mac became screen-locked during visual checks; final interactive scroll validation remains to be performed after unlocking. No production media files were deleted by the agent.
+- The Mac became screen-locked during initial visual checks. After unlocking, the installed translation-mode list was confirmed visible; an isolated test app reached the final item of a 45-name list and displayed its deletion confirmation. The selected UI-test file remained in place. No production media files were deleted by the agent.
 
 ## Translation-mode folder list (2026-10-26)
 
