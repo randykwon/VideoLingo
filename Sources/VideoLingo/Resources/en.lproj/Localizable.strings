@@ -613,3 +613,31 @@
 "흑백" = "Monochrome";
 
 "재생 화면에만 적용되며 원본 파일은 변경되지 않습니다. 조정값은 다음 영상에도 유지됩니다." = "Applies to playback only. Original files remain unchanged. Adjustments carry over to the next video.";
+
+"자막 가독성" = "Subtitle Readability";
+
+"변경 사항은 바로 적용되며 자동으로 저장됩니다." = "Changes apply immediately and are saved automatically.";
+
+"색상 조합 프리셋" = "Color Presets";
+
+"원문 자막 색상" = "Original Subtitle Color";
+
+"자막 배경 색상" = "Subtitle Background Color";
+
+"글자 불투명도" = "Text Opacity";
+
+"배경 불투명도" = "Background Opacity";
+
+"배경 0%는 투명, 100%는 불투명입니다." = "Background: 0% is transparent; 100% is opaque.";
+
+"자막 미리보기" = "Subtitle Preview";
+
+"자막 스타일 초기화" = "Reset Subtitle Style";
+
+"흰 글자 · 검정 배경" = "White on Black";
+
+"노란 글자 · 검정 배경" = "Yellow on Black";
+
+"검정 글자 · 흰 배경" = "Black on White";
+
+"흰 글자 · 배경 없음" = "White without Background";
