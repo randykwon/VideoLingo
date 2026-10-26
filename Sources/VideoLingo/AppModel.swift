@@ -272,6 +272,7 @@ final class AppModel {
     /// 바뀔 때만 변하므로 긴 결과 목록 전체가 불필요하게 다시 그려지지 않습니다.
     private(set) var activeTranscriptSegmentID: UUID?
     @ObservationIgnored private var activeTranscriptSegmentIndex: Int?
+    @ObservationIgnored private var translationLinesCache: (id: UUID, text: String, lines: [String])?
     @ObservationIgnored private var subtitleIndex = PlaybackSubtitleIndex([])
     private(set) var activeOriginalSubtitle = ""
     private(set) var activeTranslationSubtitle: String?
@@ -399,7 +400,6 @@ final class AppModel {
         }
         // 시작 시 무음 설정(기본 켜짐). 사용자가 음량을 올리면 그때부터 소리가 납니다.
         if startMuted { player.volume = 0 }
-        setupPlayerObserver()
         connectService()
         beginServiceMonitoring()
         if autoloadLastVideo {
@@ -460,14 +460,6 @@ final class AppModel {
         if activeTranslationSubtitle != translation { activeTranslationSubtitle = translation }
     }
 
-    private func contains(_ time: TimeInterval, in segment: TranscriptSegment) -> Bool {
-        let cues = segment.cues ?? []
-        if cues.isEmpty {
-            return time >= segment.startTime && time < segment.endTime
-        }
-        return cues.contains { time >= $0.startTime && time < $0.endTime }
-    }
-
     private var resolvedOriginalSubtitle: String {
         guard let segment = activeTranscriptSegment else { return "" }
         let cues = segment.cues ?? []
@@ -487,10 +479,15 @@ final class AppModel {
               let cueIndex = cues.firstIndex(where: { currentTime >= $0.startTime && currentTime < $0.endTime }) else {
             return translation
         }
-        let translatedLines = translation
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        let translatedLines: [String]
+        if let cached = translationLinesCache, cached.id == segment.id, cached.text == translation {
+            translatedLines = cached.lines
+        } else {
+            translatedLines = translation.split(separator: "\n", omittingEmptySubsequences: true)
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            translationLinesCache = (segment.id, translation, translatedLines)
+        }
         return translatedLines.indices.contains(cueIndex) ? translatedLines[cueIndex] : translation
     }
 
@@ -1605,6 +1602,7 @@ final class AppModel {
         currentRequest = nil
         demosaicManualRegions.removeAll()
         mediaURL = url
+        if timeObserver == nil { setupPlayerObserver() }
         let item = AVPlayerItem(url: url)
         videoOutput = nil
         player.replaceCurrentItem(with: item)

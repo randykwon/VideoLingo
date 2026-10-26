@@ -282,6 +282,10 @@ struct WindowModeAccessor: NSViewRepresentable {
         }
     }
 
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        coordinator.stopObserving()
+    }
+
     @MainActor
     final class Coordinator {
         private var normalFrame: NSRect?
@@ -291,6 +295,12 @@ struct WindowModeAccessor: NSViewRepresentable {
         private weak var observedWindow: NSWindow?
         private var fullScreenObservers: [NSObjectProtocol] = []
         private var toolbarWasVisible = true
+
+        func stopObserving() {
+            fullScreenObservers.forEach(NotificationCenter.default.removeObserver)
+            fullScreenObservers.removeAll()
+            observedWindow = nil
+        }
 
         func observeFullScreen(of window: NSWindow, model: AppModel) {
             guard observedWindow !== window else { return }
