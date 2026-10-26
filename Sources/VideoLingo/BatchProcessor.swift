@@ -2275,6 +2275,7 @@ struct BatchTranslationView: View {
 
             if workspaceTab == .files {
                 batchFileToolbar
+                batchDuplicateToolbar
                 Divider()
             }
 
@@ -2606,7 +2607,7 @@ struct BatchTranslationView: View {
             AttentionReviewView()
         }
         .confirmationDialog(
-            "이름이 같은 영상 \(processor.duplicateFilenameRemovalCount)개를 삭제할까요?",
+            "이름이 같은 영상 \(processor.duplicateFilenameRemovalCount)개를 휴지통으로 이동할까요?",
             isPresented: $showingSameNameTrashConfirmation,
             titleVisibility: .visible
         ) {
@@ -2678,7 +2679,7 @@ struct BatchTranslationView: View {
                 }
                 // 같은 이름이 여러 개면 한 번 눌러 바로 정리할 수 있게 메뉴 밖으로 꺼냈습니다.
                 if processor.duplicateFilenameRemovalCount > 0 {
-                    Button("중복 \(processor.duplicateFilenameRemovalCount)개 삭제", systemImage: "trash") {
+                    Button("중복 \(processor.duplicateFilenameRemovalCount)개 휴지통 이동", systemImage: "trash") {
                         showingSameNameTrashConfirmation = true
                     }
                     .disabled(processor.isRunning || isTrashingSameNameDuplicates)
@@ -2771,6 +2772,38 @@ struct BatchTranslationView: View {
         .controlSize(.small)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .background(.bar)
+    }
+
+    private var batchDuplicateToolbar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Label("같은 이름 정리", systemImage: "doc.on.doc")
+                    .font(.headline)
+                Text("중복 \(processor.duplicateFilenameRemovalCount)개")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Button("경로별 검토…", systemImage: "list.bullet.rectangle") {
+                    showingDuplicateReview = true
+                }
+                .disabled(processor.duplicateFilenameGroups.isEmpty)
+                Button("중복 파일 휴지통 이동…", systemImage: "trash") {
+                    showingSameNameTrashConfirmation = true
+                }
+                .disabled(processor.isRunning || processor.duplicateFilenameRemovalCount == 0 || isTrashingSameNameDuplicates)
+            }
+            if processor.isRunning {
+                Label("번역 실행 중에는 파일 이동이 잠깁니다. 경로별 검토는 사용할 수 있습니다.", systemImage: "lock")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text("같은 이름의 파일은 내용이 다를 수 있습니다. 경로를 확인한 뒤 휴지통으로 이동하세요.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
         .background(.bar)
     }
 

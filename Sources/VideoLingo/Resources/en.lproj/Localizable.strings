@@ -649,3 +649,15 @@
 "플레이어에서 영상을 연 뒤 사용할 수 있습니다." = "Open a video in the player to use this feature.";
 
 "실험적 기능입니다. 켜면 재생 성능에 영향을 줄 수 있습니다." = "Experimental feature. Enabling it may affect playback performance.";
+
+"같은 이름 정리" = "Same-Name Files";
+
+"중복 파일 휴지통 이동…" = "Move Duplicate Files to Trash…";
+
+"번역 실행 중에는 파일 이동이 잠깁니다. 경로별 검토는 사용할 수 있습니다." = "File moves are locked during translation. You can still review paths.";
+
+"같은 이름의 파일은 내용이 다를 수 있습니다. 경로를 확인한 뒤 휴지통으로 이동하세요." = "Files with the same name may differ in content. Review their paths before moving them to Trash.";
+
+"중복 %lld개 휴지통 이동" = "Move %lld Duplicates to Trash";
+
+"이름이 같은 영상 %lld개를 휴지통으로 이동할까요?" = "Move %lld videos with matching names to Trash?";
