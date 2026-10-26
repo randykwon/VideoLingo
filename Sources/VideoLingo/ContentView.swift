@@ -473,54 +473,41 @@ private struct SimpleSidebarView: View {
 /// AI 작업 설정을 감추고 재생·자막·화면 제어만 제공하는 영상 감상 전용 사이드바입니다.
 private struct ViewingSidebarView: View {
     @Environment(AppModel.self) private var model
+    @State private var showSettings = false
 
     var body: some View {
         @Bindable var model = model
-        Form {
-            Section {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
                 Picker("플레이어 모드", selection: $model.playerMode) {
                     ForEach(PlayerWorkspaceMode.allCases) { mode in
                         Label(mode.title, systemImage: mode.symbol).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)
-            }
-
-            Section("영상") {
-                Button("영상 열기…", systemImage: "film") { model.openVideo() }
-                    .buttonStyle(.borderedProminent)
-                Button("영상 폴더 열기…", systemImage: "folder") { model.openVideoFolder() }
-                    .buttonStyle(.bordered)
+                .labelsHidden()
+                HStack(spacing: 8) {
+                    Button("영상 열기…", systemImage: "film") { model.openVideo() }
+                    Button("폴더 열기…", systemImage: "folder") { model.openVideoFolder() }
+                }
+                .buttonStyle(.bordered)
                 if let url = model.mediaURL {
                     Text(url.lastPathComponent)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
                 }
             }
-
-            Section("영상 라이브러리") {
-                PlayerMediaLibraryView()
-            }
-
-            Section("재생") {
-                HStack(spacing: 8) {
-                    Button("10초 뒤로", systemImage: "gobackward.10") { model.seekVideo(by: -10) }
-                        .labelStyle(.iconOnly)
-                    Button(playbackTitle, systemImage: playbackSymbol) { model.togglePlayback() }
-                        .buttonStyle(.borderedProminent)
-                    Button("10초 앞으로", systemImage: "goforward.10") { model.seekVideo(by: 10) }
-                        .labelStyle(.iconOnly)
-                }
-                .controlSize(.large)
-                .disabled(model.mediaURL == nil)
-
-                Text("\(timeText(model.currentTime)) / \(timeText(duration))")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-
+            .padding(12)
+            Divider()
+            PlayerMediaLibraryView()
+                .padding(12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider()
+            VStack(alignment: .leading, spacing: 12) {
+                ViewingSidebarTransport()
+                Button("자막·화면 설정", systemImage: "gearshape") { showSettings.toggle() }
+                    .popover(isPresented: $showSettings) {
+                        Form {
             Section("자막") {
                 Toggle("자막 표시", isOn: $model.subtitlesEnabled)
                 Picker("번역 언어", selection: $model.selectedLanguage) {
@@ -553,25 +540,39 @@ private struct ViewingSidebarView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+                        }
+                        .formStyle(.grouped)
+                        .frame(width: 340, height: 400)
+                    }
+            }
+            .padding(12)
         }
-        .formStyle(.grouped)
     }
+}
 
-    private var playbackTitle: String {
-        model.player.timeControlStatus == .playing ? "일시 정지" : "재생"
-    }
+/// Keep clock updates out of the folder list and its filename grouping work.
+private struct ViewingSidebarTransport: View {
+    @Environment(AppModel.self) private var model
 
-    private var playbackSymbol: String {
-        model.player.timeControlStatus == .playing ? "pause.fill" : "play.fill"
-    }
-
-    private var duration: TimeInterval {
-        let seconds = model.player.currentItem?.duration.seconds ?? 0
-        return seconds.isFinite ? seconds : 0
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Button("10초 뒤로", systemImage: "gobackward.10") { model.seekVideo(by: -10) }
+                    .labelStyle(.iconOnly)
+                Button(model.isPlaying ? "일시 정지" : "재생", systemImage: model.isPlaying ? "pause.fill" : "play.fill") { model.togglePlayback() }
+                    .buttonStyle(.borderedProminent)
+                Button("10초 앞으로", systemImage: "goforward.10") { model.seekVideo(by: 10) }
+                    .labelStyle(.iconOnly)
+            }
+            .disabled(model.mediaURL == nil)
+            Text("\(timeText(model.currentTime)) / \(timeText(model.duration))")
+                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+        }
     }
 
     private func timeText(_ seconds: TimeInterval) -> String {
-        let value = max(0, Int(seconds.rounded(.down)))
+        let value = seconds.isFinite ? max(0, Int(seconds.rounded(.down))) : 0
         return String(format: "%d:%02d", value / 60, value % 60)
     }
 }

@@ -154,7 +154,7 @@ struct PlayerMediaLibraryView: View {
                         }
                     }
                 }
-                .frame(height: 280)
+                .frame(minHeight: 100, maxHeight: .infinity)
                 .scrollIndicators(.visible)
                 .disabled(isTrashing)
             }

@@ -701,3 +701,7 @@
 "영상 %lld개 · 동명 파일 %lld개 숨김" = "%lld videos · %lld matching names hidden";
 
 "%@\n\n선택한 파일 하나만 이동합니다. 숨겨진 동명 파일과 STT·번역 결과는 유지됩니다. Finder의 휴지통에서 복구할 수 있습니다." = "%@\n\nOnly this file will be moved. Hidden same-name files and transcript/translation results are kept. Restore it from Finder’s Trash.";
+
+"삭제…" = "Delete…";
+
+"자막·화면 설정" = "Subtitle & Display Settings";
