@@ -75,8 +75,11 @@ final class AppModel {
             applyVideoAppearance()
         }
     }
-    var videoAppearanceEnabled = true {
-        didSet { applyVideoAppearance() }
+    var videoAppearanceEnabled = UserDefaults.standard.object(forKey: "videoAppearanceEnabled") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(videoAppearanceEnabled, forKey: "videoAppearanceEnabled")
+            applyVideoAppearance()
+        }
     }
 
     private func applyVideoAppearance() {
