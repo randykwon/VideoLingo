@@ -248,6 +248,7 @@ final class BatchProcessor {
     private(set) var isScanningContentDuplicates = false
     private(set) var contentDuplicateMessage = ""
     private var connection: NSXPCConnection?
+    private var connectionGeneration = UUID()
     private var runTask: Task<Void, Never>?
     private var folderScanTask: Task<Void, Never>?
     private var resultCheckTask: Task<Void, Never>?
@@ -2135,15 +2136,17 @@ final class BatchProcessor {
         if connection == nil {
             let connection = NSXPCConnection(serviceName: "com.vvv.VideoLingo.AIService")
             connection.remoteObjectInterface = NSXPCInterface(with: VideoLingoAIServiceProtocol.self)
-            connection.invalidationHandler = { @Sendable [weak self, weak connection] in
+            let generation = UUID()
+            connectionGeneration = generation
+            connection.invalidationHandler = { @Sendable [weak self] in
                 Task { @MainActor in
-                    guard let self, self.connection === connection else { return }
+                    guard let self, self.connectionGeneration == generation else { return }
                     self.connection = nil
                 }
             }
-            connection.interruptionHandler = { @Sendable [weak self, weak connection] in
+            connection.interruptionHandler = { @Sendable [weak self] in
                 Task { @MainActor in
-                    guard let self, self.connection === connection else { return }
+                    guard let self, self.connectionGeneration == generation else { return }
                     self.connection = nil
                 }
             }
