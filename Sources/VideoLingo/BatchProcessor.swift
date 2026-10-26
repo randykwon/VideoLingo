@@ -1051,7 +1051,8 @@ final class BatchProcessor {
         // 예전에는 여기서 조용히 반환해, 시작 버튼을 눌러도 아무 일도 일어나지 않았습니다.
         var eligible: Set<UUID> = []
         for id in ids {
-            guard let index = items.firstIndex(where: { $0.id == id }), items[index].status != .completed else { continue }
+            guard let index = items.firstIndex(where: { $0.id == id }), items[index].status != .completed,
+                  !MediaLibrary.shared.isMovingVideo(items[index].url) else { continue }
             if [.failed, .cancelled].contains(items[index].status) {
                 resetForRetry(at: index)
             }

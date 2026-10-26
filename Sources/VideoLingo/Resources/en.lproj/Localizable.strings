@@ -685,3 +685,19 @@
 "폴더가 연결되어 있는지 확인하거나 다른 폴더를 선택하세요." = "Check that the folder is available, or choose another folder.";
 
 "영상 %lld개 · 선택하면 바로 재생됩니다." = "%lld videos · Select a video to play.";
+
+"영상 파일 휴지통 이동…" = "Move Video File to Trash…";
+
+"선택 영상 휴지통 이동…" = "Move Selected Video to Trash…";
+
+"선택한 실제 영상 파일 하나를 휴지통으로 이동합니다. 번역 중인 영상은 이동할 수 없습니다." = "Move only the selected video file to Trash. Videos being translated cannot be moved.";
+
+"영상 파일을 휴지통으로 이동할까요?" = "Move this video file to Trash?";
+
+"영상 파일 정리" = "Video File Cleanup";
+
+"번역 처리 중인 영상은 휴지통으로 이동할 수 없습니다." = "Videos being translated cannot be moved to Trash.";
+
+"영상 %lld개 · 동명 파일 %lld개 숨김" = "%lld videos · %lld matching names hidden";
+
+"%@\n\n선택한 파일 하나만 이동합니다. 숨겨진 동명 파일과 STT·번역 결과는 유지됩니다. Finder의 휴지통에서 복구할 수 있습니다." = "%@\n\nOnly this file will be moved. Hidden same-name files and transcript/translation results are kept. Restore it from Finder’s Trash.";

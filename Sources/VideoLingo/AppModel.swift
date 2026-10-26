@@ -425,6 +425,7 @@ final class AppModel {
 
     static func videoIsBeingProcessed(_ url: URL) -> Bool {
         let url = url.standardizedFileURL
+        if MediaLibrary.shared.isMovingVideo(url) { return true }
         let batch = BatchProcessor.shared
         if batch.isRunning, batch.items.contains(where: { $0.url.standardizedFileURL == url }) { return true }
         return liveModels.contains { box in
@@ -561,7 +562,7 @@ final class AppModel {
     }
 
     var canStart: Bool {
-        guard mediaURL != nil else { return false }
+        guard let mediaURL, !MediaLibrary.shared.isMovingVideo(mediaURL) else { return false }
         guard let status = snapshot?.status else { return true }
         return ![.queued, .extracting, .transcribing, .translating, .synthesizing, .refining].contains(status)
     }

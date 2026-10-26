@@ -28,6 +28,7 @@ final class MediaLibrary {
     private(set) var disabledFolderPaths: Set<String> = []
     private(set) var items: [MediaLibraryItem] = []
     private(set) var isScanning = false
+    private(set) var movingVideoPaths: Set<String> = []
     private(set) var statusMessage = ""
     private(set) var lastScannedAt: Date?
     @ObservationIgnored private var scanTask: Task<Void, Never>?
@@ -161,9 +162,17 @@ final class MediaLibrary {
         NSWorkspace.shared.activateFileViewerSelecting(urls)
     }
 
+    func isMovingVideo(_ url: URL) -> Bool {
+        movingVideoPaths.contains(url.standardizedFileURL.path(percentEncoded: false))
+    }
+
     func trashVideos(_ items: [MediaLibraryItem]) async -> String {
         let urls = items.map(\.videoURL)
         guard !urls.isEmpty else { return "휴지통으로 이동할 영상이 없습니다." }
+        let paths = Set(urls.map { $0.standardizedFileURL.path(percentEncoded: false) })
+        guard movingVideoPaths.isDisjoint(with: paths) else { return "이미 휴지통으로 이동 중인 영상입니다." }
+        movingVideoPaths.formUnion(paths)
+        defer { movingVideoPaths.subtract(paths) }
         let result = await Task.detached(priority: .userInitiated) {
             var removed = 0
             var failed: [String] = []
