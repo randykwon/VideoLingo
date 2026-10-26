@@ -700,3 +700,41 @@ import Testing
     #expect(ExternalLLMClient.Configuration(endpoint: "", model: "m", apiKey: nil) == nil)
     #expect(ExternalLLMClient.Configuration(endpoint: "localhost:1234", model: "", apiKey: nil) == nil)
 }
+
+@Test func playbackSubtitleIndexMatchesLinearLookupAcrossSeeksAndGaps() {
+    let job = UUID()
+    let segments = [
+        TranscriptSegment(jobID: job, chunkIndex: 0, startTime: 10, endTime: 20, text: "overlap"),
+        TranscriptSegment(jobID: job, chunkIndex: 1, startTime: 0, endTime: 30, text: "cues", cues: [
+            TranscriptCue(startTime: 0, endTime: 2, text: "first"),
+            TranscriptCue(startTime: 12, endTime: 14, text: "overlapping"),
+            TranscriptCue(startTime: 25, endTime: 30, text: "last")
+        ]),
+        TranscriptSegment(jobID: job, chunkIndex: 2, startTime: 40, endTime: 45, text: "tail")
+    ]
+    let index = PlaybackSubtitleIndex(segments)
+    let times = [-1.0, 0, 1, 2, 9, 10, 12, 14, 20, 25, 30, 40, 45, .infinity, .nan]
+    for time in times.reversed() {
+        let expected = segments.firstIndex { segment in
+            let cues = segment.cues ?? []
+            return cues.isEmpty
+                ? time >= segment.startTime && time < segment.endTime
+                : cues.contains { time >= $0.startTime && time < $0.endTime }
+        }
+        #expect(index.segmentIndex(at: time) == expected)
+    }
+    #expect(PlaybackSubtitleIndex([]).segmentIndex(at: 1) == nil)
+}
+
+@Test func playbackSubtitleIndexHandlesLongLibrariesAndInvalidIntervals() {
+    let job = UUID()
+    var segments = (0..<10_000).map { i in
+        TranscriptSegment(jobID: job, chunkIndex: i, startTime: Double(i * 3), endTime: Double(i * 3 + 1), text: "cue")
+    }
+    segments.append(TranscriptSegment(jobID: job, chunkIndex: 10_000, startTime: .nan, endTime: .infinity, text: "invalid"))
+    let index = PlaybackSubtitleIndex(segments)
+    for i in stride(from: 9_999, through: 0, by: -7) {
+        #expect(index.segmentIndex(at: Double(i * 3)) == i)
+        #expect(index.segmentIndex(at: Double(i * 3 + 2)) == nil)
+    }
+}
