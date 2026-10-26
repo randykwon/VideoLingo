@@ -738,3 +738,11 @@ import Testing
         #expect(index.segmentIndex(at: Double(i * 3 + 2)) == nil)
     }
 }
+
+@Test func playerFilenameFilterPreservesDistinctFilesAndPreferredCopy() {
+    let urls = ["/a/video.mp4", "/b/VIDEO.mp4", "/c/video.mov", "/a/cafe.mp4", "/b/café.mp4", "/c/cafe\u{301}.mp4"].map { URL(filePath: $0) }
+    #expect(MediaFilenameDeduplicator.representativeIndices(for: urls) == [0, 2, 3, 4])
+    #expect(MediaFilenameDeduplicator.representativeIndices(for: urls, preferredURL: urls[1]) == [1, 2, 3, 4])
+    #expect(MediaFilenameDeduplicator.representativeIndices(for: []) == [])
+    #expect(MediaFilenameDeduplicator.representativeIndices(for: urls, preferredURL: URL(filePath: "/missing/video.mp4")) == [0, 2, 3, 4])
+}

@@ -423,6 +423,40 @@ final class AppModel {
         for box in liveModels { box.model?.player.volume = 0 }
     }
 
+    static func videoIsBeingProcessed(_ url: URL) -> Bool {
+        let url = url.standardizedFileURL
+        let batch = BatchProcessor.shared
+        if batch.isRunning, batch.items.contains(where: { $0.url.standardizedFileURL == url }) { return true }
+        return liveModels.contains { box in
+            guard let model = box.model, model.mediaURL?.standardizedFileURL == url else { return false }
+            return model.snapshot.map { model.activeStatuses.contains($0.status) } ?? false
+        }
+    }
+
+    /// A moved file must not keep playing from an open descriptor in another window.
+    static func releaseDeletedVideo(_ url: URL) {
+        for box in liveModels {
+            guard let model = box.model, model.mediaURL?.standardizedFileURL == url.standardizedFileURL else { continue }
+            model.player.pause()
+            model.player.replaceCurrentItem(with: nil)
+            model.videoOutput = nil
+            model.appearanceTask?.cancel()
+            model.mediaURL = nil
+            model.isPlaying = false
+            model.duration = 0
+            model.currentTime = 0
+            model.transcript = []
+            model.translations = [:]
+            model.recognizedScreenText = nil
+            model.translatedScreenText = nil
+            model.snapshot = nil
+            model.currentJobID = nil
+            model.currentRequest = nil
+            model.statusTask?.cancel()
+            model.resultDirectoryURL = nil
+        }
+    }
+
     init(autoloadLastVideo: Bool = true) {
         AppModel.liveModels.removeAll { $0.model == nil }
         AppModel.liveModels.append(WeakModelBox(self))

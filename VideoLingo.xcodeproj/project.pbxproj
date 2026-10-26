@@ -47,6 +47,7 @@
 		9D86CCF6AD6AFD5D22FEF48D /* RemoteWorkerClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7F9084D8CDF7DA4C10CD51 /* RemoteWorkerClient.swift */; };
 		9EB513A8FC7BA8E4E6779740 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = A9A5493549E0483F23505EDF /* Localizable.strings */; };
 		9ED15EC1D94252A1C51E13B0 /* BatchProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 709523048B431CBC0307F264 /* BatchProcessor.swift */; };
+		A0A26E93DD56C21B6E97AF4C /* MediaFilenameDeduplicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6D9A04CC36771C743BB21CF /* MediaFilenameDeduplicator.swift */; };
 		A5BDE1A2E1B2923093E32A58 /* VideoLingoCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; };
 		A61F1F9BDF5073A83EB01D09 /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4B5CA03129456DF44AEC88F4 /* FoundationModels.framework */; };
 		A94967282F5BAD8D0265DBC8 /* RemoteWorkerInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45FA6A183D82B1561541968F /* RemoteWorkerInstaller.swift */; };
@@ -186,6 +187,7 @@
 		A69BCC96C71BB567B63C4A3F /* RemoteServerMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteServerMetrics.swift; sourceTree = "<group>"; };
 		A77000A3238B525A3BBEB590 /* ServiceDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServiceDelegate.swift; sourceTree = "<group>"; };
 		A9330574CAEDAD64EBA366D5 /* VideoLingoMobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = VideoLingoMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B6D9A04CC36771C743BB21CF /* MediaFilenameDeduplicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaFilenameDeduplicator.swift; sourceTree = "<group>"; };
 		B7CD60344D8EAC5BD9D96EC7 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		C0F318A10C1BFFF17672455A /* MediaLibraryViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibraryViews.swift; sourceTree = "<group>"; };
 		C57EADFA1E673C871BB0BC1E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -332,6 +334,7 @@
 				706A159B88AE7E7F0E3B8EEE /* AppPaths.swift */,
 				C6CF6AE62B2660E16CC59D41 /* ExternalLLMClient.swift */,
 				4A14B444585205085F771932 /* JobStore.swift */,
+				B6D9A04CC36771C743BB21CF /* MediaFilenameDeduplicator.swift */,
 				646E49E8FB61BA60715DD692 /* MediaSidecarStore.swift */,
 				301CAE7D02DB599971B5DA8D /* Models.swift */,
 				71060A2117004A8B4E49F458 /* RemoteWorkerProtocol.swift */,
@@ -606,6 +609,7 @@
 				F1FBFD40AF667E1104575C7B /* AppPaths.swift in Sources */,
 				FEFCAF89EBC417A671E65E2E /* ExternalLLMClient.swift in Sources */,
 				F7E331D7AD07DA1808DA09B6 /* JobStore.swift in Sources */,
+				A0A26E93DD56C21B6E97AF4C /* MediaFilenameDeduplicator.swift in Sources */,
 				90D2545110A5EC29AB25B524 /* MediaSidecarStore.swift in Sources */,
 				5177BD6DE1C97C6978D5BA3D /* Models.swift in Sources */,
 				297D051225F60461BEF392DA /* RemoteWorkerProtocol.swift in Sources */,

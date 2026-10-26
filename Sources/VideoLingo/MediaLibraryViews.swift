@@ -1,6 +1,7 @@
 import AppKit
 import AVKit
 import SwiftUI
+import VideoLingoCore
 
 private enum MediaLibraryResultFilter: String, CaseIterable, Identifiable {
     case all, translated, untranslated
@@ -18,8 +19,11 @@ struct PlayerMediaLibraryView: View {
     @Environment(AppModel.self) private var model
     @State private var library = MediaLibrary.shared
     @State private var searchText = ""
+    @State private var pendingTrash: MediaLibraryItem?
+    @State private var isTrashing = false
+    @State private var trashMessage = ""
 
-    private var visibleItems: [MediaLibraryItem] {
+    private var matchingItems: [MediaLibraryItem] {
         let folderPrefix = model.playerFolderPath.hasSuffix("/") ? model.playerFolderPath : model.playerFolderPath + "/"
         return library.items.filter { item in
             let folderMatches = model.playerFolderPath.isEmpty
@@ -29,6 +33,16 @@ struct PlayerMediaLibraryView: View {
                 || item.videoURL.path.localizedCaseInsensitiveContains(searchText)
                 || item.resultSummary.translationLanguages.contains { $0.localizedCaseInsensitiveContains(searchText) })
         }
+    }
+
+    private var visibleItems: [MediaLibraryItem] {
+        let items = matchingItems
+        return MediaFilenameDeduplicator.representativeIndices(for: items.map(\.videoURL), preferredURL: model.mediaURL)
+            .map { items[$0] }
+    }
+
+    private var selectedItem: MediaLibraryItem? {
+        visibleItems.first { $0.videoURL.standardizedFileURL == model.mediaURL?.standardizedFileURL }
     }
 
     private var playbackSelection: Binding<String?> {
@@ -134,16 +148,62 @@ struct PlayerMediaLibraryView: View {
                             Button("Finder에서 영상 보기", systemImage: "finder") { library.revealVideo(item) }
                             Button("번역 결과 폴더 열기", systemImage: "captions.bubble") { library.revealResults(item) }
                                 .disabled(!item.hasResults)
+                            Divider()
+                            Button("영상 파일 휴지통 이동…", systemImage: "trash", role: .destructive) {
+                                pendingTrash = item
+                            }
+                            .disabled(isTrashing || AppModel.videoIsBeingProcessed(item.videoURL))
                         }
                     }
                 }
-                .frame(minHeight: 200, idealHeight: 280, maxHeight: 400)
+                .frame(height: 280)
+                .scrollIndicators(.visible)
+                .disabled(isTrashing)
             }
-            Text("영상 \(visibleItems.count)개 · 선택하면 바로 재생됩니다.")
-                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            HStack(spacing: 8) {
+                Text("영상 \(visibleItems.count)개 · 동명 파일 \(matchingItems.count - visibleItems.count)개 숨김")
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                Spacer(minLength: 0)
+                if isTrashing { ProgressView().controlSize(.small) }
+                Button("선택 영상 휴지통 이동…", systemImage: "trash", role: .destructive) {
+                    pendingTrash = selectedItem
+                }
+                .labelStyle(.iconOnly)
+                .disabled(isTrashing || selectedItem == nil || selectedItem.map { AppModel.videoIsBeingProcessed($0.videoURL) } == true)
+                .help("선택한 실제 영상 파일 하나를 휴지통으로 이동합니다. 번역 중인 영상은 이동할 수 없습니다.")
+            }
         }
         .onChange(of: model.playerFolderPath) { _, _ in searchText = "" }
+        .confirmationDialog("영상 파일을 휴지통으로 이동할까요?", isPresented: Binding(
+            get: { pendingTrash != nil },
+            set: { if !$0 { pendingTrash = nil } }
+        ), titleVisibility: .visible, presenting: pendingTrash) { item in
+            Button("휴지통으로 이동", role: .destructive) { moveToTrash(item) }
+            Button("취소", role: .cancel) {}
+        } message: { item in
+            Text("\(item.videoURL.path)\n\n선택한 파일 하나만 이동합니다. 숨겨진 동명 파일과 STT·번역 결과는 유지됩니다. Finder의 휴지통에서 복구할 수 있습니다.")
+        }
+        .alert("영상 파일 정리", isPresented: Binding(
+            get: { !trashMessage.isEmpty },
+            set: { if !$0 { trashMessage = "" } }
+        )) { Button("확인", role: .cancel) { trashMessage = "" } } message: { Text(trashMessage) }
     }
+    private func moveToTrash(_ item: MediaLibraryItem) {
+        guard !isTrashing else { return }
+        guard !AppModel.videoIsBeingProcessed(item.videoURL) else {
+            trashMessage = String(localized: "번역 처리 중인 영상은 휴지통으로 이동할 수 없습니다.")
+            return
+        }
+        isTrashing = true
+        Task {
+            defer { isTrashing = false }
+            trashMessage = await library.trashVideos([item])
+            if !FileManager.default.fileExists(atPath: item.videoURL.path) {
+                AppModel.releaseDeletedVideo(item.videoURL)
+            }
+        }
+    }
+
 }
 
 struct BatchMediaLibraryView: View {

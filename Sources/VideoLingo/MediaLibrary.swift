@@ -169,6 +169,12 @@ final class MediaLibrary {
             var failed: [String] = []
             for url in urls {
                 do {
+                    let accessed = url.startAccessingSecurityScopedResource()
+                    defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                    let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+                    guard values.isRegularFile == true, values.isSymbolicLink != true else {
+                        throw CocoaError(.fileWriteNoPermission)
+                    }
                     try FileManager.default.trashItem(at: url, resultingItemURL: nil)
                     removed += 1
                 } catch {
