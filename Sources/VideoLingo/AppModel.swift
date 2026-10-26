@@ -30,12 +30,12 @@ enum VideoAppearancePreset: String, CaseIterable, Identifiable {
     var id: Self { self }
     var title: String {
         switch self {
-        case .original: "원본"
-        case .vivid: "선명하게"
-        case .warm: "따뜻하게"
-        case .cool: "차갑게"
-        case .cinema: "시네마"
-        case .monochrome: "흑백"
+        case .original: String(localized: "원본")
+        case .vivid: String(localized: "선명하게")
+        case .warm: String(localized: "따뜻하게")
+        case .cool: String(localized: "차갑게")
+        case .cinema: String(localized: "시네마")
+        case .monochrome: String(localized: "흑백")
         }
     }
     var appearance: VideoAppearance {

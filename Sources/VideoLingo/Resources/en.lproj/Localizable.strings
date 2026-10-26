@@ -581,3 +581,35 @@
 "진행 %lld건" = "%lld in flight";
 "%lld초 전 · 누적 %lld건" = "%llds ago · %lld total";
 "%lld분 전 · 누적 %lld건" = "%lldm ago · %lld total";
+
+"화면 조정" = "Picture Adjustments";
+
+"조정 효과 적용" = "Apply Adjustments";
+
+"끄면 원본 화면과 비교할 수 있습니다. 조정값은 유지됩니다." = "Turn off to compare with the original. Your adjustments are kept.";
+
+"사용자 지정" = "Custom";
+
+"밝기" = "Brightness";
+
+"명암" = "Contrast";
+
+"채도" = "Saturation";
+
+"색온도" = "Warmth";
+
+"선명도" = "Sharpness";
+
+"원본" = "Original";
+
+"선명하게" = "Vivid";
+
+"따뜻하게" = "Warm";
+
+"차갑게" = "Cool";
+
+"시네마" = "Cinema";
+
+"흑백" = "Monochrome";
+
+"재생 화면에만 적용되며 원본 파일은 변경되지 않습니다. 조정값은 다음 영상에도 유지됩니다." = "Applies to playback only. Original files remain unchanged. Adjustments carry over to the next video.";
