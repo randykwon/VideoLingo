@@ -68,6 +68,20 @@ struct PlayerMediaLibraryView: View {
                     .labelStyle(.iconOnly)
                     .disabled(library.isScanning || library.folders.isEmpty)
                     .help("등록한 모든 폴더 다시 검색")
+                Menu("라이브러리 폴더", systemImage: "folder") {
+                    Button("영상 폴더 열기…", systemImage: "folder.badge.plus") { model.openVideoFolder() }
+                    ForEach(library.folders, id: \.path) { folder in
+                        Menu(folder.lastPathComponent) {
+                            Button("Finder에서 보기", systemImage: "finder") { NSWorkspace.shared.open(folder) }
+                            Button("라이브러리에서 제거", systemImage: "minus.circle") {
+                                if model.playerFolderPath == folder.standardizedFileURL.path(percentEncoded: false) { model.playerFolderPath = "" }
+                                library.removeFolder(folder)
+                            }
+                        }
+                    }
+                }
+                .labelStyle(.iconOnly)
+                .help("라이브러리 폴더 관리")
             }
 
             if library.isScanning {
@@ -127,6 +141,7 @@ struct PlayerMediaLibraryView: View {
             Text("영상 \(visibleItems.count)개 · 선택하면 바로 재생됩니다.")
                 .font(.caption).foregroundStyle(.secondary).monospacedDigit()
         }
+        .onChange(of: model.playerFolderPath) { _, _ in searchText = "" }
     }
 }
 

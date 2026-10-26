@@ -661,3 +661,27 @@
 "중복 %lld개 휴지통 이동" = "Move %lld Duplicates to Trash";
 
 "이름이 같은 영상 %lld개를 휴지통으로 이동할까요?" = "Move %lld videos with matching names to Trash?";
+
+"영상 폴더 열기…" = "Open Video Folder…";
+
+"폴더 안의 영상 목록을 보고 선택해서 재생합니다" = "Browse videos in a folder and select one to play";
+
+"재생할 영상 폴더를 선택하세요" = "Choose a Folder to Browse Videos";
+
+"폴더 열기" = "Open Folder";
+
+"영상 폴더" = "Video Folder";
+
+"모든 폴더" = "All Folders";
+
+"선택한 폴더 (사용 불가)" = "Selected Folder (Unavailable)";
+
+"영상 검색" = "Search Videos";
+
+"폴더와 하위 폴더의 영상을 목록에서 선택해 재생할 수 있습니다." = "Browse videos in the folder and its subfolders, then select one to play.";
+
+"영상이 없습니다" = "No Videos";
+
+"폴더가 연결되어 있는지 확인하거나 다른 폴더를 선택하세요." = "Check that the folder is available, or choose another folder.";
+
+"영상 %lld개 · 선택하면 바로 재생됩니다." = "%lld videos · Select a video to play.";
