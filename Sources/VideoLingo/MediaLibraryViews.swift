@@ -20,9 +20,10 @@ struct PlayerMediaLibraryView: View {
     @State private var searchText = ""
 
     private var visibleItems: [MediaLibraryItem] {
-        library.items.filter { item in
+        let folderPrefix = model.playerFolderPath.hasSuffix("/") ? model.playerFolderPath : model.playerFolderPath + "/"
+        return library.items.filter { item in
             let folderMatches = model.playerFolderPath.isEmpty
-                || item.rootURL.standardizedFileURL.path(percentEncoded: false) == model.playerFolderPath
+                || item.videoURL.standardizedFileURL.path(percentEncoded: false).hasPrefix(folderPrefix)
             return folderMatches && (searchText.isEmpty
                 || item.title.localizedCaseInsensitiveContains(searchText)
                 || item.videoURL.path.localizedCaseInsensitiveContains(searchText)
