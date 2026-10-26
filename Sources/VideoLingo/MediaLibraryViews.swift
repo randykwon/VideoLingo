@@ -41,10 +41,6 @@ struct PlayerMediaLibraryView: View {
             .map { items[$0] }
     }
 
-    private var selectedItem: MediaLibraryItem? {
-        visibleItems.first { $0.videoURL.standardizedFileURL == model.mediaURL?.standardizedFileURL }
-    }
-
     private var playbackSelection: Binding<String?> {
         Binding(
             get: { model.mediaURL?.standardizedFileURL.path(percentEncoded: false) },
@@ -57,6 +53,8 @@ struct PlayerMediaLibraryView: View {
 
     var body: some View {
         @Bindable var model = model
+        let items = visibleItems
+        let selectedItem = items.first { $0.videoURL.standardizedFileURL == model.mediaURL?.standardizedFileURL }
         VStack(alignment: .leading, spacing: 8) {
             Picker("영상 폴더", selection: $model.playerFolderPath) {
                 Text("모든 폴더").tag("")
@@ -116,7 +114,7 @@ struct PlayerMediaLibraryView: View {
                     Button("영상 폴더 열기…") { model.openVideoFolder() }
                         .buttonStyle(.borderedProminent)
                 }
-            } else if visibleItems.isEmpty, !library.isScanning {
+            } else if items.isEmpty, !library.isScanning {
                 if !searchText.isEmpty {
                     ContentUnavailableView.search(text: searchText)
                 } else {
@@ -124,7 +122,7 @@ struct PlayerMediaLibraryView: View {
                 }
             } else {
                 List(selection: playbackSelection) {
-                    ForEach(visibleItems) { item in
+                    ForEach(items) { item in
                         HStack(spacing: 8) {
                             Image(systemName: model.mediaURL?.standardizedFileURL == item.videoURL.standardizedFileURL ? "play.circle.fill" : "film")
                                 .foregroundStyle(model.mediaURL?.standardizedFileURL == item.videoURL.standardizedFileURL ? Color.accentColor : Color.secondary)
@@ -161,7 +159,7 @@ struct PlayerMediaLibraryView: View {
                 .disabled(isTrashing)
             }
             HStack(spacing: 8) {
-                Text("영상 \(visibleItems.count)개 · 동명 파일 \(matchingItems.count - visibleItems.count)개 숨김")
+                Text("영상 \(items.count)개 · 동명 파일 \(matchingItems.count - items.count)개 숨김")
                     .font(.caption).foregroundStyle(.secondary).monospacedDigit()
                 Spacer(minLength: 0)
                 if isTrashing { ProgressView().controlSize(.small) }
