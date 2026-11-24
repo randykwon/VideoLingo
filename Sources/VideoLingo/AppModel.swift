@@ -304,8 +304,8 @@ final class AppModel {
         }
     }
 
-    // 얼굴 모자이크 제거(디모자이크) 옵션
-    var demosaicModel = DemosaicModel(rawValue: UserDefaults.standard.string(forKey: "demosaicModel") ?? "classical") ?? .classical {
+    // 영상 복원 · 모자이크 제거(3트랙) 옵션
+    var demosaicModel = DemosaicModel(rawValue: UserDefaults.standard.string(forKey: "demosaicModel") ?? "lamaCoreML") ?? .lamaCoreML {
         didSet { UserDefaults.standard.set(demosaicModel.rawValue, forKey: "demosaicModel") }
     }
     var demosaicRegionMode = DemosaicRegionMode(rawValue: UserDefaults.standard.string(forKey: "demosaicRegionMode") ?? "") ?? .face {
@@ -316,6 +316,25 @@ final class AppModel {
     }
     var demosaicWatermark = UserDefaults.standard.object(forKey: "demosaicWatermark") as? Bool ?? true {
         didSet { UserDefaults.standard.set(demosaicWatermark, forKey: "demosaicWatermark") }
+    }
+    /// 테스트 구간 길이(초). 0이면 전체 영상, 5/10/30이면 현재 재생 위치부터 해당 초만큼 테스트합니다.
+    var demosaicClipDurationSeconds = UserDefaults.standard.object(forKey: "demosaicClipDurationSeconds") as? Double ?? 5 {
+        didSet { UserDefaults.standard.set(demosaicClipDurationSeconds, forKey: "demosaicClipDurationSeconds") }
+    }
+    var demosaicExternalBackend = VideoEnhancerBackend(rawValue: UserDefaults.standard.string(forKey: "demosaicExternalBackend") ?? "") ?? .comfyUI {
+        didSet { UserDefaults.standard.set(demosaicExternalBackend.rawValue, forKey: "demosaicExternalBackend") }
+    }
+    var demosaicComfyUIURL = UserDefaults.standard.string(forKey: "demosaicComfyUIURL") ?? "http://127.0.0.1:8188" {
+        didSet { UserDefaults.standard.set(demosaicComfyUIURL, forKey: "demosaicComfyUIURL") }
+    }
+    var demosaicComfyUIWorkflowPath = UserDefaults.standard.string(forKey: "demosaicComfyUIWorkflowPath") ?? "" {
+        didSet { UserDefaults.standard.set(demosaicComfyUIWorkflowPath, forKey: "demosaicComfyUIWorkflowPath") }
+    }
+    var demosaicFlashVSRScale = UserDefaults.standard.object(forKey: "demosaicFlashVSRScale") as? Int ?? 2 {
+        didSet { UserDefaults.standard.set(demosaicFlashVSRScale == 4 ? 4 : 2, forKey: "demosaicFlashVSRScale") }
+    }
+    var demosaicPrompt = UserDefaults.standard.string(forKey: "demosaicPrompt") ?? "" {
+        didSet { UserDefaults.standard.set(demosaicPrompt, forKey: "demosaicPrompt") }
     }
     /// 현재 영상에서 사용자가 직접 지정한 모자이크 영역입니다. 영상이 바뀌면 다시 지정합니다.
     var demosaicManualRegions: [DemosaicRegion] = []
@@ -1145,12 +1164,27 @@ final class AppModel {
     }
 
     var canStartDemosaic: Bool {
-        mediaURL != nil
+        let needsManualRegions = demosaicRegionMode == .manual
+            && demosaicModel != .flashVSRMLX
+            && demosaicModel != .seedVR2
+        return mediaURL != nil
             && canMutateStorage
-            && (demosaicRegionMode != .manual || !demosaicManualRegions.isEmpty)
+            && (!needsManualRegions || !demosaicManualRegions.isEmpty)
     }
 
-    /// 현재 영상의 얼굴 모자이크 제거를 시작합니다. (STT·번역과 별개의 작업)
+    var demosaicTrack: VideoEnhancerTrack {
+        get { demosaicModel.track }
+        set {
+            guard demosaicModel.track != newValue else { return }
+            switch newValue {
+            case .coreMLNative: demosaicModel = .lamaCoreML
+            case .mlxFlashVSR: demosaicModel = .flashVSRMLX
+            case .comfyOrUVMPS: demosaicModel = .wanVACE
+            }
+        }
+    }
+
+    /// 현재 영상의 복원/모자이크 제거를 시작합니다. (STT·번역과 별개의 작업)
     func startDemosaic() {
         guard let mediaURL, canStartDemosaic else { return }
         errorMessage = nil
@@ -1164,13 +1198,25 @@ final class AppModel {
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )
+            let currentSec = player.currentTime().seconds
+            let clipStart: Double? = (demosaicClipDurationSeconds > 0 && currentSec.isFinite && currentSec >= 0) ? currentSec : nil
+            let clipDuration: Double? = demosaicClipDurationSeconds > 0 ? demosaicClipDurationSeconds : nil
+            let workflowTrimmed = demosaicComfyUIWorkflowPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            let promptTrimmed = demosaicPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
             let options = DemosaicOptions(
                 model: demosaicModel,
                 regionMode: demosaicRegionMode,
                 fidelity: demosaicFidelity,
                 temporalStabilization: true,
                 watermarkSynthetic: demosaicWatermark,
-                manualRegions: demosaicManualRegions
+                manualRegions: demosaicManualRegions,
+                clipStartSeconds: clipStart,
+                clipDurationSeconds: clipDuration,
+                externalBackend: demosaicExternalBackend,
+                comfyUIBaseURL: demosaicComfyUIURL,
+                comfyUIWorkflowPath: workflowTrimmed.isEmpty ? nil : workflowTrimmed,
+                flashVSRScale: demosaicFlashVSRScale == 4 ? 4 : 2,
+                prompt: promptTrimmed.isEmpty ? nil : promptTrimmed
             )
             let request = StartDemosaicRequest(
                 jobID: jobID,

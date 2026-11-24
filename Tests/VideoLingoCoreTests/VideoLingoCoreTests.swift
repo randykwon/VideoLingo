@@ -1117,3 +1117,70 @@ import Testing
     let ollamaList = Data(#"{"models":[{"name":"qwen2.5:7b"},{"name":"llama3.2:3b"}]}"#.utf8)
     #expect(try ExternalLLMClient.parseModelList(ollamaList) == ["llama3.2:3b", "qwen2.5:7b"])
 }
+
+@Test func videoRestorationThreeTracksAndComfyUIWorkflowBuilderWork() throws {
+    // 1. 3가지 트랙 분류 및 카탈로그 확인
+    #expect(DemosaicModel.lamaCoreML.track == .coreMLNative)
+    #expect(DemosaicModel.realESRGAN.track == .coreMLNative)
+    #expect(DemosaicModel.gfpganCoreML.track == .coreMLNative)
+    #expect(DemosaicModel.flashVSRMLX.track == .mlxFlashVSR)
+    #expect(DemosaicModel.wanVACE.track == .comfyOrUVMPS)
+    #expect(DemosaicModel.seedVR2.track == .comfyOrUVMPS)
+
+    let downloadablePresets = VideoRestorationCatalog.coreMLPresets.filter { $0.downloadURL != nil }
+    #expect(downloadablePresets.count == 3)
+    #expect(VideoRestorationCatalog.coreMLPreset(for: .lamaCoreML)?.id == "lama")
+
+    // 2. 구버전 DemosaicOptions JSON 하위 호환 디코딩 + 신버전 라운드트립
+    let legacyJSON = Data(#"{"model":"realESRGAN","regionMode":"face","fidelity":0.7,"temporalStabilization":true,"watermarkSynthetic":true,"manualRegions":[]}"#.utf8)
+    let legacyDecoded = try WireCodec.decode(DemosaicOptions.self, from: legacyJSON)
+    #expect(legacyDecoded.model == .realESRGAN)
+    #expect(legacyDecoded.externalBackend == .comfyUI)
+    #expect(legacyDecoded.flashVSRScale == 2)
+    #expect(legacyDecoded.clipDurationSeconds == nil)
+
+    let modern = DemosaicOptions(
+        model: .wanVACE,
+        regionMode: .manual,
+        manualRegions: [DemosaicRegion(x: 0.2, y: 0.2, width: 0.3, height: 0.3)],
+        clipStartSeconds: 12.5,
+        clipDurationSeconds: 5.0,
+        externalBackend: .localWorker,
+        comfyUIBaseURL: "http://127.0.0.1:8188",
+        flashVSRScale: 4,
+        prompt: "clean background"
+    )
+    let modernDecoded = try WireCodec.decode(DemosaicOptions.self, from: WireCodec.encode(modern))
+    #expect(modernDecoded == modern)
+
+    // 3. ComfyUI 기본 워크플로 및 커스텀 템플릿 치환
+    let params = ComfyUIWorkflowBuilder.TemplateParameters(
+        inputVideoFilename: "clip.mp4",
+        maskVideoFilename: "mask.mp4",
+        promptText: "sharp restoration",
+        outputPrefix: "test_out",
+        frameRate: 30,
+        width: 1280,
+        height: 720
+    )
+    let seedData = try ComfyUIWorkflowBuilder.defaultSeedVR2Workflow(parameters: params)
+    let seedObj = try #require(JSONSerialization.jsonObject(with: seedData) as? [String: Any])
+    let seedPrompt = try #require(seedObj["prompt"] as? [String: Any])
+    #expect(seedPrompt["4"] != nil)
+
+    let vaceData = try ComfyUIWorkflowBuilder.defaultWanVACEWorkflow(parameters: params)
+    let vaceObj = try #require(JSONSerialization.jsonObject(with: vaceData) as? [String: Any])
+    let vacePrompt = try #require(vaceObj["prompt"] as? [String: Any])
+    #expect(vacePrompt["7"] != nil)
+    #expect(vacePrompt["11"] != nil)
+
+    let custom = try ComfyUIWorkflowBuilder.renderCustomWorkflow(
+        jsonString: #"{"1":{"class_type":"VHS_LoadVideo","inputs":{"video":"{{INPUT_VIDEO}}","mask":"{{MASK_VIDEO}}"}}}"#,
+        model: .wanVACE,
+        parameters: params
+    )
+    let customStr = try #require(String(data: custom, encoding: .utf8))
+    #expect(customStr.contains("\"prompt\""))
+    #expect(customStr.contains("clip.mp4"))
+    #expect(customStr.contains("mask.mp4"))
+}

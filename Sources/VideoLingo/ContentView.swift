@@ -1133,54 +1133,197 @@ private struct RightMouseDragSurface: NSViewRepresentable {
 private struct DemosaicSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @State private var setup = VideoEnhancerSetupManager.shared
+
+    private var supportsRegionSelection: Bool {
+        model.demosaicModel != .flashVSRMLX && model.demosaicModel != .seedVR2
+    }
+
+    private var currentTimestampLabel: String {
+        let sec = max(0, model.player.currentTime().seconds)
+        guard sec.isFinite else { return "00:00" }
+        let total = Int(sec.rounded(.down))
+        return String(format: "%02d:%02d", total / 60, total % 60)
+    }
+
+    private var activeCoreMLRecord: ManagedModelRecord? {
+        guard let id = model.demosaicModel.coreMLModelID else { return nil }
+        return model.managedModel(kind: .demosaic, modelID: id)
+    }
 
     var body: some View {
         @Bindable var model = model
-        VStack(alignment: .leading, spacing: 0) {
-            Text("화면 모자이크 복원")
-                .font(.title2.weight(.semibold))
-                .padding(.bottom, 4)
-            Text("모자이크는 비가역 손실이라 원본 복구가 아니라 AI 재구성입니다. 복원된 내용은 실제 원본과 다를 수 있으므로 권리 있는 영상에만 사용하세요.")
+        let trackBinding = Binding<VideoEnhancerTrack>(
+            get: { model.demosaicTrack },
+            set: { model.demosaicTrack = $0 }
+        )
+
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("영상 복원 · 모자이크 제거 테스트")
+                    .font(.title2.weight(.semibold))
+                Text("3가지 오픈 웨이트 엔진 트랙을 선택해 짧은 테스트 구간(5초~30초) 또는 전체 영상으로 비교할 수 있습니다. 결과는 AI 재구성이며 권리 있는 영상에만 사용하세요.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Picker("엔진 트랙", selection: trackBinding) {
+                ForEach(VideoEnhancerTrack.allCases) { track in
+                    Text(track.title).tag(track)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            Text(model.demosaicTrack.shortDescription)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .padding(.bottom, 12)
+
             Form {
-                Picker("복원 모델", selection: $model.demosaicModel) {
-                    Text("기본(Core Image)").tag(DemosaicModel.classical)
-                    Text("Real-ESRGAN (모델 필요)").tag(DemosaicModel.realESRGAN)
-                    Text("CodeFormer (모델 필요)").tag(DemosaicModel.codeFormer)
+                Section("모델 및 준비 상태") {
+                    switch model.demosaicTrack {
+                    case .coreMLNative:
+                        Picker("CoreML 모델", selection: $model.demosaicModel) {
+                            ForEach(DemosaicModel.models(for: .coreMLNative)) { item in
+                                let badge: String = {
+                                    if item == .classical { return " · 즉시 실행" }
+                                    guard let id = item.coreMLModelID else { return "" }
+                                    return setup.installedCoreMLIDs.contains(id) ? " ✓" : " · 다운로드 필요"
+                                }()
+                                Text(item.displayName + badge).tag(item)
+                            }
+                        }
+                        if let preset = VideoRestorationCatalog.coreMLPreset(for: model.demosaicModel) {
+                            coreMLPresetStatusRow(preset)
+                        }
+
+                    case .mlxFlashVSR:
+                        LabeledContent("모델") {
+                            Text("FlashVSR v1.1 (mlx-community/FlashVSR-v1.1-bf16 · 3.5 GB)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Picker("출력 배율", selection: $model.demosaicFlashVSRScale) {
+                            Text("×2 (빠른 테스트 권장)").tag(2)
+                            Text("×4 (네이티브 고해상도)").tag(4)
+                        }
+                        .pickerStyle(.segmented)
+                        flashVSRStatusRow
+
+                    case .comfyOrUVMPS:
+                        Picker("모델", selection: $model.demosaicModel) {
+                            ForEach(DemosaicModel.models(for: .comfyOrUVMPS)) { item in
+                                Text(item.displayName).tag(item)
+                            }
+                        }
+                        Picker("실행 백엔드", selection: $model.demosaicExternalBackend) {
+                            ForEach(VideoEnhancerBackend.allCases) { backend in
+                                Text(backend.title).tag(backend)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        if model.demosaicExternalBackend == .comfyUI {
+                            HStack(spacing: 8) {
+                                TextField("ComfyUI 주소", text: $model.demosaicComfyUIURL)
+                                    .textFieldStyle(.roundedBorder)
+                                Button {
+                                    setup.probeComfyUI(baseURLString: model.demosaicComfyUIURL)
+                                } label: {
+                                    if setup.isProbingComfyUI {
+                                        ProgressView().controlSize(.small)
+                                    } else {
+                                        Label("연결 점검", systemImage: "antenna.radiowaves.left.and.right")
+                                    }
+                                }
+                                .disabled(setup.isProbingComfyUI)
+                            }
+                            if let probe = setup.comfyProbe {
+                                Label(probe.summary, systemImage: probe.reachable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(probe.reachable ? .green : .orange)
+                            }
+                            HStack(spacing: 8) {
+                                TextField("커스텀 워크플로 JSON (비우면 내장 템플릿)", text: $model.demosaicComfyUIWorkflowPath)
+                                    .textFieldStyle(.roundedBorder)
+                                Button("선택…") {
+                                    if let chosen = setup.chooseWorkflowJSON() {
+                                        model.demosaicComfyUIWorkflowPath = chosen
+                                    }
+                                }
+                                if !model.demosaicComfyUIWorkflowPath.isEmpty {
+                                    Button("초기화") { model.demosaicComfyUIWorkflowPath = "" }
+                                }
+                            }
+                        } else {
+                            localWorkerStatusRow
+                        }
+
+                        if model.demosaicModel == .wanVACE {
+                            TextField("복원 프롬프트 (선택, 비우면 기본 자연 복원)", text: $model.demosaicPrompt)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                    }
+
+                    if setup.isRunningSetup || !setup.setupLogTail.isEmpty || setup.setupError != nil {
+                        setupProgressPanel
+                    }
                 }
-                Picker("처리 영역", selection: $model.demosaicRegionMode) {
-                    Text("얼굴 영역만").tag(DemosaicRegionMode.face)
-                    Text("모자이크 자동 탐지(실험적)").tag(DemosaicRegionMode.autoMosaic)
-                    Text("화면에서 직접 지정").tag(DemosaicRegionMode.manual)
-                    Text("전체 화면").tag(DemosaicRegionMode.wholeFrame)
+
+                Section("테스트 구간 및 영역") {
+                    Picker("테스트 길이", selection: $model.demosaicClipDurationSeconds) {
+                        Text("현재 위치(\(currentTimestampLabel))부터 5초 (권장)").tag(5.0)
+                        Text("현재 위치(\(currentTimestampLabel))부터 10초").tag(10.0)
+                        Text("현재 위치(\(currentTimestampLabel))부터 30초").tag(30.0)
+                        Text("전체 영상").tag(0.0)
+                    }
+
+                    if supportsRegionSelection {
+                        Picker("처리 영역", selection: $model.demosaicRegionMode) {
+                            Text("얼굴 영역만").tag(DemosaicRegionMode.face)
+                            Text("모자이크 자동 탐지(실험적)").tag(DemosaicRegionMode.autoMosaic)
+                            Text("화면에서 직접 지정").tag(DemosaicRegionMode.manual)
+                            Text("전체 화면").tag(DemosaicRegionMode.wholeFrame)
+                        }
+                        if model.demosaicRegionMode == .manual, let mediaURL = model.mediaURL {
+                            MosaicRegionEditor(
+                                mediaURL: mediaURL,
+                                regions: $model.demosaicManualRegions
+                            )
+                        }
+                    } else {
+                        Label("선택한 모델은 전체 프레임 화질 복원·초해상 전용으로 동작합니다.", systemImage: "rectangle.dashed")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if model.demosaicTrack == .coreMLNative {
+                        VStack(alignment: .leading) {
+                            Text("충실도 \(Int(model.demosaicFidelity * 100))%")
+                                .font(.caption)
+                                .monospacedDigit()
+                            Slider(value: $model.demosaicFidelity, in: 0...1)
+                        }
+                    }
+                    Toggle("합성 표식 남기기(권장)", isOn: $model.demosaicWatermark)
                 }
-                if model.demosaicRegionMode == .manual, let mediaURL = model.mediaURL {
-                    MosaicRegionEditor(
-                        mediaURL: mediaURL,
-                        regions: $model.demosaicManualRegions
-                    )
-                }
-                VStack(alignment: .leading) {
-                    Text("충실도 \(Int(model.demosaicFidelity * 100))%")
-                        .font(.caption)
-                    Slider(value: $model.demosaicFidelity, in: 0...1)
-                }
-                Toggle("합성 표식 남기기(권장)", isOn: $model.demosaicWatermark)
             }
             .formStyle(.grouped)
-            .frame(height: model.demosaicRegionMode == .manual ? 500 : 220)
-            if model.demosaicModel != .classical {
-                Label("이 모델을 쓰려면 Core ML 파일을 Models/Demosaic 폴더에 넣어야 합니다. 없으면 기본 복원으로 처리됩니다.", systemImage: "info.circle")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
-            HStack {
+            .frame(minHeight: 340, maxHeight: (supportsRegionSelection && model.demosaicRegionMode == .manual) ? 560 : 420)
+
+            HStack(spacing: 8) {
+                Button("모델 폴더 열기", systemImage: "folder") {
+                    setup.revealModelsFolder()
+                }
+                .controlSize(.small)
+                Button("상태 새로 고침", systemImage: "arrow.clockwise") {
+                    setup.refreshStatus()
+                }
+                .controlSize(.small)
                 Spacer()
                 Button("취소") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("모자이크 제거 시작") {
+                Button("복원 테스트 시작") {
                     model.startDemosaic()
                     dismiss()
                 }
@@ -1188,10 +1331,136 @@ private struct DemosaicSheet: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(!model.canStartDemosaic)
             }
-            .padding(.top, 8)
         }
         .padding(20)
-        .frame(width: model.demosaicRegionMode == .manual ? 620 : 460)
+        .frame(width: (supportsRegionSelection && model.demosaicRegionMode == .manual) ? 680 : 580)
+        .onAppear {
+            setup.refreshStatus()
+            if model.demosaicTrack == .comfyOrUVMPS && model.demosaicExternalBackend == .comfyUI {
+                setup.probeComfyUI(baseURLString: model.demosaicComfyUIURL)
+            }
+        }
+        .onChange(of: model.managedModels) { _, _ in
+            setup.refreshStatus()
+        }
+    }
+
+    @ViewBuilder
+    private func coreMLPresetStatusRow(_ preset: CoreMLRestorationPreset) -> some View {
+        let installed = setup.installedCoreMLIDs.contains(preset.id)
+        let record = activeCoreMLRecord
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Label(
+                    installed ? "설치됨 (\(preset.id).mlpackage · \(preset.license))" : "미설치 (\(preset.sizeDescription) · \(preset.license))",
+                    systemImage: installed ? "checkmark.circle.fill" : "arrow.down.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(installed ? .green : .orange)
+                Spacer()
+                if let record, record.state == .downloading {
+                    ProgressView(value: record.progress)
+                        .frame(width: 80)
+                    Text("\(Int((record.progress * 100).rounded()))%")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                } else if let url = preset.downloadURL {
+                    Button(installed ? "다시 받기" : "원클릭 다운로드 (\(preset.sizeDescription))") {
+                        model.downloadDemosaicModel(name: preset.id, sourceURL: url)
+                    }
+                    .controlSize(.small)
+                }
+            }
+            Text(preset.summary)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            if !installed {
+                Text("모델이 없으면 기본(Core Image) 복원으로 폴백됩니다. 위 버튼으로 바로 내려받을 수 있습니다.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var flashVSRStatusRow: some View {
+        let ready = setup.flashVSRBinaryInstalled && setup.flashVSRWeightsInstalled
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Label(
+                    ready ? "MLX 바이너리 · 가중치 준비 완료" : "실행 파일: \(setup.flashVSRBinaryInstalled ? "✓" : "미설치") · 가중치(3.5GB): \(setup.flashVSRWeightsInstalled ? "✓" : "미설치")",
+                    systemImage: ready ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(ready ? .green : .orange)
+                Spacer()
+                Button(ready ? "재설치/업데이트" : "FlashVSR 자동 설치") {
+                    setup.runSetupScript(target: "flashvsr", label: "FlashVSR v1.1 MLX")
+                }
+                .controlSize(.small)
+                .disabled(setup.isRunningSetup)
+            }
+            Text("xocialize/mlx-flashvsr-swift를 로컬 빌드하고 mlx-community/FlashVSR-v1.1-bf16을 다운로드합니다. (실사 영상 권장, 약 19GB 통합 메모리 사용)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var localWorkerStatusRow: some View {
+        let isSeed = model.demosaicModel == .seedVR2
+        let weightsReady = isSeed ? setup.seedVR2WeightsInstalled : setup.wanVACEWeightsInstalled
+        let target = isSeed ? "seedvr2" : "wan-vace"
+        let title = isSeed ? "SeedVR2-3B" : "Wan2.1-VACE-1.3B"
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Label(
+                    "uv: \(setup.uvInstalled ? "✓" : "미설치") · 워커: \(setup.workerScriptFound ? "✓" : "없음") · \(title) 가중치: \(weightsReady ? "✓" : "미설치")",
+                    systemImage: (setup.uvInstalled && setup.workerScriptFound && weightsReady) ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle((setup.uvInstalled && setup.workerScriptFound && weightsReady) ? .green : .orange)
+                Spacer()
+                Button(weightsReady ? "가중치 갱신" : "가중치 다운로드") {
+                    setup.runSetupScript(target: target, label: title)
+                }
+                .controlSize(.small)
+                .disabled(setup.isRunningSetup)
+            }
+            Text(isSeed
+                 ? "SeedVR2-3B는 ComfyUI 로컬 API 실행을 권장합니다. 로컬 워커에서는 SEEDVR2_CLI_PATH가 설정된 경우에만 실행됩니다."
+                 : "uv run --script tools/video-enhancer/worker.py 로 PyTorch MPS(bfloat16)에서 Wan2.1-VACE-1.3B를 실행합니다.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var setupProgressPanel: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                if setup.isRunningSetup {
+                    ProgressView().controlSize(.small)
+                }
+                Text(setup.setupError ?? setup.setupStatusMessage)
+                    .font(.caption)
+                    .foregroundStyle(setup.setupError == nil ? Color.primary : Color.red)
+                    .lineLimit(2)
+                Spacer()
+                if setup.isRunningSetup {
+                    Button("중지", role: .destructive) { setup.cancelSetup() }
+                        .controlSize(.mini)
+                }
+            }
+            if !setup.setupLogTail.isEmpty {
+                ScrollView {
+                    Text(setup.setupLogTail.joined(separator: "\n"))
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 72)
+            }
+        }
+        .padding(8)
+        .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
     }
 }
 
@@ -3057,15 +3326,37 @@ private struct ModelFilesSettingsView: View {
                     .buttonStyle(.borderedProminent)
                 }
             }
-            DisclosureGroup("고급 · 얼굴 모자이크 제거 모델") {
-                Picker("모델 이름", selection: $demosaicModelName) {
+            DisclosureGroup("고급 · 영상 복원 · 모자이크 제거 모델 (CoreML 3종 원클릭)") {
+                ForEach(VideoRestorationCatalog.coreMLPresets.filter { $0.downloadURL != nil }) { preset in
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(preset.title) · \(preset.sizeDescription)")
+                                .font(.callout)
+                            Text("\(preset.license) · \(preset.summary)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        demosaicStatus(preset.id)
+                        if let url = preset.downloadURL {
+                            Button("다운로드", systemImage: "square.and.arrow.down") {
+                                model.downloadDemosaicModel(name: preset.id, sourceURL: url)
+                            }
+                            .controlSize(.small)
+                        }
+                    }
+                }
+                Divider()
+                Picker("직접 URL 모델 이름", selection: $demosaicModelName) {
+                    Text("lama").tag("lama")
                     Text("realesrgan").tag("realesrgan")
+                    Text("gfpgan").tag("gfpgan")
                     Text("codeformer").tag("codeformer")
                 }
                 TextField("Core ML 모델 URL (.zip 권장)", text: $demosaicModelURL)
                     .textFieldStyle(.roundedBorder)
                 HStack {
-                    Button("모델 다운로드", systemImage: "square.and.arrow.down") {
+                    Button("URL에서 다운로드", systemImage: "square.and.arrow.down") {
                         if let url = URL(string: demosaicModelURL.trimmingCharacters(in: .whitespaces)) {
                             model.downloadDemosaicModel(name: demosaicModelName, sourceURL: url)
                         }
@@ -3074,7 +3365,7 @@ private struct ModelFilesSettingsView: View {
                     Spacer()
                     demosaicStatus(demosaicModelName)
                 }
-                Text("Models/Demosaic/<이름>.mlpackage 로 저장되며 .zip은 자동 추출됩니다. 변환 방법은 docs/mosaic-removal/COREML_MODELS.md 참고.")
+                Text("Models/Demosaic/<이름>.mlpackage 로 저장되며 .zip은 격리 폴더에서 안전하게 자동 추출됩니다.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
