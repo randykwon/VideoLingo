@@ -32,13 +32,23 @@ public struct ExternalLLMClient: Sendable {
 
     public let configuration: Configuration
     public var timeout: TimeInterval
+    public var maxAttempts: Int
+    private let session: URLSession
 
-    public init(configuration: Configuration, timeout: TimeInterval = 180) {
+    public init(
+        configuration: Configuration,
+        timeout: TimeInterval = 180,
+        maxAttempts: Int = 3,
+        session: URLSession = .shared
+    ) {
         self.configuration = configuration
         self.timeout = timeout
+        self.maxAttempts = max(1, maxAttempts)
+        self.session = session
     }
 
     /// 시스템 지시와 사용자 프롬프트를 보내고 응답 본문만 돌려줍니다.
+    /// 일시적 네트워크 오류나 429/5xx 응답은 지수 백오프로 재시도하며, 작업 취소는 즉시 전파합니다.
     public func complete(instructions: String, prompt: String, maximumTokens: Int) async throws -> String {
         var request = URLRequest(url: configuration.endpoint)
         request.httpMethod = "POST"
@@ -62,42 +72,87 @@ public struct ExternalLLMClient: Sendable {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await URLSession.shared.data(for: request)
-        } catch {
-            throw VideoLingoError.modelUnavailable(
-                "외부 LLM 서버에 연결하지 못했습니다(\(configuration.endpoint.absoluteString)): \(error.localizedDescription)"
-            )
-        }
-        guard let http = response as? HTTPURLResponse else {
-            throw VideoLingoError.modelUnavailable("외부 LLM 서버 응답을 해석할 수 없습니다.")
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            let detail = String(data: data, encoding: .utf8)?.prefix(200) ?? ""
-            throw VideoLingoError.modelUnavailable("외부 LLM 서버 오류 \(http.statusCode): \(detail)")
-        }
-        guard
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let choices = object["choices"] as? [[String: Any]],
-            let first = choices.first,
-            let message = first["message"] as? [String: Any],
-            let content = message["content"] as? String
-        else {
-            throw VideoLingoError.modelUnavailable("외부 LLM 서버가 예상과 다른 형식으로 응답했습니다.")
-        }
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            // 추론 모델이 사고 과정만으로 토큰을 다 쓰면 실제로 이런 응답이 옵니다.
-            if first["finish_reason"] as? String == "length" {
-                throw VideoLingoError.modelUnavailable(
-                    "외부 LLM 서버가 길이 제한에 걸려 빈 응답을 반환했습니다(\(configuration.model)). 사고 과정이 없는 모델을 쓰거나 더 작은 청크 길이를 사용하세요."
+        var lastError: Error?
+        for attempt in 0..<maxAttempts {
+            try Task.checkCancellation()
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(for: request)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let urlError as URLError where urlError.code == .cancelled {
+                throw CancellationError()
+            } catch {
+                let wrapped = VideoLingoError.modelUnavailable(
+                    "외부 LLM 서버에 연결하지 못했습니다(\(configuration.endpoint.absoluteString)): \(error.localizedDescription)"
                 )
+                lastError = wrapped
+                if attempt + 1 < maxAttempts && Self.isRetryableNetworkError(error) {
+                    try await Task.sleep(for: .milliseconds(500 * (1 << attempt)))
+                    continue
+                }
+                throw wrapped
             }
-            throw VideoLingoError.modelUnavailable("외부 LLM 서버가 빈 응답을 반환했습니다(\(configuration.model)).")
+
+            guard let http = response as? HTTPURLResponse else {
+                throw VideoLingoError.modelUnavailable("외부 LLM 서버 응답을 해석할 수 없습니다.")
+            }
+            guard (200..<300).contains(http.statusCode) else {
+                let detail = String(data: data, encoding: .utf8)?.prefix(200) ?? ""
+                let wrapped = VideoLingoError.modelUnavailable("외부 LLM 서버 오류 \(http.statusCode): \(detail)")
+                lastError = wrapped
+                if attempt + 1 < maxAttempts && Self.isRetryableStatusCode(http.statusCode) {
+                    let retryAfter = http.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init)
+                    let delayMs = retryAfter.map { Int(min(15, max(0.5, $0)) * 1000) } ?? (600 * (1 << attempt))
+                    try await Task.sleep(for: .milliseconds(delayMs))
+                    continue
+                }
+                throw wrapped
+            }
+
+            guard
+                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let choices = object["choices"] as? [[String: Any]],
+                let first = choices.first,
+                let message = first["message"] as? [String: Any],
+                let content = message["content"] as? String
+            else {
+                throw VideoLingoError.modelUnavailable("외부 LLM 서버가 예상과 다른 형식으로 응답했습니다.")
+            }
+            let cleaned = TranslationTextSanitizer.cleanLLMOutput(content)
+            guard !cleaned.isEmpty else {
+                // 추론 모델이 사고 과정만으로 토큰을 다 쓰면 실제로 이런 응답이 옵니다.
+                if first["finish_reason"] as? String == "length" {
+                    throw VideoLingoError.modelUnavailable(
+                        "외부 LLM 서버가 길이 제한에 걸려 빈 응답을 반환했습니다(\(configuration.model)). 사고 과정이 없는 모델을 쓰거나 더 작은 청크 길이를 사용하세요."
+                    )
+                }
+                let emptyError = VideoLingoError.modelUnavailable("외부 LLM 서버가 빈 응답을 반환했습니다(\(configuration.model)).")
+                lastError = emptyError
+                if attempt + 1 < maxAttempts {
+                    try await Task.sleep(for: .milliseconds(400 * (1 << attempt)))
+                    continue
+                }
+                throw emptyError
+            }
+            return cleaned
         }
-        return trimmed
+        throw lastError ?? VideoLingoError.modelUnavailable("외부 LLM 서버 요청에 실패했습니다.")
+    }
+
+    private static func isRetryableStatusCode(_ code: Int) -> Bool {
+        code == 408 || code == 429 || (500...504).contains(code)
+    }
+
+    private static func isRetryableNetworkError(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .timedOut, .networkConnectionLost, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed, .notConnectedToInternet:
+            return true
+        default:
+            return false
+        }
     }
 
     /// 설정 화면의 연결 테스트용입니다. 성공하면 모델이 돌려준 짧은 응답을 반환합니다.
