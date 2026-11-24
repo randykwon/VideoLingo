@@ -185,9 +185,6 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
     dependencies:
       - sdk: AVKit.framework
-      - sdk: Security.framework
-      - sdk: Speech.framework
-      - sdk: Translation.framework
       - sdk: UniformTypeIdentifiers.framework
 
   VideoLingoCoreTests:

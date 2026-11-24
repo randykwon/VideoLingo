@@ -915,3 +915,182 @@ import Testing
     #expect(!TranslationQualityValidator.isSameLanguage("zh-Hans", "zh-Hant"))
     #expect(!TranslationQualityValidator.isSameLanguage("en", "ko"))
 }
+
+@Test func managedRuntimeCatalogHas19VerifiedModelsAndIsolatedPorts() {
+    let sttModels = ManagedRuntimeModelCatalog.all.filter { $0.role == .stt }
+    let translationModels = ManagedRuntimeModelCatalog.all.filter { $0.role == .translation }
+    #expect(sttModels.count == 9)
+    #expect(translationModels.count == 10)
+    #expect(Set(ManagedRuntimeModelCatalog.all.map(\.id)).count == 19)
+    for model in ManagedRuntimeModelCatalog.all {
+        #expect(model.sha256.count == 64)
+        #expect(model.bytes > 0)
+        #expect(model.url.scheme == "https")
+    }
+    // SpikDoum(18880/18881)과 포트 충돌이 없어야 함
+    #expect(ManagedRuntimeRole.stt.port == 18882)
+    #expect(ManagedRuntimeRole.translation.port == 18883)
+}
+
+@Test func managedRuntimeModelStoreVerifiesSizeAndSHA256() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: "vl-model-store-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let store = ManagedRuntimeModelStore(root: directory)
+    let payload = Data("mock-ggml-model-bytes".utf8)
+    // SHA-256 of "mock-ggml-model-bytes"
+    let expectedHash = "9c3f18c7d7c2b0e4c8557f1f8953359f3e7b6a15c9e1ef3b4a428ef6e0c7f2a1"
+    let tempFile = directory.appending(path: "download.tmp")
+    try payload.write(to: tempFile)
+
+    let badHashModel = ManagedRuntimeModel(
+        id: "test-bad-hash",
+        name: "Test",
+        role: .stt,
+        repository: "org/repo",
+        revision: "rev",
+        filename: "test.bin",
+        bytes: Int64(payload.count),
+        sha256: expectedHash,
+        note: "test"
+    )
+    #expect(throws: Error.self) {
+        try store.finalize(tempFile, model: badHashModel)
+    }
+    #expect(!store.installed(badHashModel))
+
+    let badSizeModel = ManagedRuntimeModel(
+        id: "test-bad-size",
+        name: "Test",
+        role: .stt,
+        repository: "org/repo",
+        revision: "rev",
+        filename: "test.bin",
+        bytes: Int64(payload.count + 10),
+        sha256: expectedHash,
+        note: "test"
+    )
+    #expect(throws: Error.self) {
+        try store.finalize(tempFile, model: badSizeModel)
+    }
+}
+
+@Test func managedWhisperClientBuildsWavAndParsesVerboseJSONWithHallucinationFilter() throws {
+    let wav = ManagedWhisperClient.wavData(pcm16Mono: Data(repeating: 0, count: 320))
+    #expect(wav.prefix(4) == Data("RIFF".utf8))
+    #expect(wav.count == 320 + 44)
+
+    let client = ManagedWhisperClient(apiKey: "secret-token")
+    let request = client.makeRequest(audioData: wav, language: "ja")
+    #expect(request.url?.absoluteString == "http://127.0.0.1:18882/inference")
+    #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer secret-token")
+
+    let sampleJSON = Data("""
+    {
+      "language": "ja",
+      "text": "こんにちは [音楽]",
+      "segments": [
+        {"start": 0.0, "end": 1.8, "text": "こんにちは", "avg_logprob": -0.2, "no_speech_prob": 0.05},
+        {"start": 1.8, "end": 3.0, "text": "[音楽]", "avg_logprob": -0.9, "no_speech_prob": 0.8}
+      ]
+    }
+    """.utf8)
+    let parsed = try ManagedWhisperClient.parse(sampleJSON)
+    #expect(parsed.language == "ja")
+    #expect(parsed.cues.count == 1)
+    #expect(parsed.cues.first?.text == "こんにちは")
+}
+
+@Test func deepgramClientBuildsNova3RequestAndParsesDiarizedUtterances() throws {
+    let client = DeepgramPreRecordedClient(apiKey: "dg-test-key")
+    let autoRequest = try client.makeRequest(audioData: Data([1, 2, 3]), language: nil)
+    #expect(autoRequest.value(forHTTPHeaderField: "Authorization") == "Token dg-test-key")
+    #expect(autoRequest.url?.absoluteString.contains("model=nova-3") == true)
+    #expect(autoRequest.url?.absoluteString.contains("diarize=true") == true)
+    #expect(autoRequest.url?.absoluteString.contains("detect_language=true") == true)
+
+    let fixedRequest = try client.makeRequest(audioData: Data([1, 2, 3]), language: "ko")
+    #expect(fixedRequest.url?.absoluteString.contains("language=ko") == true)
+
+    let payload = Data("""
+    {
+      "results": {
+        "channels": [{"detected_language": "en", "alternatives": [{"transcript": "Hello Hi", "confidence": 0.96}]}],
+        "utterances": [
+          {"start": 0.2, "end": 1.4, "confidence": 0.95, "transcript": "Hello there.", "speaker": 0},
+          {"start": 1.6, "end": 2.8, "confidence": 0.97, "transcript": "Hi!", "speaker": 1}
+        ]
+      }
+    }
+    """.utf8)
+    let parsed = try DeepgramPreRecordedClient.parse(payload)
+    #expect(parsed.language == "en")
+    #expect(parsed.cues.count == 2)
+    #expect(parsed.cues[0].text == "[화자 1] Hello there.")
+    #expect(parsed.cues[1].text == "[화자 2] Hi!")
+}
+
+@Test func customLocalTranslatorSubstitutesPlaceholdersOnceAndParsesNestedPaths() throws {
+    let settings = LocalTranslationAPISettings(
+        endpoint: "http://127.0.0.1:8848/v1/translate",
+        timeout: 25,
+        requestJSON: #"{"text":"{{text}}","source":"{{source}}","target":"{{target}}"}"#,
+        responsePath: ""
+    )
+    let client = CustomLocalTranslatorClient(settings: settings, apiKey: "local-secret")
+    let request = try client.makeRequest(text: "Literal {{target}} inside text", source: "en", target: "ko")
+    #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer local-secret")
+    let sentBody = try #require(try JSONSerialization.jsonObject(with: try #require(request.httpBody)) as? [String: Any])
+    // 원문 내부의 {{target}}은 재치환되지 않고 그대로 보존되어야 함
+    #expect(sentBody["text"] as? String == "Literal {{target}} inside text")
+    #expect(sentBody["source"] as? String == "en")
+    #expect(sentBody["target"] as? String == "ko")
+
+    #expect(try CustomLocalTranslatorClient.parse(Data(#"{"data":{"translation":"안녕하세요"}}"#.utf8)) == "안녕하세요")
+    #expect(try CustomLocalTranslatorClient.parse(Data(#"{"translations":[{"text":"반갑습니다"}]}"#.utf8)) == "반갑습니다")
+    #expect(try CustomLocalTranslatorClient.parse(Data(#"{"custom":{"out":"결과"}}"#.utf8), path: "custom.out") == "결과")
+    #expect(throws: Error.self) {
+        _ = try CustomLocalTranslatorClient.parse(Data(#"{"choices":[{"finish_reason":"length","message":{"content":"잘림"}}]}"#.utf8))
+    }
+}
+
+@Test func azureTranslatorBatchParserAndLanguageCatalogWorkCorrectly() throws {
+    let azureJSON = Data("""
+    [
+      {"translations": [{"text": "안녕하세요", "to": "ko"}]},
+      {"translations": [{"text": "반갑습니다", "to": "ko"}]}
+    ]
+    """.utf8)
+    #expect(try AzureTranslatorClient.parseBatch(azureJSON) == ["안녕하세요", "반갑습니다"])
+
+    #expect(VideoLingoLanguageCatalog.azureCode(for: "zh") == "zh-Hans")
+    #expect(VideoLingoLanguageCatalog.azureCode(for: "zh-Hant") == "zh-Hant")
+    #expect(VideoLingoLanguageCatalog.whisperParameter(for: "zh-TW") == "zh")
+    #expect(VideoLingoLanguageCatalog.detectLanguage(for: "[화자 1] 今日はとても良い天気ですね")?.code == "ja")
+    #expect(VideoLingoLanguageCatalog.detectLanguage(for: "[화자 1] 오늘 회의 내용을 정리하겠습니다.")?.code == "ko")
+}
+
+@Test func processingOptionsInferLegacyEnginesAndRoundTripMultiEngineConfig() throws {
+    let legacyApple = ProcessingOptions(translationModel: "apple-foundation-models")
+    #expect(legacyApple.effectiveSTTEngine == .whisperKit)
+    #expect(legacyApple.effectiveTranslationEngine == .appleFoundation)
+
+    let multi = ProcessingOptions(
+        sourceLanguage: "ja",
+        targetLanguages: ["ko", "zh-Hant"],
+        sttModel: "managed-whisper:whisper-large-v3-turbo-q5",
+        translationModel: ProcessingOptions.appleTranslationModelID,
+        sttEngine: .managedWhisper,
+        translationEngine: .appleTranslation,
+        managedSTTURL: "http://127.0.0.1:18882",
+        azureRegion: "koreacentral",
+        localTranslationAPI: LocalTranslationAPISettings(endpoint: "http://localhost:8848/v1/translate")
+    )
+    let decoded = try WireCodec.decode(ProcessingOptions.self, from: WireCodec.encode(multi))
+    #expect(decoded.effectiveSTTEngine == .managedWhisper)
+    #expect(decoded.effectiveTranslationEngine == .appleTranslation)
+    #expect(decoded.managedSTTURL == "http://127.0.0.1:18882")
+    #expect(decoded.azureRegion == "koreacentral")
+    #expect(decoded.localTranslationAPI?.endpoint == "http://localhost:8848/v1/translate")
+}
