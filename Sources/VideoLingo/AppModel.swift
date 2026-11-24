@@ -167,51 +167,95 @@ final class AppModel {
         didSet { UserDefaults.standard.set(sourceLanguage, forKey: "sourceLanguage") }
     }
     var sttEngine: STTEngineKind = STTEngineKind(rawValue: UserDefaults.standard.string(forKey: "sttEngine") ?? "") ?? .whisperKit {
-        didSet { UserDefaults.standard.set(sttEngine.rawValue, forKey: "sttEngine") }
+        didSet {
+            UserDefaults.standard.set(sttEngine.rawValue, forKey: "sttEngine")
+            broadcastSharedPreferences()
+        }
     }
     var sttModel = UserDefaults.standard.string(forKey: "sttModel") ?? "large-v3-v20240930_626MB" {
-        didSet { UserDefaults.standard.set(sttModel, forKey: "sttModel") }
+        didSet {
+            UserDefaults.standard.set(sttModel, forKey: "sttModel")
+            broadcastSharedPreferences()
+        }
     }
     var deepgramModel = UserDefaults.standard.string(forKey: "deepgramModel") ?? "nova-3" {
-        didSet { UserDefaults.standard.set(deepgramModel, forKey: "deepgramModel") }
+        didSet {
+            UserDefaults.standard.set(deepgramModel, forKey: "deepgramModel")
+            broadcastSharedPreferences()
+        }
     }
     var customWhisperKitModels: [String] = UserDefaults.standard.stringArray(forKey: "customWhisperKitModels") ?? [] {
-        didSet { UserDefaults.standard.set(customWhisperKitModels, forKey: "customWhisperKitModels") }
+        didSet {
+            UserDefaults.standard.set(customWhisperKitModels, forKey: "customWhisperKitModels")
+            broadcastSharedPreferences()
+        }
     }
     var customMLXModels: [String] = UserDefaults.standard.stringArray(forKey: "customMLXModels") ?? [] {
-        didSet { UserDefaults.standard.set(customMLXModels, forKey: "customMLXModels") }
+        didSet {
+            UserDefaults.standard.set(customMLXModels, forKey: "customMLXModels")
+            broadcastSharedPreferences()
+        }
     }
     var translationEngine: TranslationEngineKind = AppModel.initialTranslationEngine() {
-        didSet { UserDefaults.standard.set(translationEngine.rawValue, forKey: "translationEngine") }
+        didSet {
+            UserDefaults.standard.set(translationEngine.rawValue, forKey: "translationEngine")
+            broadcastSharedPreferences()
+        }
     }
     var translationModel = AppModel.initialTranslationModel() {
-        didSet { UserDefaults.standard.set(translationModel, forKey: "translationModel") }
+        didSet {
+            UserDefaults.standard.set(translationModel, forKey: "translationModel")
+            broadcastSharedPreferences()
+        }
     }
     var azureRegion = UserDefaults.standard.string(forKey: "azureRegion") ?? "koreacentral" {
-        didSet { UserDefaults.standard.set(azureRegion, forKey: "azureRegion") }
+        didSet {
+            UserDefaults.standard.set(azureRegion, forKey: "azureRegion")
+            broadcastSharedPreferences()
+        }
     }
     var localTranslationAPI: LocalTranslationAPISettings = AppModel.loadLocalTranslationAPI() {
         didSet {
             if let data = try? JSONEncoder().encode(localTranslationAPI) {
                 UserDefaults.standard.set(data, forKey: "localTranslationAPI")
             }
+            broadcastSharedPreferences()
         }
     }
-    var synthesizeSpeech = false
+    var synthesizeSpeech = UserDefaults.standard.bool(forKey: "synthesizeSpeech") {
+        didSet {
+            UserDefaults.standard.set(synthesizeSpeech, forKey: "synthesizeSpeech")
+            broadcastSharedPreferences()
+        }
+    }
     var qualityMode = ProcessingQualityMode(rawValue: UserDefaults.standard.string(forKey: "qualityMode") ?? "enhanced") ?? .enhanced {
-        didSet { UserDefaults.standard.set(qualityMode.rawValue, forKey: "qualityMode") }
+        didSet {
+            UserDefaults.standard.set(qualityMode.rawValue, forKey: "qualityMode")
+            broadcastSharedPreferences()
+        }
     }
     var glossaryText = UserDefaults.standard.string(forKey: "qualityGlossary") ?? "" {
-        didSet { UserDefaults.standard.set(glossaryText, forKey: "qualityGlossary") }
+        didSet {
+            UserDefaults.standard.set(glossaryText, forKey: "qualityGlossary")
+            broadcastSharedPreferences()
+        }
     }
     var continuousImprovement = UserDefaults.standard.object(forKey: "continuousQualityImprovement") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(continuousImprovement, forKey: "continuousQualityImprovement") }
+        didSet {
+            UserDefaults.standard.set(continuousImprovement, forKey: "continuousQualityImprovement")
+            broadcastSharedPreferences()
+        }
     }
     var autoRetryUntranslated = UserDefaults.standard.object(forKey: "autoRetryUntranslated") as? Bool
         ?? UserDefaults.standard.object(forKey: "autoRetryReviewedAndUntranslated") as? Bool
         ?? true {
-        didSet { UserDefaults.standard.set(autoRetryUntranslated, forKey: "autoRetryUntranslated") }
+        didSet {
+            UserDefaults.standard.set(autoRetryUntranslated, forKey: "autoRetryUntranslated")
+            broadcastSharedPreferences()
+        }
     }
+    /// 키체인 API 키가 갱신될 때 열려 있는 모든 창의 준비 상태 배지를 즉시 새로 고치기 위한 카운터입니다.
+    var keyStoreRevision = 0
     var showOriginalWithTranslation = UserDefaults.standard.object(forKey: "showOriginalWithTranslation") as? Bool ?? false {
         didSet { UserDefaults.standard.set(showOriginalWithTranslation, forKey: "showOriginalWithTranslation") }
     }
@@ -403,11 +447,17 @@ final class AppModel {
 
     /// 외부 LLM 서버 주소입니다. 예: http://localhost:11434/v1 (Ollama), http://localhost:1234/v1 (LM Studio)
     var externalServerEndpoint = UserDefaults.standard.string(forKey: "externalServerEndpoint") ?? "" {
-        didSet { UserDefaults.standard.set(externalServerEndpoint, forKey: "externalServerEndpoint") }
+        didSet {
+            UserDefaults.standard.set(externalServerEndpoint, forKey: "externalServerEndpoint")
+            broadcastSharedPreferences()
+        }
     }
     /// 외부 서버에서 쓸 모델 이름입니다. 예: qwen2.5:7b
     var externalServerModel = UserDefaults.standard.string(forKey: "externalServerModel") ?? "" {
-        didSet { UserDefaults.standard.set(externalServerModel, forKey: "externalServerModel") }
+        didSet {
+            UserDefaults.standard.set(externalServerModel, forKey: "externalServerModel")
+            broadcastSharedPreferences()
+        }
     }
     /// 인증이 필요한 서버를 위한 선택 항목입니다. 비워 두면 인증 헤더를 보내지 않습니다.
     var externalServerAPIKey = UserDefaults.standard.string(forKey: "externalServerAPIKey") ?? "" {
@@ -507,6 +557,7 @@ final class AppModel {
     }
 
     @ObservationIgnored private var playerWindowClosed = false
+    @ObservationIgnored private var isSyncingSharedPreferences = false
     private var appearanceTask: Task<Void, Never>?
     private var videoOutput: AVPlayerItemVideoOutput?
     /// 새 작업은 60초를 사용하고, 저장된 작업을 재개할 때는 기존 청크 경계를 보존합니다.
@@ -540,6 +591,46 @@ final class AppModel {
     static func muteAllWindows() {
         liveModels.removeAll { $0.model == nil }
         for box in liveModels { box.model?.player.volume = 0 }
+    }
+
+    /// 키체인 API 키 저장 직후 열려 있는 모든 창의 준비 상태 표시를 즉시 갱신합니다.
+    static func notifyAPIKeysUpdated() {
+        liveModels.removeAll { $0.model == nil }
+        for box in liveModels {
+            box.model?.keyStoreRevision += 1
+        }
+    }
+
+    /// 설정 창(⌘,)이나 다른 플레이어 창에서 바꾼 STT·번역·품질 설정을 열려 있는 모든 창에 즉시 동기화합니다.
+    private func broadcastSharedPreferences() {
+        guard !isSyncingSharedPreferences else { return }
+        Self.liveModels.removeAll { $0.model == nil }
+        for box in Self.liveModels {
+            guard let other = box.model, other !== self else { continue }
+            other.isSyncingSharedPreferences = true
+            defer { other.isSyncingSharedPreferences = false }
+            let translationChanged = other.translationEngine != translationEngine || other.translationModel != translationModel
+            if other.sttEngine != sttEngine { other.sttEngine = sttEngine }
+            if other.sttModel != sttModel { other.sttModel = sttModel }
+            if other.deepgramModel != deepgramModel { other.deepgramModel = deepgramModel }
+            if other.customWhisperKitModels != customWhisperKitModels { other.customWhisperKitModels = customWhisperKitModels }
+            if other.customMLXModels != customMLXModels { other.customMLXModels = customMLXModels }
+            if other.translationEngine != translationEngine { other.translationEngine = translationEngine }
+            if other.translationModel != translationModel { other.translationModel = translationModel }
+            if other.azureRegion != azureRegion { other.azureRegion = azureRegion }
+            if other.localTranslationAPI != localTranslationAPI { other.localTranslationAPI = localTranslationAPI }
+            if other.externalServerEndpoint != externalServerEndpoint { other.externalServerEndpoint = externalServerEndpoint }
+            if other.externalServerModel != externalServerModel { other.externalServerModel = externalServerModel }
+            if other.synthesizeSpeech != synthesizeSpeech { other.synthesizeSpeech = synthesizeSpeech }
+            if other.qualityMode != qualityMode { other.qualityMode = qualityMode }
+            if other.glossaryText != glossaryText { other.glossaryText = glossaryText }
+            if other.continuousImprovement != continuousImprovement { other.continuousImprovement = continuousImprovement }
+            if other.maximumRefinementPasses != maximumRefinementPasses { other.maximumRefinementPasses = maximumRefinementPasses }
+            if other.autoRetryUntranslated != autoRetryUntranslated { other.autoRetryUntranslated = autoRetryUntranslated }
+            if translationChanged && other.canMutateStorage {
+                other.refreshResults()
+            }
+        }
     }
 
     static func videoIsBeingProcessed(_ url: URL) -> Bool {
