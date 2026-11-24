@@ -23,9 +23,9 @@ public enum TranscriptTextSanitizer {
         let cleaned = cleanWhisperText(text)
         guard !cleaned.isEmpty else { return true }
 
-        // 음악·박수·무음 표시 태그나 구두점·기호만으로 구성된 경우
+        // 음악·박수·무음 표시 태그(영/한/일)나 구두점·기호만으로 구성된 경우
         let withoutBracketNoise = cleaned.replacingOccurrences(
-            of: #"(?i)[\[\(（【]\s*(?:music|음악|배경음악|bgm|applause|박수|laughter|웃음|silence|무음|소음|noise|blank_audio)\s*[\]\)）】]"#,
+            of: #"(?i)[\[\(（【]\s*(?:music|음악|배경음악|bgm|音楽|applause|박수|拍手|laughter|laughing|웃음|笑|笑い|笑い声|silence|무음|無音|소음|noise|blank_audio|snoring|sigh|sighs|bell|inaudible|coughing|cheering|crying|baby crying|speaking in foreign language|foreign|ため息|泣き声)\s*[\]\)）】]"#,
             with: "",
             options: .regularExpression
         )

@@ -3116,7 +3116,7 @@ private func translationModelName(_ modelID: String) -> String {
         let id = String(modelID.dropFirst(ProcessingOptions.managedLlamaModelPrefix.count))
         return "자체 llama.cpp · \(ManagedRuntimeModelCatalog.model(id)?.name ?? id)"
     }
-    switch modelID {
+    return switch modelID {
     case "apple-foundation-models": String(localized: "Apple Foundation Models (시스템)")
     case ProcessingOptions.appleTranslationModelID: String(localized: "Apple 전용 번역 · 기기 내 NMT")
     case ProcessingOptions.azureTranslationModelID: String(localized: "Azure Translator")
