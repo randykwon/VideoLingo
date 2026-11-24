@@ -177,13 +177,98 @@ public struct StartJobRequest: Codable, Sendable {
     }
 }
 
-// MARK: - 모자이크 제거(디모자이크)
+// MARK: - 모자이크 제거 · 영상 복원(디모자이크)
 
-/// 사용할 복원 모델. Core ML 모델이 없으면 파이프라인이 고전적 복원으로 폴백합니다.
-public enum DemosaicModel: String, Codable, Sendable, CaseIterable {
+/// 영상 복원·제거 엔진 3가지 트랙입니다.
+public enum VideoEnhancerTrack: String, Codable, Sendable, CaseIterable, Identifiable {
+    case coreMLNative    // 1. CoreML 네이티브 (LaMa / Real-ESRGAN / GFPGAN / CodeFormer / 기본)
+    case mlxFlashVSR     // 2. MLX 네이티브 (FlashVSR v1.1)
+    case comfyOrUVMPS    // 3. 로컬 ComfyUI / uv MPS 워커 (Wan2.1-VACE-1.3B / SeedVR2-3B)
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .coreMLNative: "1. CoreML 네이티브"
+        case .mlxFlashVSR: "2. MLX FlashVSR"
+        case .comfyOrUVMPS: "3. ComfyUI · uv MPS"
+        }
+    }
+
+    public var shortDescription: String {
+        switch self {
+        case .coreMLNative: "Python 없이 Swift/CoreML에서 즉시 실행 (LaMa 영역 제거 · Real-ESRGAN · GFPGAN)"
+        case .mlxFlashVSR: "Apple Silicon MLX 1-step 스트리밍 영상 복원 (FlashVSR v1.1 · 3.5GB)"
+        case .comfyOrUVMPS: "로컬 ComfyUI API 또는 uv Python MPS 워커 (Wan2.1-VACE-1.3B · SeedVR2-3B)"
+        }
+    }
+}
+
+/// 3번 트랙(Wan2.1-VACE / SeedVR2)의 실행 백엔드입니다.
+public enum VideoEnhancerBackend: String, Codable, Sendable, CaseIterable, Identifiable {
+    case comfyUI
+    case localWorker
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .comfyUI: "ComfyUI 로컬 API"
+        case .localWorker: "로컬 uv Python MPS 워커"
+        }
+    }
+}
+
+/// 사용할 복원/제거 모델. Core ML 모델이 없으면 파이프라인이 고전적 복원으로 폴백합니다.
+public enum DemosaicModel: String, Codable, Sendable, CaseIterable, Identifiable {
     case classical      // Core Image 업스케일+샤픈 (모델 불필요, 항상 사용 가능)
-    case realESRGAN     // 일반 디블록/초해상 (Core ML/MLX)
-    case codeFormer     // 얼굴 복원 (Core ML)
+    case lamaCoreML     // LaMa CoreML 영역 제거/인페인팅 (Apache 2.0)
+    case realESRGAN     // Real-ESRGAN x4 CoreML 디블록/초해상 (BSD-3)
+    case gfpganCoreML   // GFPGAN CoreML 얼굴 복원
+    case codeFormer     // CodeFormer CoreML 얼굴 복원 (사용자 변환 모델)
+    case flashVSRMLX    // FlashVSR v1.1 MLX 1-step 영상 초해상·복원 (Apache 2.0)
+    case wanVACE        // Wan2.1-VACE-1.3B 마스크 인페인팅·편집 (Apache 2.0)
+    case seedVR2        // SeedVR2-3B 1-step 확산 영상 복원 (Apache 2.0)
+
+    public var id: String { rawValue }
+
+    public var track: VideoEnhancerTrack {
+        switch self {
+        case .classical, .lamaCoreML, .realESRGAN, .gfpganCoreML, .codeFormer:
+            .coreMLNative
+        case .flashVSRMLX:
+            .mlxFlashVSR
+        case .wanVACE, .seedVR2:
+            .comfyOrUVMPS
+        }
+    }
+
+    public var displayName: String {
+        switch self {
+        case .classical: "기본 (Core Image)"
+        case .lamaCoreML: "LaMa (CoreML · 영역 제거)"
+        case .realESRGAN: "Real-ESRGAN ×4 (CoreML · 화질 복원)"
+        case .gfpganCoreML: "GFPGAN (CoreML · 얼굴 복원)"
+        case .codeFormer: "CodeFormer (CoreML · 수동 배치)"
+        case .flashVSRMLX: "FlashVSR v1.1 (MLX · 1-step 초해상·복원)"
+        case .wanVACE: "Wan2.1-VACE-1.3B (마스크 제거·편집)"
+        case .seedVR2: "SeedVR2-3B (1-step 확산 영상 복원)"
+        }
+    }
+
+    public var coreMLModelID: String? {
+        switch self {
+        case .lamaCoreML: "lama"
+        case .realESRGAN: "realesrgan"
+        case .gfpganCoreML: "gfpgan"
+        case .codeFormer: "codeformer"
+        default: nil
+        }
+    }
+
+    public static func models(for track: VideoEnhancerTrack) -> [DemosaicModel] {
+        allCases.filter { $0.track == track }
+    }
 }
 
 /// 복원할 영역을 어떻게 정할지.
@@ -217,6 +302,26 @@ public struct DemosaicOptions: Codable, Sendable, Equatable {
     public var watermarkSynthetic: Bool
     /// 좌하단 원점의 0...1 정규화 좌표. manual 모드에서 영상 전체에 적용합니다.
     public var manualRegions: [DemosaicRegion]
+    /// 테스트 구간 시작 초. nil이면 0초부터 처리합니다.
+    public var clipStartSeconds: Double?
+    /// 테스트 구간 길이(초). nil 또는 0 이하이면 전체 영상을 처리합니다.
+    public var clipDurationSeconds: Double?
+    /// 3번 트랙(Wan2.1-VACE / SeedVR2) 실행 백엔드.
+    public var externalBackend: VideoEnhancerBackend
+    /// ComfyUI 로컬 API 주소 (기본 http://127.0.0.1:8188).
+    public var comfyUIBaseURL: String
+    /// 사용자 지정 ComfyUI API 워크플로 JSON 경로 (비어 있으면 내장 템플릿 사용).
+    public var comfyUIWorkflowPath: String?
+    /// FlashVSR v1.1 배율 (2 또는 4).
+    public var flashVSRScale: Int
+    /// FlashVSR 실행 바이너리 경로(비어 있으면 기본 설치 경로 사용).
+    public var flashVSRBinaryPath: String?
+    /// FlashVSR MLX 가중치 폴더 경로(비어 있으면 기본 설치 경로 사용).
+    public var flashVSRWeightsPath: String?
+    /// 로컬 uv Python 워커 스크립트 경로(비어 있으면 기본 경로 탐색).
+    public var localWorkerScriptPath: String?
+    /// Wan2.1-VACE 등에서 사용할 선택 프롬프트.
+    public var prompt: String?
 
     public init(
         model: DemosaicModel = .classical,
@@ -224,7 +329,17 @@ public struct DemosaicOptions: Codable, Sendable, Equatable {
         fidelity: Double = 0.7,
         temporalStabilization: Bool = true,
         watermarkSynthetic: Bool = true,
-        manualRegions: [DemosaicRegion] = []
+        manualRegions: [DemosaicRegion] = [],
+        clipStartSeconds: Double? = nil,
+        clipDurationSeconds: Double? = nil,
+        externalBackend: VideoEnhancerBackend = .comfyUI,
+        comfyUIBaseURL: String = "http://127.0.0.1:8188",
+        comfyUIWorkflowPath: String? = nil,
+        flashVSRScale: Int = 2,
+        flashVSRBinaryPath: String? = nil,
+        flashVSRWeightsPath: String? = nil,
+        localWorkerScriptPath: String? = nil,
+        prompt: String? = nil
     ) {
         self.model = model
         self.regionMode = regionMode
@@ -232,6 +347,42 @@ public struct DemosaicOptions: Codable, Sendable, Equatable {
         self.temporalStabilization = temporalStabilization
         self.watermarkSynthetic = watermarkSynthetic
         self.manualRegions = manualRegions
+        self.clipStartSeconds = clipStartSeconds
+        self.clipDurationSeconds = clipDurationSeconds
+        self.externalBackend = externalBackend
+        self.comfyUIBaseURL = comfyUIBaseURL
+        self.comfyUIWorkflowPath = comfyUIWorkflowPath
+        self.flashVSRScale = flashVSRScale
+        self.flashVSRBinaryPath = flashVSRBinaryPath
+        self.flashVSRWeightsPath = flashVSRWeightsPath
+        self.localWorkerScriptPath = localWorkerScriptPath
+        self.prompt = prompt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case model, regionMode, fidelity, temporalStabilization, watermarkSynthetic, manualRegions
+        case clipStartSeconds, clipDurationSeconds, externalBackend, comfyUIBaseURL, comfyUIWorkflowPath
+        case flashVSRScale, flashVSRBinaryPath, flashVSRWeightsPath, localWorkerScriptPath, prompt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        model = try c.decodeIfPresent(DemosaicModel.self, forKey: .model) ?? .classical
+        regionMode = try c.decodeIfPresent(DemosaicRegionMode.self, forKey: .regionMode) ?? .face
+        fidelity = try c.decodeIfPresent(Double.self, forKey: .fidelity) ?? 0.7
+        temporalStabilization = try c.decodeIfPresent(Bool.self, forKey: .temporalStabilization) ?? true
+        watermarkSynthetic = try c.decodeIfPresent(Bool.self, forKey: .watermarkSynthetic) ?? true
+        manualRegions = try c.decodeIfPresent([DemosaicRegion].self, forKey: .manualRegions) ?? []
+        clipStartSeconds = try c.decodeIfPresent(Double.self, forKey: .clipStartSeconds)
+        clipDurationSeconds = try c.decodeIfPresent(Double.self, forKey: .clipDurationSeconds)
+        externalBackend = try c.decodeIfPresent(VideoEnhancerBackend.self, forKey: .externalBackend) ?? .comfyUI
+        comfyUIBaseURL = try c.decodeIfPresent(String.self, forKey: .comfyUIBaseURL) ?? "http://127.0.0.1:8188"
+        comfyUIWorkflowPath = try c.decodeIfPresent(String.self, forKey: .comfyUIWorkflowPath)
+        flashVSRScale = try c.decodeIfPresent(Int.self, forKey: .flashVSRScale) ?? 2
+        flashVSRBinaryPath = try c.decodeIfPresent(String.self, forKey: .flashVSRBinaryPath)
+        flashVSRWeightsPath = try c.decodeIfPresent(String.self, forKey: .flashVSRWeightsPath)
+        localWorkerScriptPath = try c.decodeIfPresent(String.self, forKey: .localWorkerScriptPath)
+        prompt = try c.decodeIfPresent(String.self, forKey: .prompt)
     }
 }
 
