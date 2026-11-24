@@ -1041,7 +1041,8 @@ import Testing
     let client = CustomLocalTranslatorClient(settings: settings, apiKey: "local-secret")
     let request = try client.makeRequest(text: "Literal {{target}} inside text", source: "en", target: "ko")
     #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer local-secret")
-    let sentBody = try #require(try JSONSerialization.jsonObject(with: try #require(request.httpBody)) as? [String: Any])
+    let requestBody = try #require(request.httpBody)
+    let sentBody = try #require(try JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
     // 원문 내부의 {{target}}은 재치환되지 않고 그대로 보존되어야 함
     #expect(sentBody["text"] as? String == "Literal {{target}} inside text")
     #expect(sentBody["source"] as? String == "en")
