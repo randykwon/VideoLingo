@@ -867,17 +867,7 @@ final class CoreMLDemosaicRestorer: DemosaicRestorer, @unchecked Sendable {
     }
 
     private static func load(directory: URL, name: String) -> VNCoreMLModel? {
-        let fm = FileManager.default
-        let compiled = directory.appending(path: "\(name).mlmodelc")
-        let package = directory.appending(path: "\(name).mlpackage")
-        var url: URL?
-        if fm.fileExists(atPath: compiled.path) {
-            url = compiled
-        } else if fm.fileExists(atPath: package.path) {
-            url = try? MLModel.compileModel(at: package)   // 최초 1회 컴파일(임시 경로)
-        }
-        guard let modelURL = url,
-              let mlModel = try? MLModel(contentsOf: modelURL),
+        guard let mlModel = CoreMLModelLoader.loadCompiledModel(directory: directory, name: name),
               let vnModel = try? VNCoreMLModel(for: mlModel) else { return nil }
         return vnModel
     }
