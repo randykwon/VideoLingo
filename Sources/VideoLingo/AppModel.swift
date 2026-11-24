@@ -166,11 +166,27 @@ final class AppModel {
     var sourceLanguage = UserDefaults.standard.string(forKey: "sourceLanguage") ?? "" {
         didSet { UserDefaults.standard.set(sourceLanguage, forKey: "sourceLanguage") }
     }
+    var sttEngine: STTEngineKind = STTEngineKind(rawValue: UserDefaults.standard.string(forKey: "sttEngine") ?? "") ?? .whisperKit {
+        didSet { UserDefaults.standard.set(sttEngine.rawValue, forKey: "sttEngine") }
+    }
     var sttModel = UserDefaults.standard.string(forKey: "sttModel") ?? "large-v3-v20240930_626MB" {
         didSet { UserDefaults.standard.set(sttModel, forKey: "sttModel") }
     }
+    var translationEngine: TranslationEngineKind = AppModel.initialTranslationEngine() {
+        didSet { UserDefaults.standard.set(translationEngine.rawValue, forKey: "translationEngine") }
+    }
     var translationModel = AppModel.initialTranslationModel() {
         didSet { UserDefaults.standard.set(translationModel, forKey: "translationModel") }
+    }
+    var azureRegion = UserDefaults.standard.string(forKey: "azureRegion") ?? "koreacentral" {
+        didSet { UserDefaults.standard.set(azureRegion, forKey: "azureRegion") }
+    }
+    var localTranslationAPI: LocalTranslationAPISettings = AppModel.loadLocalTranslationAPI() {
+        didSet {
+            if let data = try? JSONEncoder().encode(localTranslationAPI) {
+                UserDefaults.standard.set(data, forKey: "localTranslationAPI")
+            }
+        }
     }
     var synthesizeSpeech = false
     var qualityMode = ProcessingQualityMode(rawValue: UserDefaults.standard.string(forKey: "qualityMode") ?? "enhanced") ?? .enhanced {
@@ -326,9 +342,9 @@ final class AppModel {
     var isExportingMobilePackage = false
     var mobileExportMessage = ""
 
-    let languages = ["ko", "en", "ja", "zh", "es", "fr", "de", "pt", "it"]
+    let languages = ["ko", "en", "ja", "zh-Hans", "zh-Hant", "es", "fr", "de", "pt", "it", "ru", "vi"]
     let sourceLanguages = [
-        "", "ko", "ja", "en", "zh", "es", "fr", "de", "pt", "it",
+        "", "ko", "ja", "en", "zh", "zh-Hans", "zh-Hant", "es", "fr", "de", "pt", "it",
         "ru", "ar", "hi", "vi", "th", "id", "tr", "nl", "pl", "sv"
     ]
     /// WhisperKit은 저장소에서 `*이름/*` 패턴으로 모델을 찾습니다. `small`·`base`·`tiny`처럼 짧은 이름은
@@ -358,10 +374,12 @@ final class AppModel {
 
     /// 설정 화면에서 외부 서버 연결을 실제로 확인합니다.
     func testExternalServerConnection() async {
+        let keychainKey = APIKeyStore.read(.externalOpenAI)
+        let effectiveKey = keychainKey.isEmpty ? externalServerAPIKey : keychainKey
         guard let config = ExternalLLMClient.Configuration(
             endpoint: externalServerEndpoint,
             model: externalServerModel,
-            apiKey: externalServerAPIKey
+            apiKey: effectiveKey
         ) else {
             externalServerTestMessage = String(localized: "주소와 모델 이름을 모두 입력하세요.")
             return
@@ -379,13 +397,42 @@ final class AppModel {
 
     let translationModels = [
         "apple-foundation-models",
+        ProcessingOptions.appleTranslationModelID,
         ProcessingOptions.externalServerModelID,
+        ProcessingOptions.azureTranslationModelID,
+        ProcessingOptions.localAPITranslationModelID,
         "mlx-community/Qwen3-0.6B-4bit",
         "mlx-community/Qwen3-1.7B-4bit",
         "mlx-community/Qwen3-4B-4bit",
         "mlx-community/Qwen3-8B-4bit",
         "mlx-community/gemma-3-1b-it-qat-4bit"
     ]
+
+    var mlxTranslationModels: [String] {
+        translationModels.filter { $0.hasPrefix("mlx-community/") }
+    }
+
+    func syncTranslationModelForEngine() {
+        switch translationEngine {
+        case .mlx:
+            if !translationModel.hasPrefix("mlx-community/") {
+                translationModel = Self.defaultTranslationModel
+            }
+        case .appleTranslation:
+            translationModel = ProcessingOptions.appleTranslationModelID
+        case .managedLlama:
+            let modelID = ManagedRuntimeManager.shared.selectedTranslation
+            translationModel = ProcessingOptions.managedLlamaModelPrefix + modelID
+        case .appleFoundation:
+            translationModel = "apple-foundation-models"
+        case .azure:
+            translationModel = ProcessingOptions.azureTranslationModelID
+        case .localAPI:
+            translationModel = ProcessingOptions.localAPITranslationModelID
+        case .externalOpenAI:
+            translationModel = ProcessingOptions.externalServerModelID
+        }
+    }
 
     @ObservationIgnored private var playerWindowClosed = false
     private var appearanceTask: Task<Void, Never>?
@@ -759,24 +806,43 @@ final class AppModel {
     func startOrResume() {
         guard let mediaURL else { return }
         errorMessage = nil
-        do {
-            let paths = try AppPaths()
-            let jobID = stableJobID(for: mediaURL)
-            if currentJobID != jobID {
-                transcript = []
-                translations = [:]
-                snapshot = nil
+        Task {
+            do {
+                try await prepareManagedRuntimesIfNeeded()
+                let paths = try AppPaths()
+                let jobID = stableJobID(for: mediaURL)
+                if currentJobID != jobID {
+                    transcript = []
+                    translations = [:]
+                    snapshot = nil
+                }
+                currentJobID = jobID
+                let options = currentProcessingOptions()
+                let request = try makeRequest(jobID: jobID, mediaURL: mediaURL, paths: paths, options: options)
+                currentRequest = request
+                let store = try store(at: paths.database)
+                try store.createJob(id: jobID, mediaURL: mediaURL, options: options)
+                snapshot = JobSnapshot(id: jobID, status: .queued, message: String(localized: "AI 서비스에 작업 전달 중"))
+                sendStart(request)
+            } catch {
+                errorMessage = error.localizedDescription
             }
-            currentJobID = jobID
-            let options = currentProcessingOptions()
-            let request = try makeRequest(jobID: jobID, mediaURL: mediaURL, paths: paths, options: options)
-            currentRequest = request
-            let store = try store(at: paths.database)
-            try store.createJob(id: jobID, mediaURL: mediaURL, options: options)
-            snapshot = JobSnapshot(id: jobID, status: .queued, message: String(localized: "AI 서비스에 작업 전달 중"))
-            sendStart(request)
-        } catch {
-            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func prepareManagedRuntimesIfNeeded() async throws {
+        let manager = ManagedRuntimeManager.shared
+        if sttEngine == .managedWhisper {
+            if let id = currentJobID {
+                snapshot = JobSnapshot(id: id, status: .queued, message: "자체 whisper.cpp 서버 준비 중…")
+            }
+            try await manager.ensureReady(.stt)
+        }
+        if translationEngine == .managedLlama {
+            if let id = currentJobID {
+                snapshot = JobSnapshot(id: id, status: .queued, message: "자체 llama.cpp 서버 준비 중…")
+            }
+            try await manager.ensureReady(.translation)
         }
     }
 
