@@ -229,21 +229,259 @@ final class DemosaicPipeline: @unchecked Sendable {
         }
     }
 
+    // MARK: - 테스트 구간 계산 및 외부 트랙(Track 2/3) 실행
+
+    private static func resolvedClipTimeRange(options: DemosaicOptions, totalDuration: CMTime) -> CMTimeRange? {
+        let total = totalDuration.seconds
+        guard total.isFinite, total > 0 else { return nil }
+        guard let requestedDuration = options.clipDurationSeconds, requestedDuration > 0 else { return nil }
+        let start = max(0, min(max(0, total - 0.5), options.clipStartSeconds ?? 0))
+        let clampedDuration = max(0.5, min(requestedDuration, total - start))
+        return CMTimeRange(
+            start: CMTime(seconds: start, preferredTimescale: 600),
+            duration: CMTime(seconds: clampedDuration, preferredTimescale: 600)
+        )
+    }
+
+    private func runExternalVideoTrack(
+        request: StartDemosaicRequest,
+        mediaURL: URL,
+        asset: AVURLAsset,
+        videoTrack: AVAssetTrack,
+        clipTimeRange: CMTimeRange?,
+        fps: Double,
+        width: Int,
+        height: Int,
+        transform: CGAffineTransform,
+        outputName: String,
+        finalURL: URL
+    ) async throws {
+        var snapshot = JobSnapshot(
+            id: request.jobID,
+            status: .extracting,
+            progress: 0.02,
+            message: "\(request.options.model.displayName) 테스트 클립 준비 중…"
+        )
+        publish(snapshot)
+
+        let clipInputURL = request.workspaceURL.appending(path: "clip-input.mp4")
+        let preparedInputURL = try await VideoClipExtractor.prepareClip(
+            from: mediaURL,
+            timeRange: clipTimeRange,
+            destinationURL: clipInputURL
+        )
+        defer {
+            if preparedInputURL == clipInputURL {
+                try? FileManager.default.removeItem(at: clipInputURL)
+            }
+        }
+
+        // Wan2.1-VACE에서 영역 모드(얼굴/자동 모자이크/수동 지정)가 선택된 경우 마스크 영상을 생성합니다.
+        var maskVideoURL: URL?
+        if request.options.model == .wanVACE && request.options.regionMode != .wholeFrame {
+            snapshot.progress = 0.05
+            snapshot.message = "마스크 영상 생성 중…"
+            snapshot.updatedAt = .now
+            publish(snapshot)
+            let generatedMaskURL = request.workspaceURL.appending(path: "clip-mask.mp4")
+            try await renderMaskVideo(
+                asset: asset,
+                videoTrack: videoTrack,
+                clipTimeRange: clipTimeRange,
+                options: request.options,
+                width: width,
+                height: height,
+                transform: transform,
+                destinationURL: generatedMaskURL
+            )
+            maskVideoURL = generatedMaskURL
+        }
+        defer {
+            if let maskVideoURL { try? FileManager.default.removeItem(at: maskVideoURL) }
+        }
+
+        let rawOutputURL = request.workspaceURL.appending(path: "external-raw-output.mp4")
+        defer { try? FileManager.default.removeItem(at: rawOutputURL) }
+
+        let progressHandler: @Sendable (Double, String) -> Void = { [weak self] progress, message in
+            guard let self else { return }
+            let update = JobSnapshot(
+                id: request.jobID,
+                status: .synthesizing,
+                progress: min(0.96, max(0.05, progress)),
+                message: message,
+                updatedAt: .now
+            )
+            self.publish(update)
+        }
+
+        switch request.options.model {
+        case .flashVSRMLX:
+            try await FlashVSRRunner.run(
+                inputVideoURL: preparedInputURL,
+                outputVideoURL: rawOutputURL,
+                options: request.options,
+                modelsURL: request.modelsURL,
+                onProgress: progressHandler
+            )
+        case .wanVACE, .seedVR2:
+            switch request.options.externalBackend {
+            case .comfyUI:
+                try await ComfyUIVideoRunner.run(
+                    inputVideoURL: preparedInputURL,
+                    maskVideoURL: maskVideoURL,
+                    outputVideoURL: rawOutputURL,
+                    options: request.options,
+                    frameRate: fps,
+                    width: width,
+                    height: height,
+                    onProgress: progressHandler
+                )
+            case .localWorker:
+                try await LocalWorkerVideoRunner.run(
+                    inputVideoURL: preparedInputURL,
+                    maskVideoURL: maskVideoURL,
+                    outputVideoURL: rawOutputURL,
+                    options: request.options,
+                    modelsURL: request.modelsURL,
+                    onProgress: progressHandler
+                )
+            }
+        default:
+            throw VideoLingoError.invalidPayload
+        }
+
+        snapshot.status = .synthesizing
+        snapshot.progress = 0.97
+        snapshot.message = "원본 오디오 합치는 중…"
+        snapshot.updatedAt = .now
+        publish(snapshot)
+
+        try await muxOriginalAudio(
+            videoURL: rawOutputURL,
+            originalAsset: asset,
+            audioTimeRange: clipTimeRange,
+            outputURL: finalURL,
+            synthetic: request.options.watermarkSynthetic
+        )
+
+        snapshot.status = .completed
+        snapshot.progress = 1
+        snapshot.message = "영상 복원 완료 · \(outputName)"
+        snapshot.updatedAt = .now
+        publish(snapshot)
+    }
+
+    private func renderMaskVideo(
+        asset: AVURLAsset,
+        videoTrack: AVAssetTrack,
+        clipTimeRange: CMTimeRange?,
+        options: DemosaicOptions,
+        width: Int,
+        height: Int,
+        transform: CGAffineTransform,
+        destinationURL: URL
+    ) async throws {
+        try? FileManager.default.removeItem(at: destinationURL)
+        let reader = try AVAssetReader(asset: asset)
+        if let clipTimeRange { reader.timeRange = clipTimeRange }
+        let output = AVAssetReaderTrackOutput(
+            track: videoTrack,
+            outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+        )
+        output.alwaysCopiesSampleData = false
+        reader.add(output)
+
+        let writer = try AVAssetWriter(outputURL: destinationURL, fileType: .mp4)
+        let writerInput = AVAssetWriterInput(
+            mediaType: .video,
+            outputSettings: [
+                AVVideoCodecKey: AVVideoCodecType.h264,
+                AVVideoWidthKey: width,
+                AVVideoHeightKey: height
+            ]
+        )
+        writerInput.expectsMediaDataInRealTime = false
+        writerInput.transform = transform
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: writerInput,
+            sourcePixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferWidthKey as String: width,
+                kCVPixelBufferHeightKey as String: height
+            ]
+        )
+        writer.add(writerInput)
+        guard reader.startReading(), writer.startWriting() else {
+            throw reader.error ?? writer.error ?? VideoLingoError.mediaHasNoVideo
+        }
+        writer.startSession(atSourceTime: .zero)
+
+        let bounds = CGRect(x: 0, y: 0, width: width, height: height)
+        let blackCanvas = CIImage(color: .black).cropped(to: bounds)
+        var firstPTS: CMTime?
+
+        while reader.status == .reading, let sample = output.copyNextSampleBuffer() {
+            try Task.checkCancellation()
+            guard let pixelBuffer = CMSampleBufferGetImageBuffer(sample) else { continue }
+            let rawPTS = CMSampleBufferGetPresentationTimeStamp(sample)
+            if firstPTS == nil { firstPTS = rawPTS }
+            let pts = CMTimeSubtract(rawPTS, firstPTS ?? .zero)
+
+            let detected: [DetectedFace] = switch options.regionMode {
+            case .face: detectFaces(pixelBuffer, width: width, height: height)
+            case .autoMosaic: detectMosaicRegions(pixelBuffer, width: width, height: height)
+            case .manual: manualRegions(options.manualRegions, width: width, height: height)
+            case .wholeFrame: []
+            }
+
+            var maskImage = blackCanvas
+            for item in detected {
+                let rect = item.rect.intersection(bounds).integral
+                guard rect.width >= 4, rect.height >= 4 else { continue }
+                maskImage = CIImage(color: .white).cropped(to: rect).composited(over: maskImage)
+            }
+            if let outBuffer = renderPixelBuffer(maskImage, width: width, height: height, pool: adaptor.pixelBufferPool, bounds: bounds) {
+                while !writerInput.isReadyForMoreMediaData {
+                    try await Task.sleep(nanoseconds: 5_000_000)
+                }
+                adaptor.append(outBuffer, withPresentationTime: pts)
+            }
+        }
+        writerInput.markAsFinished()
+        await writer.finishWriting()
+    }
+
     // MARK: - 복원기
 
     private static func makeRestorer(_ options: DemosaicOptions, modelsURL: URL) -> DemosaicRestorer {
         // modelsURL/Demosaic/<name>.mlmodelc(또는 .mlpackage)가 있으면 Core ML 복원기를 사용하고,
         // 없거나 로딩 실패 시 Core Image baseline으로 폴백합니다. (docs/mosaic-removal/COREML_MODELS.md)
         let dir = modelsURL.appending(path: "Demosaic", directoryHint: .isDirectory)
-        let name: String? = switch options.model {
-        case .classical: nil
-        case .realESRGAN: "realesrgan"
-        case .codeFormer: "codeformer"
+        switch options.model {
+        case .lamaCoreML:
+            if let lama = CoreMLLaMaRestorer(modelDirectory: dir, name: "lama") {
+                return lama
+            }
+            return ClassicalDemosaicRestorer()
+        case .realESRGAN:
+            if let coreML = CoreMLDemosaicRestorer(modelDirectory: dir, name: "realesrgan") {
+                return coreML
+            }
+            return ClassicalDemosaicRestorer()
+        case .gfpganCoreML:
+            if let coreML = CoreMLDemosaicRestorer(modelDirectory: dir, name: "gfpgan") {
+                return coreML
+            }
+            return ClassicalDemosaicRestorer()
+        case .codeFormer:
+            if let coreML = CoreMLDemosaicRestorer(modelDirectory: dir, name: "codeformer") {
+                return coreML
+            }
+            return ClassicalDemosaicRestorer()
+        default:
+            return ClassicalDemosaicRestorer()
         }
-        if let name, let coreML = CoreMLDemosaicRestorer(modelDirectory: dir, name: name) {
-            return coreML
-        }
-        return ClassicalDemosaicRestorer()
     }
 
     // MARK: - 얼굴 검출
@@ -537,20 +775,28 @@ final class DemosaicPipeline: @unchecked Sendable {
 
     // MARK: - 오디오 먹싱
 
-    private func muxOriginalAudio(videoURL: URL, originalAsset: AVAsset, outputURL: URL, synthetic: Bool) async throws {
+    private func muxOriginalAudio(
+        videoURL: URL,
+        originalAsset: AVAsset,
+        audioTimeRange: CMTimeRange?,
+        outputURL: URL,
+        synthetic: Bool
+    ) async throws {
         try? FileManager.default.removeItem(at: outputURL)
         let composition = AVMutableComposition()
         let processed = AVURLAsset(url: videoURL)
 
+        let processedDuration = try await processed.load(.duration)
         if let processedVideo = try await processed.loadTracks(withMediaType: .video).first,
            let videoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
-            let range = CMTimeRange(start: .zero, duration: try await processed.load(.duration))
+            let range = CMTimeRange(start: .zero, duration: processedDuration)
             try videoTrack.insertTimeRange(range, of: processedVideo, at: .zero)
             videoTrack.preferredTransform = try await processedVideo.load(.preferredTransform)
         }
         if let sourceAudio = try await originalAsset.loadTracks(withMediaType: .audio).first,
            let audioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
-            let range = CMTimeRange(start: .zero, duration: try await originalAsset.load(.duration))
+            let originalDuration = try await originalAsset.load(.duration)
+            let range = audioTimeRange ?? CMTimeRange(start: .zero, duration: min(originalDuration, processedDuration))
             try? audioTrack.insertTimeRange(range, of: sourceAudio, at: .zero)
         }
 
