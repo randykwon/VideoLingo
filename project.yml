@@ -36,6 +36,8 @@ targets:
     dependencies:
       - sdk: libsqlite3.tbd
       - sdk: AVFoundation.framework
+      - sdk: NaturalLanguage.framework
+      - sdk: Security.framework
 
   VideoLingoAIService:
     type: xpc-service
@@ -73,6 +75,9 @@ targets:
         product: Hub
       - sdk: AVFoundation.framework
       - sdk: FoundationModels.framework
+      - sdk: NaturalLanguage.framework
+      - sdk: Speech.framework
+      - sdk: Translation.framework
 
   VideoLingo:
     type: application
@@ -94,6 +99,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.video
         NSMicrophoneUsageDescription: 음성 인식 기능에 필요합니다.
+        NSSpeechRecognitionUsageDescription: 영상의 음성을 Apple 온디바이스 음성 인식으로 텍스트화하는 데 필요합니다.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         CFBundleDocumentTypes:
@@ -124,6 +130,9 @@ targets:
       - target: VideoLingoAIService
         embed: true
       - sdk: AVKit.framework
+      - sdk: Security.framework
+      - sdk: Speech.framework
+      - sdk: Translation.framework
       - sdk: UniformTypeIdentifiers.framework
 
   VideoLingoMobile:
@@ -176,6 +185,9 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
     dependencies:
       - sdk: AVKit.framework
+      - sdk: Security.framework
+      - sdk: Speech.framework
+      - sdk: Translation.framework
       - sdk: UniformTypeIdentifiers.framework
 
   VideoLingoCoreTests:
