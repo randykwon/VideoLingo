@@ -979,12 +979,13 @@ final class MediaPipeline: @unchecked Sendable {
             )
 
         case .deepgram:
-            let client = DeepgramPreRecordedClient(apiKey: options.deepgramAPIKey ?? "")
+            let modelName = options.deepgramModel ?? "nova-3"
+            let client = DeepgramPreRecordedClient(apiKey: options.deepgramAPIKey ?? "", model: modelName)
             let result = try await client.transcribe(audioURL: audioURL, language: language)
             if !result.text.isEmpty { onPartialText(result.text) }
             let notes: [String] = result.text.isEmpty
                 ? [TranscriptCoverage.verifiedSilenceNote, TranscriptCoverage.promptFreeVerificationNote]
-                : ["Deepgram Nova-3"]
+                : ["Deepgram \(modelName)"]
             return WhisperSTTEngine.Output(
                 text: result.text,
                 language: result.language ?? VideoLingoLanguageCatalog.detectLanguage(for: result.text)?.whisperCode,

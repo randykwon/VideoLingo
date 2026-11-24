@@ -163,4 +163,71 @@ public struct ExternalLLMClient: Sendable {
             maximumTokens: 16
         )
     }
+
+    /// OpenAI 호환 서버의 `GET /v1/models`를 조회해 사용 가능한 모델 ID 목록을 가져옵니다.
+    /// Ollama, LM Studio, vLLM, OpenAI, OpenRouter 등 모든 OpenAI 호환 서버에서 동작합니다.
+    public static func fetchAvailableModels(
+        endpoint: String,
+        apiKey: String? = nil,
+        timeout: TimeInterval = 15,
+        session: URLSession = .shared
+    ) async throws -> [String] {
+        guard let modelsURL = modelsEndpointURL(from: endpoint) else {
+            throw VideoLingoError.modelUnavailable("서버 주소를 올바르게 입력하세요 (예: http://localhost:11434/v1).")
+        }
+        var request = URLRequest(url: modelsURL)
+        request.httpMethod = "GET"
+        request.timeoutInterval = timeout
+        let trimmedKey = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedKey.isEmpty {
+            request.setValue("Bearer \(trimmedKey)", forHTTPHeaderField: "Authorization")
+        }
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            throw CancellationError()
+        } catch {
+            throw VideoLingoError.modelUnavailable("모델 목록 조회 실패(\(modelsURL.absoluteString)): \(error.localizedDescription)")
+        }
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            throw VideoLingoError.modelUnavailable("모델 목록 조회 오류 HTTP \(status)")
+        }
+        return try parseModelList(data)
+    }
+
+    public static func modelsEndpointURL(from endpoint: String) -> URL? {
+        let trimmed = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let withScheme = trimmed.contains("://") ? trimmed : "http://\(trimmed)"
+        var normalized = withScheme
+        while normalized.hasSuffix("/") { normalized.removeLast() }
+        if normalized.hasSuffix("/chat/completions") {
+            normalized = String(normalized.dropLast("/chat/completions".count))
+        }
+        if !normalized.hasSuffix("/v1") && !normalized.hasSuffix("/models") {
+            normalized += "/v1"
+        }
+        if !normalized.hasSuffix("/models") {
+            normalized += "/models"
+        }
+        return URL(string: normalized)
+    }
+
+    public static func parseModelList(_ data: Data) throws -> [String] {
+        struct ModelItem: Decodable { let id: String }
+        struct OpenAIResponse: Decodable { let data: [ModelItem] }
+        if let openAI = try? JSONDecoder().decode(OpenAIResponse.self, from: data) {
+            return Array(Set(openAI.data.map(\.id).filter { !$0.isEmpty })).sorted()
+        }
+        struct OllamaTag: Decodable { let name: String }
+        struct OllamaResponse: Decodable { let models: [OllamaTag] }
+        if let ollama = try? JSONDecoder().decode(OllamaResponse.self, from: data) {
+            return Array(Set(ollama.models.map(\.name).filter { !$0.isEmpty })).sorted()
+        }
+        throw VideoLingoError.modelUnavailable("서버의 모델 목록 형식을 해석할 수 없습니다.")
+    }
 }
