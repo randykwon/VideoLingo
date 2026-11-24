@@ -73,6 +73,9 @@ final class BackgroundTranslationManager {
         if let existing = jobs[itemKey], existing.isActive {
             return false
         }
+        if AppModel.videoIsBeingProcessed(standardized) {
+            return false
+        }
         let jobID = AppModel.stableJobID(
             forPath: standardized.path,
             sttModel: options.sttModel,

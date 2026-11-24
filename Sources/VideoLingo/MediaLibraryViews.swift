@@ -49,7 +49,11 @@ struct PlayerMediaLibraryView: View {
 
     private var playbackSelection: Binding<String?> {
         Binding(
-            get: { model.mediaURL?.standardizedFileURL.path(percentEncoded: false) },
+            get: {
+                (isTranslationMode && clickToBackgroundTranslate)
+                    ? nil
+                    : model.mediaURL?.standardizedFileURL.path(percentEncoded: false)
+            },
             set: { selected in
                 guard let item = visibleItems.first(where: { $0.id == selected }) else { return }
                 if isTranslationMode && clickToBackgroundTranslate {
@@ -277,6 +281,7 @@ struct PlayerMediaLibraryView: View {
             .buttonStyle(.borderless)
             .help("백그라운드 STT·번역 다시 시도")
         } else {
+            let busyElsewhere = AppModel.videoIsBeingProcessed(item.videoURL)
             Button {
                 startBackgroundTranslation(for: item)
             } label: {
@@ -284,7 +289,8 @@ struct PlayerMediaLibraryView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.borderless)
-            .help("재생을 유지한 채 이 영상을 백그라운드에서 STT·번역")
+            .disabled(busyElsewhere)
+            .help(busyElsewhere ? "현재 다른 작업에서 처리 중입니다." : "재생을 유지한 채 이 영상을 백그라운드에서 STT·번역")
         }
     }
 
