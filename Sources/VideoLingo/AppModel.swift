@@ -172,6 +172,15 @@ final class AppModel {
     var sttModel = UserDefaults.standard.string(forKey: "sttModel") ?? "large-v3-v20240930_626MB" {
         didSet { UserDefaults.standard.set(sttModel, forKey: "sttModel") }
     }
+    var deepgramModel = UserDefaults.standard.string(forKey: "deepgramModel") ?? "nova-3" {
+        didSet { UserDefaults.standard.set(deepgramModel, forKey: "deepgramModel") }
+    }
+    var customWhisperKitModels: [String] = UserDefaults.standard.stringArray(forKey: "customWhisperKitModels") ?? [] {
+        didSet { UserDefaults.standard.set(customWhisperKitModels, forKey: "customWhisperKitModels") }
+    }
+    var customMLXModels: [String] = UserDefaults.standard.stringArray(forKey: "customMLXModels") ?? [] {
+        didSet { UserDefaults.standard.set(customMLXModels, forKey: "customMLXModels") }
+    }
     var translationEngine: TranslationEngineKind = AppModel.initialTranslationEngine() {
         didSet { UserDefaults.standard.set(translationEngine.rawValue, forKey: "translationEngine") }
     }
@@ -347,15 +356,51 @@ final class AppModel {
         "", "ko", "ja", "en", "zh", "zh-Hans", "zh-Hant", "es", "fr", "de", "pt", "it",
         "ru", "ar", "hi", "vi", "th", "id", "tr", "nl", "pl", "sv"
     ]
-    /// WhisperKit은 저장소에서 `*이름/*` 패턴으로 모델을 찾습니다. `small`·`base`·`tiny`처럼 짧은 이름은
-    /// `.en` 변형 등 여러 폴더에 동시에 매칭돼 "Multiple models found" 오류로 항상 다운로드가 실패했습니다.
-    /// 저장소에서 유일하게 매칭되는 이름만 제공합니다. (첫 항목은 기존 다운로드를 보존하기 위해 유지)
-    let models = [
-        "large-v3-v20240930_626MB",
-        "openai_whisper-large-v3-v20240930_turbo_632MB",
-        "openai_whisper-large-v3-v20240930_547MB",
-        "openai_whisper-small_216MB"
-    ]
+    /// WhisperKit은 저장소에서 `*이름/*` 패턴으로 모델을 찾습니다. 저장소에서 유일하게 매칭되는 12종 + 사용자 정의 모델을 제공합니다.
+    var models: [String] {
+        var result = ModelCatalog.whisperKitModels.map(\.id)
+        for custom in customWhisperKitModels where !result.contains(custom) {
+            result.append(custom)
+        }
+        return result
+    }
+
+    func addCustomWhisperKitModel(_ rawID: String) {
+        let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty else { return }
+        if !models.contains(id) {
+            customWhisperKitModels.append(id)
+        }
+        sttEngine = .whisperKit
+        sttModel = id
+    }
+
+    func removeCustomWhisperKitModel(_ id: String) {
+        customWhisperKitModels.removeAll { $0 == id }
+        if sttModel == id {
+            sttModel = ModelCatalog.whisperKitModels.first?.id ?? "large-v3-v20240930_626MB"
+        }
+    }
+
+    func addCustomMLXModel(_ rawID: String) {
+        let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty else { return }
+        if !mlxTranslationModels.contains(id) {
+            customMLXModels.append(id)
+        }
+        translationEngine = .mlx
+        translationModel = id
+        refreshResults()
+    }
+
+    func removeCustomMLXModel(_ id: String) {
+        customMLXModels.removeAll { $0 == id }
+        if translationModel == id {
+            translationModel = Self.defaultTranslationModel
+            refreshResults()
+        }
+    }
+
     /// 외부 LLM 서버 주소입니다. 예: http://localhost:11434/v1 (Ollama), http://localhost:1234/v1 (LM Studio)
     var externalServerEndpoint = UserDefaults.standard.string(forKey: "externalServerEndpoint") ?? "" {
         didSet { UserDefaults.standard.set(externalServerEndpoint, forKey: "externalServerEndpoint") }
@@ -371,6 +416,32 @@ final class AppModel {
     /// 연결 테스트 결과 메시지입니다.
     var externalServerTestMessage = ""
     var isTestingExternalServer = false
+    var discoveredExternalModels: [String] = []
+    var isFetchingExternalModels = false
+
+    /// OpenAI 호환 서버의 `/v1/models`에서 설치된 모델 목록을 조회합니다.
+    func fetchExternalServerModels() async {
+        let keychainKey = APIKeyStore.read(.externalOpenAI)
+        let effectiveKey = keychainKey.isEmpty ? externalServerAPIKey : keychainKey
+        isFetchingExternalModels = true
+        externalServerTestMessage = String(localized: "서버 모델 목록을 조회하는 중…")
+        defer { isFetchingExternalModels = false }
+        do {
+            let fetched = try await ExternalLLMClient.fetchAvailableModels(
+                endpoint: externalServerEndpoint,
+                apiKey: effectiveKey
+            )
+            discoveredExternalModels = fetched
+            if externalServerModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let first = fetched.first {
+                externalServerModel = first
+            }
+            externalServerTestMessage = fetched.isEmpty
+                ? String(localized: "서버에서 반환된 모델이 없습니다.")
+                : String(localized: "모델 \(fetched.count)개를 불러왔습니다.")
+        } catch {
+            externalServerTestMessage = error.localizedDescription
+        }
+    }
 
     /// 설정 화면에서 외부 서버 연결을 실제로 확인합니다.
     func testExternalServerConnection() async {
@@ -395,27 +466,28 @@ final class AppModel {
         }
     }
 
-    let translationModels = [
-        "apple-foundation-models",
-        ProcessingOptions.appleTranslationModelID,
-        ProcessingOptions.externalServerModelID,
-        ProcessingOptions.azureTranslationModelID,
-        ProcessingOptions.localAPITranslationModelID,
-        "mlx-community/Qwen3-0.6B-4bit",
-        "mlx-community/Qwen3-1.7B-4bit",
-        "mlx-community/Qwen3-4B-4bit",
-        "mlx-community/Qwen3-8B-4bit",
-        "mlx-community/gemma-3-1b-it-qat-4bit"
-    ]
-
     var mlxTranslationModels: [String] {
-        translationModels.filter { $0.hasPrefix("mlx-community/") }
+        var result = ModelCatalog.mlxTranslationModels.map(\.id)
+        for custom in customMLXModels where !result.contains(custom) {
+            result.append(custom)
+        }
+        return result
+    }
+
+    var translationModels: [String] {
+        [
+            "apple-foundation-models",
+            ProcessingOptions.appleTranslationModelID,
+            ProcessingOptions.externalServerModelID,
+            ProcessingOptions.azureTranslationModelID,
+            ProcessingOptions.localAPITranslationModelID
+        ] + mlxTranslationModels
     }
 
     func syncTranslationModelForEngine() {
         switch translationEngine {
         case .mlx:
-            if !translationModel.hasPrefix("mlx-community/") {
+            if !mlxTranslationModels.contains(translationModel) {
                 translationModel = Self.defaultTranslationModel
             }
         case .appleTranslation:
@@ -1949,7 +2021,7 @@ final class AppModel {
         case .whisperKit: sttModel
         case .managedWhisper: "managed-whisper:\(runtime.selectedSTT)"
         case .appleSpeech: "apple-speech"
-        case .deepgram: "deepgram-nova-3"
+        case .deepgram: "deepgram:\(deepgramModel)"
         }
         return ProcessingOptions(
             sourceLanguage: sourceLanguage.isEmpty ? nil : sourceLanguage,
@@ -1972,6 +2044,7 @@ final class AppModel {
             managedTranslationURL: ManagedRuntimeRole.translation.baseURL.appendingPathComponent("v1/chat/completions").absoluteString,
             managedTranslationAPIKey: runtime.authorization(for: .translation),
             deepgramAPIKey: APIKeyStore.read(.deepgram),
+            deepgramModel: deepgramModel,
             azureAPIKey: APIKeyStore.read(.azure),
             azureRegion: azureRegion,
             localTranslationAPI: localTranslationAPI,
