@@ -12,8 +12,16 @@ extension FocusedValues {
     }
 }
 
+@MainActor
+private final class VideoLingoAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillTerminate(_ notification: Notification) {
+        ManagedRuntimeManager.shared.shutdown()
+    }
+}
+
 @main
 struct VideoLingoApp: App {
+    @NSApplicationDelegateAdaptor(VideoLingoAppDelegate.self) private var appDelegate
     @State private var shortcuts = ShortcutSettings()
     @State private var localization = LocalizationManager.shared
     @State private var theme = ThemeManager.shared

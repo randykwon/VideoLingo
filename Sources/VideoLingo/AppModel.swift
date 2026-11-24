@@ -1002,25 +1002,28 @@ final class AppModel {
     private func retrySegments(_ segments: [TranscriptSegment]) {
         guard canRegenerate, let mediaURL, let currentJobID, !segments.isEmpty else { return }
         errorMessage = nil
-        do {
-            let paths = try AppPaths()
-            let options = currentProcessingOptions()
-            let request = try makeRequest(
-                jobID: currentJobID,
-                mediaURL: mediaURL,
-                paths: paths,
-                options: options,
-                retryChunkIndices: segments.map(\.chunkIndex)
-            )
-            currentRequest = request
-            snapshot = JobSnapshot(
-                id: currentJobID,
-                status: .queued,
-                message: String(localized: "기존 결과를 유지하며 재추출 후보 비교 준비 중")
-            )
-            sendStart(request)
-        } catch {
-            errorMessage = String(localized: "미번역 항목 재시도 준비 실패: \(error.localizedDescription)")
+        Task {
+            do {
+                try await prepareManagedRuntimesIfNeeded()
+                let paths = try AppPaths()
+                let options = currentProcessingOptions()
+                let request = try makeRequest(
+                    jobID: currentJobID,
+                    mediaURL: mediaURL,
+                    paths: paths,
+                    options: options,
+                    retryChunkIndices: segments.map(\.chunkIndex)
+                )
+                currentRequest = request
+                snapshot = JobSnapshot(
+                    id: currentJobID,
+                    status: .queued,
+                    message: String(localized: "기존 결과를 유지하며 재추출 후보 비교 준비 중")
+                )
+                sendStart(request)
+            } catch {
+                errorMessage = String(localized: "미번역 항목 재시도 준비 실패: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -1892,6 +1895,29 @@ final class AppModel {
         return stored ?? defaultTranslationModel
     }
 
+    private static func initialTranslationEngine() -> TranslationEngineKind {
+        if let raw = UserDefaults.standard.string(forKey: "translationEngine"),
+           let kind = TranslationEngineKind(rawValue: raw) {
+            return kind
+        }
+        let model = initialTranslationModel()
+        if model == "apple-foundation-models" { return .appleFoundation }
+        if model == ProcessingOptions.externalServerModelID { return .externalOpenAI }
+        if model == ProcessingOptions.appleTranslationModelID { return .appleTranslation }
+        if model == ProcessingOptions.azureTranslationModelID { return .azure }
+        if model == ProcessingOptions.localAPITranslationModelID { return .localAPI }
+        if model.hasPrefix(ProcessingOptions.managedLlamaModelPrefix) { return .managedLlama }
+        return .mlx
+    }
+
+    private static func loadLocalTranslationAPI() -> LocalTranslationAPISettings {
+        guard let data = UserDefaults.standard.data(forKey: "localTranslationAPI"),
+              let decoded = try? JSONDecoder().decode(LocalTranslationAPISettings.self, from: data) else {
+            return LocalTranslationAPISettings()
+        }
+        return decoded
+    }
+
     /// 배치 처리 등에서 파일 경로 기반으로 단일 창과 동일한 안정적 jobID를 얻습니다.
     static func stableJobID(
         forPath path: String,
@@ -1916,11 +1942,20 @@ final class AppModel {
     }
 
     func currentProcessingOptions() -> ProcessingOptions {
-        ProcessingOptions(
+        let runtime = ManagedRuntimeManager.shared
+        let keychainOpenAI = APIKeyStore.read(.externalOpenAI)
+        let effectiveOpenAIKey = keychainOpenAI.isEmpty ? externalServerAPIKey : keychainOpenAI
+        let effectiveSTTModel: String = switch sttEngine {
+        case .whisperKit: sttModel
+        case .managedWhisper: "managed-whisper:\(runtime.selectedSTT)"
+        case .appleSpeech: "apple-speech"
+        case .deepgram: "deepgram-nova-3"
+        }
+        return ProcessingOptions(
             sourceLanguage: sourceLanguage.isEmpty ? nil : sourceLanguage,
             targetLanguages: targetLanguages,
             chunkDuration: processingChunkDuration,
-            sttModel: sttModel,
+            sttModel: effectiveSTTModel,
             translationModel: translationModel,
             synthesizeSpeech: synthesizeSpeech,
             qualityMode: qualityMode,
@@ -1928,8 +1963,19 @@ final class AppModel {
             continuousImprovement: continuousImprovement,
             externalServerEndpoint: externalServerEndpoint,
             externalServerModel: externalServerModel,
-            externalServerAPIKey: externalServerAPIKey,
-            maximumRefinementPasses: maximumRefinementPasses
+            externalServerAPIKey: effectiveOpenAIKey,
+            maximumRefinementPasses: maximumRefinementPasses,
+            sttEngine: sttEngine,
+            translationEngine: translationEngine,
+            managedSTTURL: ManagedRuntimeRole.stt.baseURL.absoluteString,
+            managedSTTAPIKey: runtime.authorization(for: .stt),
+            managedTranslationURL: ManagedRuntimeRole.translation.baseURL.appendingPathComponent("v1/chat/completions").absoluteString,
+            managedTranslationAPIKey: runtime.authorization(for: .translation),
+            deepgramAPIKey: APIKeyStore.read(.deepgram),
+            azureAPIKey: APIKeyStore.read(.azure),
+            azureRegion: azureRegion,
+            localTranslationAPI: localTranslationAPI,
+            localTranslationAPIKey: APIKeyStore.read(.localTranslation)
         )
     }
 
@@ -1969,7 +2015,11 @@ final class AppModel {
         if !targetLanguages.contains(selectedLanguage) {
             selectedLanguage = targetLanguages[0]
         }
-        sttModel = options.sttModel
+        if let engine = options.sttEngine { sttEngine = engine }
+        if options.effectiveSTTEngine == .whisperKit {
+            sttModel = options.sttModel
+        }
+        if let engine = options.translationEngine { translationEngine = engine }
         applyRestoredTranslationModel(options.translationModel)
         synthesizeSpeech = options.synthesizeSpeech
         qualityMode = options.qualityMode ?? .fast
@@ -1979,7 +2029,13 @@ final class AppModel {
     }
 
     private func stableJobKey(for url: URL) -> String {
-        let identity = [url.path, sttModel, sourceLanguage, "speaker-diarization-v1", "speech-timing-v2"].joined(separator: "|")
+        let engineModelKey: String = switch sttEngine {
+        case .whisperKit: sttModel
+        case .managedWhisper: "managed-whisper:\(ManagedRuntimeManager.shared.selectedSTT)"
+        case .appleSpeech: "apple-speech"
+        case .deepgram: "deepgram-nova-3"
+        }
+        let identity = [url.path, engineModelKey, sourceLanguage, "speaker-diarization-v1", "speech-timing-v2"].joined(separator: "|")
         let digest = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
         return "VideoLingo.job.\(digest)"
     }

@@ -183,16 +183,30 @@ struct ContentView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
-                        Picker("Whisper STT", selection: $model.sttModel) {
-                            ForEach(model.models, id: \.self) { Text(sttModelName($0)).tag($0) }
+                        Picker("STT 엔진", selection: $model.sttEngine) {
+                            ForEach(STTEngineKind.allCases) { Text($0.displayName).tag($0) }
                         }
-                        Picker("번역 LLM", selection: $model.translationModel) {
-                            ForEach(model.translationModels, id: \.self) { modelID in
-                                Text(translationModelName(modelID)).tag(modelID)
+                        if model.sttEngine == .whisperKit {
+                            Picker("Whisper STT", selection: $model.sttModel) {
+                                ForEach(model.models, id: \.self) { Text(sttModelName($0)).tag($0) }
                             }
                         }
-                        .onChange(of: model.translationModel) { _, _ in model.refreshResults() }
-                        if model.translationModel == ProcessingOptions.externalServerModelID {
+                        Picker("번역 엔진", selection: $model.translationEngine) {
+                            ForEach(TranslationEngineKind.allCases) { Text($0.displayName).tag($0) }
+                        }
+                        .onChange(of: model.translationEngine) { _, _ in
+                            model.syncTranslationModelForEngine()
+                            model.refreshResults()
+                        }
+                        if model.translationEngine == .mlx {
+                            Picker("번역 LLM", selection: $model.translationModel) {
+                                ForEach(model.mlxTranslationModels, id: \.self) { modelID in
+                                    Text(translationModelName(modelID)).tag(modelID)
+                                }
+                            }
+                            .onChange(of: model.translationModel) { _, _ in model.refreshResults() }
+                        }
+                        if model.translationEngine == .externalOpenAI {
                             ExternalServerFields()
                         }
                         Toggle("번역 음성 MP4 생성", isOn: $model.synthesizeSpeech)
@@ -2047,6 +2061,8 @@ struct SettingsView: View {
         TabView {
             GeneralSettingsView()
                 .tabItem { Label("일반", systemImage: "gearshape") }
+            EngineSettingsTabView()
+                .tabItem { Label("엔진 설정", systemImage: "cpu") }
             DatabaseSettingsView()
                 .tabItem { Label("데이터베이스", systemImage: "cylinder") }
             ServerSettingsView()
@@ -2058,7 +2074,7 @@ struct SettingsView: View {
             KeyboardShortcutSettingsView()
                 .tabItem { Label("단축키", systemImage: "keyboard") }
         }
-        .frame(width: 680, height: 520)
+        .frame(width: 720, height: 600)
         .task { model.refreshSettings() }
         .onAppear { model.applyWindowTransparency() }
     }
@@ -3096,8 +3112,15 @@ private struct ExternalServerFields: View {
 }
 
 private func translationModelName(_ modelID: String) -> String {
+    if modelID.hasPrefix(ProcessingOptions.managedLlamaModelPrefix) {
+        let id = String(modelID.dropFirst(ProcessingOptions.managedLlamaModelPrefix.count))
+        return "자체 llama.cpp · \(ManagedRuntimeModelCatalog.model(id)?.name ?? id)"
+    }
     switch modelID {
     case "apple-foundation-models": String(localized: "Apple Foundation Models (시스템)")
+    case ProcessingOptions.appleTranslationModelID: String(localized: "Apple 전용 번역 · 기기 내 NMT")
+    case ProcessingOptions.azureTranslationModelID: String(localized: "Azure Translator")
+    case ProcessingOptions.localAPITranslationModelID: String(localized: "로컬 커스텀 번역 API")
     case "mlx-community/Qwen3-0.6B-4bit": "Qwen3 0.6B 4-bit"
     case "mlx-community/Qwen3-1.7B-4bit": "Qwen3 1.7B 4-bit"
     case "mlx-community/Qwen3-4B-4bit": String(localized: "Qwen3 4B 4-bit · 균형")
