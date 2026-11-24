@@ -244,14 +244,7 @@ struct EngineSettingsTabView: View {
                 .environment(model)
         }
         .translationTask(translationPrepConfig) { session in
-            isPreparingAppleTranslation = true
-            defer { isPreparingAppleTranslation = false }
-            do {
-                try await session.prepareTranslation()
-                appleTranslationStatus = "선택한 언어 쌍의 Apple 온디바이스 번역 모델이 준비되었습니다."
-            } catch {
-                appleTranslationStatus = "번역 언어 준비 실패: \(error.localizedDescription)"
-            }
+            await runAppleTranslationPreparation(session)
         }
         .onAppear { loadAPIKeys() }
         .onDisappear { localTestTask?.cancel() }
@@ -276,6 +269,22 @@ struct EngineSettingsTabView: View {
             statusMessage = "API 키를 macOS 키체인에 저장했습니다."
         } catch {
             statusMessage = error.localizedDescription
+        }
+    }
+
+    private struct TranslationSessionPrepBox: @unchecked Sendable {
+        let session: TranslationSession
+    }
+
+    private func runAppleTranslationPreparation(_ session: TranslationSession) async {
+        let box = TranslationSessionPrepBox(session: session)
+        isPreparingAppleTranslation = true
+        defer { isPreparingAppleTranslation = false }
+        do {
+            try await box.session.prepareTranslation()
+            appleTranslationStatus = "선택한 언어 쌍의 Apple 온디바이스 번역 모델이 준비되었습니다."
+        } catch {
+            appleTranslationStatus = "번역 언어 준비 실패: \(error.localizedDescription)"
         }
     }
 
