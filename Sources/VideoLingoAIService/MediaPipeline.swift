@@ -721,13 +721,14 @@ final class MediaPipeline: @unchecked Sendable {
                             onLiveTranscript(request.jobID, index, total, "품질 개선 후보 · \(text)")
                         }
                     )
-                    var candidateCues = output.cues.compactMap { cue -> TranscriptCue? in
-                        let cueStart = max(start, min(end, extractionStart + cue.startTime))
-                        let cueEnd = max(cueStart, min(end, extractionStart + cue.endTime))
-                        guard cueEnd > cueStart, !cue.text.isEmpty else { return nil }
-                        return TranscriptCue(startTime: cueStart, endTime: cueEnd, text: cue.text)
-                    }
-                    var candidateText = candidateCues.isEmpty ? output.text : candidateCues.map(\.text).joined(separator: "\n")
+                    var candidateCues = TranscriptTextSanitizer.assignChunkCues(
+                        output.cues,
+                        extractionStart: extractionStart,
+                        chunkStart: start,
+                        chunkEnd: end,
+                        isLastChunk: index == total - 1
+                    )
+                    var candidateText = output.cues.isEmpty ? output.text : candidateCues.map(\.text).joined(separator: "\n")
                     if let carried = carryingSpeakerLabels(from: currentTranscript.text, to: candidateText) {
                         candidateText = carried
                         if containsSpeakerLabels(currentTranscript.text) {
@@ -812,6 +813,7 @@ final class MediaPipeline: @unchecked Sendable {
                         modelID: request.options.translationModel,
                         modelsURL: modelsURL,
                         previousContext: translationContext(before: index, transcripts: transcripts),
+                        previousTranslations: previousTranslations(before: index, language: language, transcripts: transcripts, translations: translations),
                         nextContext: translationContext(after: index, transcripts: transcripts),
                         glossary: glossary,
                         qualityMode: .maximum,
@@ -1006,6 +1008,24 @@ final class MediaPipeline: @unchecked Sendable {
             .map(\.text)
     }
 
+    private func previousTranslations(
+        before index: Int,
+        language: String,
+        transcripts: [Int: TranscriptSegment],
+        translations: [String: [UUID: TranslationSegment]]
+    ) -> [String] {
+        guard let byTranscriptID = translations[language] else { return [] }
+        return transcripts.values
+            .filter { $0.chunkIndex < index }
+            .sorted { $0.chunkIndex < $1.chunkIndex }
+            .compactMap { segment -> String? in
+                guard let text = byTranscriptID[segment.id]?.text.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !text.isEmpty else { return nil }
+                return text
+            }
+            .suffix(2)
+    }
+
     private func combinedProgress(_ snapshot: JobSnapshot) -> Double {
         min(1, max(0, (snapshot.sttProgress + snapshot.translationProgress) / 2))
     }
@@ -1104,6 +1124,19 @@ private actor PipelineCoordinator {
             .map(\.text)
     }
 
+    func previousTranslations(before index: Int, language: String) -> [String] {
+        guard let byTranscriptID = translations[language] else { return [] }
+        return transcripts.values
+            .filter { $0.chunkIndex < index }
+            .sorted { $0.chunkIndex < $1.chunkIndex }
+            .compactMap { segment -> String? in
+                guard let text = byTranscriptID[segment.id]?.text.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !text.isEmpty else { return nil }
+                return text
+            }
+            .suffix(2)
+    }
+
     // MARK: STT 갱신
     func setDetectedLanguage(_ language: String?) { detectedLanguage = language }
 
@@ -1120,7 +1153,8 @@ private actor PipelineCoordinator {
 
     func commitTranscript(_ transcript: TranscriptSegment) throws {
         transcripts[transcript.chunkIndex] = transcript
-        snapshot.sttProgress = stageProgress(completed: transcripts.count, total: total)
+        let completed = TranscriptCoverage.completedChunkCount(transcripts: transcripts.values, totalChunks: total)
+        snapshot.sttProgress = stageProgress(completed: completed, total: total)
         snapshot.lastTranscriptText = transcript.text
         snapshot.liveTranscriptText = nil
         snapshot.status = .transcribing

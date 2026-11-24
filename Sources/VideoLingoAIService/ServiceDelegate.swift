@@ -62,6 +62,7 @@ final class VideoLingoAIService: NSObject, VideoLingoAIServiceProtocol, @uncheck
                         targetLanguage: request.targetLanguage, modelID: request.modelID,
                         modelsURL: request.modelsURL,
                         previousContext: Array(request.texts.prefix(index).suffix(2)),
+                        previousTranslations: Array(results.suffix(2)),
                         nextContext: Array(request.texts.dropFirst(index + 1).prefix(1)),
                         glossary: [], qualityMode: .enhanced, onPartialText: { _ in }
                     )
