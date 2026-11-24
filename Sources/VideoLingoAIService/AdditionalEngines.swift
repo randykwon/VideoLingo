@@ -65,13 +65,25 @@ enum AppleSpeechFileSTTEngine {
         let qualityNotes: [String]
     }
 
+    private struct CapturedSegment: Sendable {
+        let substring: String
+        let timestamp: TimeInterval
+        let duration: TimeInterval
+        let confidence: Float
+    }
+
+    private struct CapturedTranscription: Sendable {
+        let formattedString: String
+        let segments: [CapturedSegment]
+    }
+
     private final class RecognitionBridge: @unchecked Sendable {
         private let lock = NSLock()
         private var finished = false
         private var task: SFSpeechRecognitionTask?
-        private let continuation: CheckedContinuation<SFTranscription?, Error>
+        private let continuation: CheckedContinuation<CapturedTranscription?, Error>
 
-        init(continuation: CheckedContinuation<SFTranscription?, Error>) {
+        init(continuation: CheckedContinuation<CapturedTranscription?, Error>) {
             self.continuation = continuation
         }
 
@@ -83,7 +95,7 @@ enum AppleSpeechFileSTTEngine {
             if alreadyFinished { task.cancel() }
         }
 
-        func finish(_ result: Result<SFTranscription?, Error>) {
+        func finish(_ result: Result<CapturedTranscription?, Error>) {
             lock.lock()
             guard !finished else { lock.unlock(); return }
             finished = true
@@ -112,14 +124,26 @@ enum AppleSpeechFileSTTEngine {
             request.requiresOnDeviceRecognition = true
         }
 
-        let transcription: SFTranscription? = try await withCheckedThrowingContinuation { continuation in
+        let transcription: CapturedTranscription? = try await withCheckedThrowingContinuation { continuation in
             let bridge = RecognitionBridge(continuation: continuation)
             let recognitionTask = recognizer.recognitionTask(with: request) { result, error in
                 if let result {
                     let partial = result.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !partial.isEmpty { onPartialText(partial) }
                     if result.isFinal {
-                        bridge.finish(.success(result.bestTranscription))
+                        let best = result.bestTranscription
+                        let captured = CapturedTranscription(
+                            formattedString: best.formattedString,
+                            segments: best.segments.map {
+                                CapturedSegment(
+                                    substring: $0.substring,
+                                    timestamp: $0.timestamp,
+                                    duration: $0.duration,
+                                    confidence: $0.confidence
+                                )
+                            }
+                        )
+                        bridge.finish(.success(captured))
                         return
                     }
                 }
@@ -164,7 +188,7 @@ enum AppleSpeechFileSTTEngine {
         )
     }
 
-    private static func buildCues(from segments: [SFTranscriptionSegment]) -> [TranscriptCue] {
+    private static func buildCues(from segments: [CapturedSegment]) -> [TranscriptCue] {
         guard !segments.isEmpty else { return [] }
         var cues: [TranscriptCue] = []
         var bufferWords: [String] = []
@@ -203,7 +227,11 @@ enum AppleSpeechFileSTTEngine {
 actor AppleNativeTranslationEngine {
     static let shared = AppleNativeTranslationEngine()
 
-    private var sessions: [String: TranslationSession] = [:]
+    private struct SessionBox: @unchecked Sendable {
+        let session: TranslationSession
+    }
+
+    private var sessions: [String: SessionBox] = [:]
 
     func invalidateSessions() {
         sessions.removeAll()
@@ -249,39 +277,39 @@ actor AppleNativeTranslationEngine {
             if #available(macOS 26.4, *) {
                 // SpikDoum 방식: 메모리 압박 시 ModelManagerError 1013을 피하기 위해 경량 NMT(.lowLatency) 우선 사용
                 let fastKey = "\(sourceCode)->\(targetCode):low"
-                let fastSession: TranslationSession
+                let fastBox: SessionBox
                 if let existing = sessions[fastKey] {
-                    fastSession = existing
+                    fastBox = existing
                 } else {
-                    fastSession = TranslationSession(installedSource: sourceLang, target: targetLang, preferredStrategy: .lowLatency)
-                    sessions[fastKey] = fastSession
+                    fastBox = SessionBox(session: TranslationSession(installedSource: sourceLang, target: targetLang, preferredStrategy: .lowLatency))
+                    sessions[fastKey] = fastBox
                 }
                 do {
-                    return try await fastSession.translate(text).targetText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return try await fastBox.session.translate(text).targetText.trimmingCharacters(in: .whitespacesAndNewlines)
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
                     sessions.removeValue(forKey: fastKey)
                     let fallbackKey = "\(sourceCode)->\(targetCode):default"
-                    let fallbackSession: TranslationSession
+                    let fallbackBox: SessionBox
                     if let existing = sessions[fallbackKey] {
-                        fallbackSession = existing
+                        fallbackBox = existing
                     } else {
-                        fallbackSession = TranslationSession(installedSource: sourceLang, target: targetLang)
-                        sessions[fallbackKey] = fallbackSession
+                        fallbackBox = SessionBox(session: TranslationSession(installedSource: sourceLang, target: targetLang))
+                        sessions[fallbackKey] = fallbackBox
                     }
-                    return try await fallbackSession.translate(text).targetText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return try await fallbackBox.session.translate(text).targetText.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
             } else {
                 let key = "\(sourceCode)->\(targetCode)"
-                let session: TranslationSession
+                let box: SessionBox
                 if let existing = sessions[key] {
-                    session = existing
+                    box = existing
                 } else {
-                    session = TranslationSession(installedSource: sourceLang, target: targetLang)
-                    sessions[key] = session
+                    box = SessionBox(session: TranslationSession(installedSource: sourceLang, target: targetLang))
+                    sessions[key] = box
                 }
-                return try await session.translate(text).targetText.trimmingCharacters(in: .whitespacesAndNewlines)
+                return try await box.session.translate(text).targetText.trimmingCharacters(in: .whitespacesAndNewlines)
             }
         } catch is CancellationError {
             throw CancellationError()
