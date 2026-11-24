@@ -114,7 +114,7 @@ public enum TranslationContextBuilder {
     public static func relevantGlossary(_ glossary: [GlossaryEntry], for source: String) -> [GlossaryEntry] {
         guard glossary.count > 12 else { return glossary }
         return glossary.filter { entry in
-            !entry.source.isEmpty && source.localizedCaseInsensitiveContains(entry.source)
+            !entry.source.isEmpty && TranslationQualityValidator.containsTerm(entry.source, in: source)
         }
     }
 
@@ -268,8 +268,8 @@ public enum TranslationQualityValidator {
         // 3. 필수 용어집 검사
         let missingTerms = glossary.filter {
             !$0.source.isEmpty && !$0.target.isEmpty
-                && sourceBody.localizedCaseInsensitiveContains($0.source)
-                && !translationBody.localizedCaseInsensitiveContains($0.target)
+                && containsTerm($0.source, in: sourceBody)
+                && !containsTerm($0.target, in: translationBody)
         }
         if !missingTerms.isEmpty {
             found.append("필수 용어 누락: \(missingTerms.map(\.source).joined(separator: ", "))")
@@ -313,6 +313,26 @@ public enum TranslationQualityValidator {
             return qualityMode == .maximum || repairedIssues.isEmpty
         }
         return false
+    }
+
+    /// 영숫자 용어는 단어 경계(\b)로 매칭해 "Term1"이 "Term19"에 오탐되는 현상을 막고,
+    /// 한국어·일본어·중국어처럼 공백 경계가 없는 용어는 대소문자 무시 부분 매칭을 사용합니다.
+    public static func containsTerm(_ term: String, in text: String) -> Bool {
+        let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let startsASCIIWord = trimmed.first.map { $0.isASCII && ($0.isLetter || $0.isNumber) } ?? false
+        let endsASCIIWord = trimmed.last.map { $0.isASCII && ($0.isLetter || $0.isNumber) } ?? false
+        guard startsASCIIWord || endsASCIIWord else {
+            return text.localizedCaseInsensitiveContains(trimmed)
+        }
+        let escaped = NSRegularExpression.escapedPattern(for: trimmed)
+        let prefix = startsASCIIWord ? #"(?<![A-Za-z0-9_])"# : ""
+        let suffix = endsASCIIWord ? #"(?![A-Za-z0-9_])"# : ""
+        guard let regex = try? NSRegularExpression(pattern: "\(prefix)\(escaped)\(suffix)", options: [.caseInsensitive]) else {
+            return text.localizedCaseInsensitiveContains(trimmed)
+        }
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.firstMatch(in: text, range: range) != nil
     }
 
     private static func normalizedLanguageKey(_ code: String?) -> String? {

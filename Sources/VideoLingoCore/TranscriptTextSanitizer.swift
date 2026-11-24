@@ -82,14 +82,30 @@ public enum TranscriptTextSanitizer {
         let body = text
             .replacingOccurrences(of: #"(?m)^\s*\[[^\]\n]{1,40}\]\s*"#, with: "", options: .regularExpression)
             .filter { !$0.isWhitespace && !$0.isPunctuation }
-        guard body.count >= 6 else { return nil }
-        if body.count >= 15 && confidence >= 0.55 {
+        // 한·중·일 문자는 라틴 문자보다 글자당 정보 밀도가 높으므로 가중 길이(CJK=2)로 판정합니다.
+        let weightedLength = body.unicodeScalars.reduce(into: 0) { total, scalar in
+            total += isCJK(scalar) ? 2 : 1
+        }
+        guard weightedLength >= 6 else { return nil }
+        if weightedLength >= 15 && confidence >= 0.55 {
             return raw
         }
         if confidence >= 0.35 && recentDetections.contains(raw) {
             return raw
         }
         return nil
+    }
+
+    private static func isCJK(_ scalar: UnicodeScalar) -> Bool {
+        switch scalar.value {
+        case 0x3040...0x30FF, // Hiragana & Katakana
+             0x3400...0x4DBF, // CJK Extension A
+             0x4E00...0x9FFF, // CJK Unified Ideographs
+             0xAC00...0xD7AF: // Hangul Syllables
+            return true
+        default:
+            return false
+        }
     }
 
     private static let knownHallucinationPatterns: [String] = [
