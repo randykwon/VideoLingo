@@ -2092,6 +2092,9 @@ final class AppModel {
         if options.effectiveSTTEngine == .whisperKit {
             sttModel = options.sttModel
         }
+        if let dgModel = options.deepgramModel, !dgModel.isEmpty {
+            deepgramModel = dgModel
+        }
         if let engine = options.translationEngine { translationEngine = engine }
         applyRestoredTranslationModel(options.translationModel)
         synthesizeSpeech = options.synthesizeSpeech
@@ -2106,7 +2109,7 @@ final class AppModel {
         case .whisperKit: sttModel
         case .managedWhisper: "managed-whisper:\(ManagedRuntimeManager.shared.selectedSTT)"
         case .appleSpeech: "apple-speech"
-        case .deepgram: "deepgram-nova-3"
+        case .deepgram: "deepgram:\(deepgramModel)"
         }
         let identity = [url.path, engineModelKey, sourceLanguage, "speaker-diarization-v1", "speech-timing-v2"].joined(separator: "|")
         let digest = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()

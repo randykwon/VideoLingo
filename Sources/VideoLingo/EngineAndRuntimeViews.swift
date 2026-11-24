@@ -24,6 +24,8 @@ struct EngineSettingsTabView: View {
     @State private var translationPrepConfig: TranslationSession.Configuration?
     @State private var isPreparingAppleTranslation = false
     @State private var appleTranslationStatus: String?
+    @State private var customWhisperInput = ""
+    @State private var customMLXInput = ""
 
     var body: some View {
         @Bindable var model = model
@@ -38,16 +40,44 @@ struct EngineSettingsTabView: View {
                 case .whisperKit:
                     Picker("WhisperKit 모델", selection: $model.sttModel) {
                         ForEach(model.models, id: \.self) { id in
-                            Text(id).tag(id)
+                            Text(ModelCatalog.whisperKitDescriptor(for: id)?.pickerLabel ?? "\(id) (사용자 추가)").tag(id)
                         }
                     }
-                    Text("내장 WhisperKit + SpeakerKit(화자 분리)을 사용합니다. 기존 저장된 작업과 100% 호환됩니다.")
+                    if let desc = ModelCatalog.whisperKitDescriptor(for: model.sttModel) {
+                        Text(desc.note).font(.caption).foregroundStyle(.secondary)
+                    }
+                    DisclosureGroup("사용자 정의 WhisperKit 모델 추가") {
+                        HStack(spacing: 8) {
+                            TextField("예: openai_whisper-large-v3_947MB", text: $customWhisperInput)
+                                .textFieldStyle(.roundedBorder)
+                            Button("추가") {
+                                model.addCustomWhisperKitModel(customWhisperInput)
+                                customWhisperInput = ""
+                            }
+                            .disabled(customWhisperInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                        .padding(.top, 4)
+                    }
+                    Text("내장 WhisperKit(12종 + 사용자 추가) + SpeakerKit 화자 분리를 사용합니다.")
                         .font(.caption).foregroundStyle(.secondary)
 
                 case .managedWhisper:
-                    LabeledContent("선택된 GGML 모델") {
-                        Text(runtime.selected(.stt)?.name ?? "미선택")
-                            .foregroundStyle(.secondary)
+                    let installedSTT = runtime.models(for: .stt).filter { runtime.installed.contains($0.id) }
+                    if !installedSTT.isEmpty {
+                        Picker("설치된 GGML 모델", selection: Binding(
+                            get: { runtime.selectedSTT },
+                            set: { newID in
+                                if let chosen = installedSTT.first(where: { $0.id == newID }) {
+                                    Task { await runtime.select(chosen) }
+                                }
+                            }
+                        )) {
+                            ForEach(installedSTT) { item in
+                                Text("\(item.name) (\(item.sizeLabel))").tag(item.id)
+                            }
+                        }
+                    } else {
+                        LabeledContent("선택된 GGML 모델", value: "설치된 모델 없음")
                     }
                     HStack(spacing: 8) {
                         Button("자체 모델 · 서버 관리…", systemImage: "cpu") {
@@ -58,7 +88,7 @@ struct EngineSettingsTabView: View {
                                 .font(.caption).foregroundStyle(.orange)
                         }
                     }
-                    Text("Metal GPU 기반 자체 whisper.cpp 서버(127.0.0.1:\(ManagedRuntimeRole.stt.port))로 추론합니다. 9종 모델 원클릭 다운로드 및 로컬 .bin 추가를 지원합니다.")
+                    Text("Metal GPU 기반 자체 whisper.cpp 서버(127.0.0.1:\(ManagedRuntimeRole.stt.port))로 9종 GGML 모델 또는 로컬 .bin 파일을 실행합니다.")
                         .font(.caption).foregroundStyle(.secondary)
 
                 case .appleSpeech:
@@ -66,9 +96,17 @@ struct EngineSettingsTabView: View {
                         .font(.caption).foregroundStyle(.secondary)
 
                 case .deepgram:
+                    Picker("Deepgram 모델", selection: $model.deepgramModel) {
+                        ForEach(ModelCatalog.deepgramModels) { item in
+                            Text(item.pickerLabel).tag(item.id)
+                        }
+                    }
+                    if let desc = ModelCatalog.deepgramDescriptor(for: model.deepgramModel) {
+                        Text(desc.note).font(.caption).foregroundStyle(.secondary)
+                    }
                     SecureField("Deepgram API 키", text: $deepgramKey)
                         .textFieldStyle(.roundedBorder)
-                    Text("Deepgram Nova-3 API로 다국어 전사 및 자동 화자 구분을 수행합니다. 오디오가 Deepgram 서버로 전송됩니다.")
+                    Text("Deepgram API로 다국어 전사 및 자동 화자 구분을 수행합니다. 오디오가 Deepgram 서버로 전송됩니다.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -88,11 +126,26 @@ struct EngineSettingsTabView: View {
                 case .mlx:
                     Picker("MLX 번역 모델", selection: $model.translationModel) {
                         ForEach(model.mlxTranslationModels, id: \.self) { id in
-                            Text(id).tag(id)
+                            Text(ModelCatalog.mlxDescriptor(for: id)?.pickerLabel ?? "\(id) (사용자 추가)").tag(id)
                         }
                     }
                     .onChange(of: model.translationModel) { _, _ in model.refreshResults() }
-                    Text("Apple Silicon 온디바이스 MLX(Qwen3 · Gemma 3)로 문맥·용어집을 반영해 번역합니다.")
+                    if let desc = ModelCatalog.mlxDescriptor(for: model.translationModel) {
+                        Text(desc.note).font(.caption).foregroundStyle(.secondary)
+                    }
+                    DisclosureGroup("사용자 정의 Hugging Face MLX 모델 추가") {
+                        HStack(spacing: 8) {
+                            TextField("예: mlx-community/Qwen3-30B-A3B-4bit", text: $customMLXInput)
+                                .textFieldStyle(.roundedBorder)
+                            Button("추가") {
+                                model.addCustomMLXModel(customMLXInput)
+                                customMLXInput = ""
+                            }
+                            .disabled(customMLXInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                        .padding(.top, 4)
+                    }
+                    Text("Apple Silicon 온디바이스 MLX(Qwen3 · Qwen2.5 · Gemma 3 · Llama 3.2 · Mistral 등 13종 + 사용자 추가)를 지원합니다.")
                         .font(.caption).foregroundStyle(.secondary)
 
                 case .appleTranslation:
@@ -111,9 +164,26 @@ struct EngineSettingsTabView: View {
                         .font(.caption).foregroundStyle(.secondary)
 
                 case .managedLlama:
-                    LabeledContent("선택된 GGUF 모델") {
-                        Text(runtime.selected(.translation)?.name ?? "미선택")
-                            .foregroundStyle(.secondary)
+                    let installedLLM = runtime.models(for: .translation).filter { runtime.installed.contains($0.id) }
+                    if !installedLLM.isEmpty {
+                        Picker("설치된 GGUF 모델", selection: Binding(
+                            get: { runtime.selectedTranslation },
+                            set: { newID in
+                                if let chosen = installedLLM.first(where: { $0.id == newID }) {
+                                    Task {
+                                        await runtime.select(chosen)
+                                        model.syncTranslationModelForEngine()
+                                        model.refreshResults()
+                                    }
+                                }
+                            }
+                        )) {
+                            ForEach(installedLLM) { item in
+                                Text("\(item.name) (\(item.sizeLabel))").tag(item.id)
+                            }
+                        }
+                    } else {
+                        LabeledContent("선택된 GGUF 모델", value: "설치된 모델 없음")
                     }
                     HStack(spacing: 8) {
                         Button("자체 모델 · 서버 관리…", systemImage: "cpu") {
@@ -190,19 +260,35 @@ struct EngineSettingsTabView: View {
                     }
 
                 case .externalOpenAI:
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
                         Button("Ollama") { model.externalServerEndpoint = "http://localhost:11434/v1" }
                         Button("LM Studio") { model.externalServerEndpoint = "http://localhost:1234/v1" }
                         Button("vLLM") { model.externalServerEndpoint = "http://localhost:8000/v1" }
+                        Button("OpenAI") { model.externalServerEndpoint = "https://api.openai.com/v1" }
+                        Button("OpenRouter") { model.externalServerEndpoint = "https://openrouter.ai/api/v1" }
                     }
                     .controlSize(.small)
                     TextField("서버 주소", text: $model.externalServerEndpoint, prompt: Text("http://localhost:11434/v1"))
                         .textFieldStyle(.roundedBorder)
-                    TextField("모델 이름", text: $model.externalServerModel, prompt: Text("qwen3:8b"))
+                    TextField("모델 이름", text: $model.externalServerModel, prompt: Text("qwen3:8b · gemma3:12b · gpt-4.1-mini"))
                         .textFieldStyle(.roundedBorder)
-                    SecureField("서버 API 키 (인증 없는 서버는 비워 두세요)", text: $externalOpenAIKey)
+                    if !model.discoveredExternalModels.isEmpty {
+                        Picker("서버에서 불러온 모델", selection: $model.externalServerModel) {
+                            ForEach(model.discoveredExternalModels, id: \.self) { id in
+                                Text(id).tag(id)
+                            }
+                        }
+                    }
+                    SecureField("서버 API 키 (인증 없는 로컬 서버는 비워 두세요)", text: $externalOpenAIKey)
                         .textFieldStyle(.roundedBorder)
                     HStack(spacing: 8) {
+                        Button(model.isFetchingExternalModels ? "조회 중…" : "서버 모델 목록 불러오기", systemImage: "arrow.triangle.2.circlepath") {
+                            Task {
+                                try? APIKeyStore.write(externalOpenAIKey, account: .externalOpenAI)
+                                await model.fetchExternalServerModels()
+                            }
+                        }
+                        .disabled(model.isFetchingExternalModels || model.externalServerEndpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         Button(model.isTestingExternalServer ? "확인 중…" : "연결 테스트") {
                             Task {
                                 try? APIKeyStore.write(externalOpenAIKey, account: .externalOpenAI)
@@ -210,7 +296,9 @@ struct EngineSettingsTabView: View {
                             }
                         }
                         .disabled(model.isTestingExternalServer)
-                        if model.isTestingExternalServer { ProgressView().controlSize(.small) }
+                        if model.isTestingExternalServer || model.isFetchingExternalModels {
+                            ProgressView().controlSize(.small)
+                        }
                     }
                     if !model.externalServerTestMessage.isEmpty {
                         Text(model.externalServerTestMessage)

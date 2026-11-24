@@ -187,8 +187,14 @@ struct ContentView: View {
                             ForEach(STTEngineKind.allCases) { Text($0.displayName).tag($0) }
                         }
                         if model.sttEngine == .whisperKit {
-                            Picker("Whisper STT", selection: $model.sttModel) {
+                            Picker("WhisperKit STT", selection: $model.sttModel) {
                                 ForEach(model.models, id: \.self) { Text(sttModelName($0)).tag($0) }
+                            }
+                        } else if model.sttEngine == .managedWhisper {
+                            ManagedRuntimeQuickPicker(role: .stt)
+                        } else if model.sttEngine == .deepgram {
+                            Picker("Deepgram 모델", selection: $model.deepgramModel) {
+                                ForEach(ModelCatalog.deepgramModels) { Text($0.pickerLabel).tag($0.id) }
                             }
                         }
                         Picker("번역 엔진", selection: $model.translationEngine) {
@@ -199,12 +205,14 @@ struct ContentView: View {
                             model.refreshResults()
                         }
                         if model.translationEngine == .mlx {
-                            Picker("번역 LLM", selection: $model.translationModel) {
+                            Picker("MLX 번역 LLM", selection: $model.translationModel) {
                                 ForEach(model.mlxTranslationModels, id: \.self) { modelID in
                                     Text(translationModelName(modelID)).tag(modelID)
                                 }
                             }
                             .onChange(of: model.translationModel) { _, _ in model.refreshResults() }
+                        } else if model.translationEngine == .managedLlama {
+                            ManagedRuntimeQuickPicker(role: .translation)
                         }
                         if model.translationEngine == .externalOpenAI {
                             ExternalServerFields()
@@ -2915,13 +2923,34 @@ private struct ModelDeleteTarget: Identifiable {
 
 private struct ModelFilesSettingsView: View {
     @Environment(AppModel.self) private var model
+    @State private var runtime = ManagedRuntimeManager.shared
     @State private var deleteTarget: ModelDeleteTarget?
     @State private var demosaicModelName = "realesrgan"
     @State private var demosaicModelURL = ""
+    @State private var showingManagedModels = false
+    @State private var customWhisperID = ""
+    @State private var customMLXID = ""
 
     var body: some View {
         @Bindable var model = model
         Form {
+            Section("자체 모델 · 서버 (whisper.cpp GGML 9종 · llama.cpp GGUF 10종)") {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("설치된 GGML/GGUF 모델 \(runtime.installed.count)개")
+                            .font(.callout.weight(.medium))
+                            .monospacedDigit()
+                        Text("Tiny~Large v3 Turbo, Qwen2.5/3, Gemma 2/3, Llama 3.2 다운로드 및 로컬 .bin/.gguf 파일 직접 추가")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("자체 모델 · 서버 관리…", systemImage: "cpu") {
+                        showingManagedModels = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
             DisclosureGroup("고급 · 얼굴 모자이크 제거 모델") {
                 Picker("모델 이름", selection: $demosaicModelName) {
                     Text("realesrgan").tag("realesrgan")
@@ -2943,27 +2972,45 @@ private struct ModelFilesSettingsView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
-            Section("Whisper STT 모델") {
+            Section("WhisperKit STT 모델 (\(model.models.count)종)") {
                 ForEach(model.models, id: \.self) { modelID in
                     modelRow(kind: .stt, modelID: modelID)
+                }
+                HStack(spacing: 8) {
+                    TextField("사용자 정의 WhisperKit 모델 ID 추가", text: $customWhisperID)
+                        .textFieldStyle(.roundedBorder)
+                    Button("추가") {
+                        model.addCustomWhisperKitModel(customWhisperID)
+                        customWhisperID = ""
+                    }
+                    .disabled(customWhisperID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
             Section("음성 합성 모델") {
                 modelRow(kind: .tts, modelID: "qwen3-tts-0.6b")
             }
-            Section("번역 LLM") {
-                Picker("사용할 번역 모델", selection: $model.translationModel) {
-                    ForEach(model.translationModels, id: \.self) { modelID in
+            Section("MLX 번역 LLM (\(model.mlxTranslationModels.count)종)") {
+                Picker("사용할 MLX 번역 모델", selection: $model.translationModel) {
+                    ForEach(model.mlxTranslationModels, id: \.self) { modelID in
                         Text(translationModelName(modelID)).tag(modelID)
                     }
                 }
-                LabeledContent("Apple Foundation Models", value: "macOS에서 관리")
-                Text("번역 모델 파일은 Apple Intelligence 시스템 자산이므로 앱에서 직접 다운로드하거나 삭제하지 않습니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ForEach(model.translationModels.filter { $0 != "apple-foundation-models" }, id: \.self) { modelID in
+                ForEach(model.mlxTranslationModels, id: \.self) { modelID in
                     modelRow(kind: .translation, modelID: modelID)
                 }
+                HStack(spacing: 8) {
+                    TextField("Hugging Face MLX 모델 ID 추가 (예: mlx-community/...)", text: $customMLXID)
+                        .textFieldStyle(.roundedBorder)
+                    Button("추가") {
+                        model.addCustomMLXModel(customMLXID)
+                        customMLXID = ""
+                    }
+                    .disabled(customMLXID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                LabeledContent("Apple Foundation Models / 전용 번역", value: "macOS에서 관리")
+                Text("Apple Intelligence와 Apple 전용 번역 언어 팩은 macOS 시스템에서 관리하며 엔진 설정 탭에서 준비할 수 있습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section {
                 HStack {
@@ -2978,6 +3025,10 @@ private struct ModelFilesSettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
+        .sheet(isPresented: $showingManagedModels) {
+            ManagedRuntimeModelsSheet()
+                .environment(model)
+        }
         .confirmationDialog(
             "모델 파일을 삭제할까요?",
             isPresented: Binding(
@@ -3068,14 +3119,57 @@ private func formattedBytes(_ bytes: Int64) -> String {
     ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
 }
 
-private func sttModelName(_ modelID: String) -> String {
-    switch modelID {
-    case "large-v3-v20240930_626MB": String(localized: "Large v3 · 626MB (기본)")
-    case "openai_whisper-large-v3-v20240930_turbo_632MB": String(localized: "Large v3 Turbo · 632MB (빠름)")
-    case "openai_whisper-large-v3-v20240930_547MB": String(localized: "Large v3 · 547MB (가벼움)")
-    case "openai_whisper-small_216MB": String(localized: "Small · 216MB (가장 가벼움)")
-    default: modelID
+/// 사이드바에서 자체 whisper.cpp / llama.cpp 모델을 즉시 전환하고 관리 창을 열 수 있는 위젯입니다.
+private struct ManagedRuntimeQuickPicker: View {
+    @Environment(AppModel.self) private var model
+    @State private var runtime = ManagedRuntimeManager.shared
+    @State private var showingSheet = false
+    let role: ManagedRuntimeRole
+
+    var body: some View {
+        let installedModels = runtime.models(for: role).filter { runtime.installed.contains($0.id) }
+        VStack(alignment: .leading, spacing: 4) {
+            if !installedModels.isEmpty {
+                Picker(role == .stt ? "GGML 모델" : "GGUF 모델", selection: Binding(
+                    get: { role == .stt ? runtime.selectedSTT : runtime.selectedTranslation },
+                    set: { newID in
+                        if let chosen = installedModels.first(where: { $0.id == newID }) {
+                            Task {
+                                await runtime.select(chosen)
+                                if role == .translation {
+                                    model.syncTranslationModelForEngine()
+                                    model.refreshResults()
+                                }
+                            }
+                        }
+                    }
+                )) {
+                    ForEach(installedModels) { item in
+                        Text(item.name).tag(item.id)
+                    }
+                }
+            } else {
+                Text("설치된 \(role.title) 모델이 없습니다.")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+            Button("자체 모델 · 서버 관리…", systemImage: "cpu") {
+                showingSheet = true
+            }
+            .controlSize(.small)
+        }
+        .sheet(isPresented: $showingSheet) {
+            ManagedRuntimeModelsSheet()
+                .environment(model)
+        }
     }
+}
+
+private func sttModelName(_ modelID: String) -> String {
+    if let desc = ModelCatalog.whisperKitDescriptor(for: modelID) {
+        return desc.pickerLabel
+    }
+    return modelID
 }
 
 /// 외부 LLM 서버 접속 정보를 입력받습니다. API 키는 필요한 서버에서만 씁니다.
@@ -3085,18 +3179,34 @@ private struct ExternalServerFields: View {
     var body: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Button("Ollama") { model.externalServerEndpoint = "http://localhost:11434/v1" }
+                Button("LM Studio") { model.externalServerEndpoint = "http://localhost:1234/v1" }
+                Button("vLLM") { model.externalServerEndpoint = "http://localhost:8000/v1" }
+                Button("OpenAI") { model.externalServerEndpoint = "https://api.openai.com/v1" }
+            }
+            .controlSize(.mini)
             TextField("서버 주소", text: $model.externalServerEndpoint, prompt: Text("http://localhost:11434/v1"))
                 .textFieldStyle(.roundedBorder)
-            TextField("모델 이름", text: $model.externalServerModel, prompt: Text("qwen2.5:7b"))
+            TextField("모델 이름", text: $model.externalServerModel, prompt: Text("qwen3:8b · gemma3:12b"))
                 .textFieldStyle(.roundedBorder)
-            TextField("API 키 (선택)", text: $model.externalServerAPIKey, prompt: Text("대부분의 로컬 서버는 비워 둡니다"))
-                .textFieldStyle(.roundedBorder)
+            if !model.discoveredExternalModels.isEmpty {
+                Picker("서버 모델", selection: $model.externalServerModel) {
+                    ForEach(model.discoveredExternalModels, id: \.self) { Text($0).tag($0) }
+                }
+            }
             HStack(spacing: 8) {
+                Button("모델 목록") {
+                    Task { await model.fetchExternalServerModels() }
+                }
+                .disabled(model.isFetchingExternalModels || model.externalServerEndpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Button("연결 테스트") {
                     Task { await model.testExternalServerConnection() }
                 }
                 .disabled(model.isTestingExternalServer)
-                if model.isTestingExternalServer { ProgressView().controlSize(.small) }
+                if model.isTestingExternalServer || model.isFetchingExternalModels {
+                    ProgressView().controlSize(.small)
+                }
             }
             if !model.externalServerTestMessage.isEmpty {
                 Text(model.externalServerTestMessage)
@@ -3104,7 +3214,7 @@ private struct ExternalServerFields: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
-            Text("Ollama · LM Studio · llama.cpp · vLLM 등 OpenAI 호환 서버를 API 키 없이 연결합니다.")
+            Text("Ollama · LM Studio · vLLM · OpenAI · OpenRouter 호환 서버를 지원합니다. API 키는 설정 → 엔진 설정에서 키체인에 저장하세요.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
@@ -3116,16 +3226,14 @@ private func translationModelName(_ modelID: String) -> String {
         let id = String(modelID.dropFirst(ProcessingOptions.managedLlamaModelPrefix.count))
         return "자체 llama.cpp · \(ManagedRuntimeModelCatalog.model(id)?.name ?? id)"
     }
+    if let desc = ModelCatalog.mlxDescriptor(for: modelID) {
+        return desc.pickerLabel
+    }
     return switch modelID {
     case "apple-foundation-models": String(localized: "Apple Foundation Models (시스템)")
     case ProcessingOptions.appleTranslationModelID: String(localized: "Apple 전용 번역 · 기기 내 NMT")
     case ProcessingOptions.azureTranslationModelID: String(localized: "Azure Translator")
     case ProcessingOptions.localAPITranslationModelID: String(localized: "로컬 커스텀 번역 API")
-    case "mlx-community/Qwen3-0.6B-4bit": "Qwen3 0.6B 4-bit"
-    case "mlx-community/Qwen3-1.7B-4bit": "Qwen3 1.7B 4-bit"
-    case "mlx-community/Qwen3-4B-4bit": String(localized: "Qwen3 4B 4-bit · 균형")
-    case "mlx-community/Qwen3-8B-4bit": String(localized: "Qwen3 8B 4-bit · 고품질")
-    case "mlx-community/gemma-3-1b-it-qat-4bit": "Gemma 3 1B QAT 4-bit"
     case ProcessingOptions.externalServerModelID: String(localized: "외부 LLM 서버 (OpenAI 호환)")
     default: modelID
     }
