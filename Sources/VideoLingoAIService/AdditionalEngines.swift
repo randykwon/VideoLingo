@@ -57,11 +57,47 @@ enum AudioWAVConverter {
 
 /// Apple 온디바이스 SFSpeechRecognizer를 이용한 파일 기반 STT 엔진입니다.
 enum AppleSpeechFileSTTEngine {
+    struct Output: Sendable {
+        let text: String
+        let language: String?
+        let confidence: Double?
+        let cues: [TranscriptCue]
+        let qualityNotes: [String]
+    }
+
+    private final class RecognitionBridge: @unchecked Sendable {
+        private let lock = NSLock()
+        private var finished = false
+        private var task: SFSpeechRecognitionTask?
+        private let continuation: CheckedContinuation<SFTranscription?, Error>
+
+        init(continuation: CheckedContinuation<SFTranscription?, Error>) {
+            self.continuation = continuation
+        }
+
+        func attach(_ task: SFSpeechRecognitionTask) {
+            lock.lock()
+            let alreadyFinished = finished
+            if !alreadyFinished { self.task = task }
+            lock.unlock()
+            if alreadyFinished { task.cancel() }
+        }
+
+        func finish(_ result: Result<SFTranscription?, Error>) {
+            lock.lock()
+            guard !finished else { lock.unlock(); return }
+            finished = true
+            task = nil
+            lock.unlock()
+            continuation.resume(with: result)
+        }
+    }
+
     static func transcribe(
         audioURL: URL,
         language: String?,
         onPartialText: @escaping @Sendable (String) -> Void
-    ) async throws -> WhisperSTTEngine.Output {
+    ) async throws -> Output {
         let spec = VideoLingoLanguageCatalog.spec(for: language)
         let localeIdentifier = spec?.bcp47 ?? Locale.current.identifier
         guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeIdentifier)),
@@ -77,23 +113,13 @@ enum AppleSpeechFileSTTEngine {
         }
 
         let transcription: SFTranscription? = try await withCheckedThrowingContinuation { continuation in
-            let lock = NSLock()
-            var finished = false
-            var recognitionTask: SFSpeechRecognitionTask?
-            func finish(_ result: Result<SFTranscription?, Error>) {
-                lock.lock()
-                defer { lock.unlock() }
-                guard !finished else { return }
-                finished = true
-                recognitionTask = nil
-                continuation.resume(with: result)
-            }
-            recognitionTask = recognizer.recognitionTask(with: request) { result, error in
+            let bridge = RecognitionBridge(continuation: continuation)
+            let recognitionTask = recognizer.recognitionTask(with: request) { result, error in
                 if let result {
                     let partial = result.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !partial.isEmpty { onPartialText(partial) }
                     if result.isFinal {
-                        finish(.success(result.bestTranscription))
+                        bridge.finish(.success(result.bestTranscription))
                         return
                     }
                 }
@@ -101,22 +127,21 @@ enum AppleSpeechFileSTTEngine {
                     let nsError = error as NSError
                     // 무음 구간(1110: No speech detected)은 오류가 아니라 빈 전사로 처리합니다.
                     if nsError.code == 1110 || nsError.localizedDescription.lowercased().contains("no speech") {
-                        finish(.success(nil))
+                        bridge.finish(.success(nil))
                     } else {
-                        finish(.failure(error))
+                        bridge.finish(.failure(error))
                     }
                 }
             }
-            _ = recognitionTask
+            bridge.attach(recognitionTask)
         }
 
         guard let transcription else {
-            return WhisperSTTEngine.Output(
+            return Output(
                 text: "",
                 language: spec?.whisperCode,
                 confidence: nil,
                 cues: [],
-                retryCount: 0,
                 qualityNotes: [TranscriptCoverage.verifiedSilenceNote, TranscriptCoverage.promptFreeVerificationNote]
             )
         }
@@ -130,12 +155,11 @@ enum AppleSpeechFileSTTEngine {
         let notes: [String] = text.isEmpty
             ? [TranscriptCoverage.verifiedSilenceNote, TranscriptCoverage.promptFreeVerificationNote]
             : ["Apple 온디바이스 음성 인식"]
-        return WhisperSTTEngine.Output(
+        return Output(
             text: text,
             language: spec?.whisperCode ?? VideoLingoLanguageCatalog.detectLanguage(for: text)?.whisperCode,
             confidence: avgConfidence,
             cues: cues,
-            retryCount: 0,
             qualityNotes: notes
         )
     }

@@ -964,10 +964,18 @@ final class MediaPipeline: @unchecked Sendable {
             )
 
         case .appleSpeech:
-            return try await AppleSpeechFileSTTEngine.transcribe(
+            let result = try await AppleSpeechFileSTTEngine.transcribe(
                 audioURL: audioURL,
                 language: language,
                 onPartialText: onPartialText
+            )
+            return WhisperSTTEngine.Output(
+                text: result.text,
+                language: result.language,
+                confidence: result.confidence,
+                cues: result.cues,
+                retryCount: 0,
+                qualityNotes: result.qualityNotes
             )
 
         case .deepgram:
