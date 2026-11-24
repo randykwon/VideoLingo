@@ -201,3 +201,11 @@ schemes:
     build:
       targets:
         VideoLingoMobile: all
+  VideoLingoCore:
+    build:
+      targets:
+        VideoLingoCore: all
+        VideoLingoCoreTests: [test]
+    test:
+      targets:
+        - VideoLingoCoreTests

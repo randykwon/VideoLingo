@@ -746,3 +746,172 @@ import Testing
     #expect(MediaFilenameDeduplicator.representativeIndices(for: []) == [])
     #expect(MediaFilenameDeduplicator.representativeIndices(for: urls, preferredURL: URL(filePath: "/missing/video.mp4")) == [0, 2, 3, 4])
 }
+
+@Test func whisperSanitizerCollapsesRepetitionLoopsAndFiltersHallucinationsSafely() {
+    #expect(TranscriptTextSanitizer.cleanWhisperText("네 네 네 네 네 네") == "네")
+    #expect(TranscriptTextSanitizer.cleanWhisperText("はい。はい。はい。はい。はい。") == "はい。")
+    #expect(TranscriptTextSanitizer.cleanWhisperText("안녕하세요 반갑습니다") == "안녕하세요 반갑습니다")
+
+    // 순수 기호·음악 태그는 신뢰도와 무관하게 필터링
+    #expect(TranscriptTextSanitizer.isLikelyHallucination("[음악]", noSpeechProb: 0.1, avgLogprob: -0.1))
+    #expect(TranscriptTextSanitizer.isLikelyHallucination("♪ ... ♪", noSpeechProb: 0.1, avgLogprob: -0.1))
+
+    // 알려진 Whisper 환각 문구는 무음 확률이 높거나 로그 확률이 낮을 때만 차단
+    #expect(TranscriptTextSanitizer.isLikelyHallucination("시청해주셔서 감사합니다.", noSpeechProb: 0.45, avgLogprob: -0.5))
+    #expect(TranscriptTextSanitizer.isLikelyHallucination("Thanks for watching!", noSpeechProb: 0.2, avgLogprob: -0.9))
+    // 실제 높은 신뢰도의 끝인사는 보존
+    #expect(!TranscriptTextSanitizer.isLikelyHallucination("시청해주셔서 감사합니다.", noSpeechProb: 0.05, avgLogprob: -0.15))
+    #expect(!TranscriptTextSanitizer.isLikelyHallucination("오늘 회의를 시작하겠습니다.", noSpeechProb: 0.5, avgLogprob: -0.8))
+}
+
+@Test func chunkBoundaryAssignmentEliminatesOverlapDuplicatesWithoutGaps() {
+    // 청크 0: [0, 60] (추출 [0, 62]), 청크 1: [60, 120] (추출 [58, 120], 마지막 청크)
+    // 경계(59.0~60.6, 중심 59.8) 발화는 청크 0에만, (59.6~61.2, 중심 60.4) 발화는 청크 1에만 귀속되어야 함
+    let chunk0Cues = TranscriptTextSanitizer.assignChunkCues(
+        [
+            TranscriptCue(startTime: 59.0, endTime: 60.6, text: "경계 앞 문장"),
+            TranscriptCue(startTime: 59.6, endTime: 61.2, text: "경계 뒤 문장")
+        ],
+        extractionStart: 0,
+        chunkStart: 0,
+        chunkEnd: 60,
+        isLastChunk: false
+    )
+    let chunk1Cues = TranscriptTextSanitizer.assignChunkCues(
+        [
+            TranscriptCue(startTime: 1.0, endTime: 2.6, text: "경계 앞 문장"),
+            TranscriptCue(startTime: 1.6, endTime: 3.2, text: "경계 뒤 문장")
+        ],
+        extractionStart: 58,
+        chunkStart: 60,
+        chunkEnd: 120,
+        isLastChunk: true
+    )
+
+    #expect(chunk0Cues.map(\.text) == ["경계 앞 문장"])
+    #expect(chunk0Cues.first?.startTime == 59.0)
+    #expect(chunk0Cues.first?.endTime == 60.0)
+    #expect(chunk1Cues.map(\.text) == ["경계 뒤 문장"])
+    #expect(chunk1Cues.first?.startTime == 60.0)
+    #expect(chunk1Cues.first?.endTime == 61.2)
+}
+
+@Test func languageLockRequiresConfidentSpeechOrConsecutiveAgreement() {
+    // 짧은 감탄사나 낮은 신뢰도 1회만으로는 언어를 고정하지 않음
+    #expect(TranscriptTextSanitizer.shouldLockDetectedLanguage(
+        candidate: "en",
+        text: "[화자 1] OK",
+        confidence: 0.7,
+        recentDetections: []
+    ) == nil)
+    #expect(TranscriptTextSanitizer.shouldLockDetectedLanguage(
+        candidate: "ja",
+        text: "[화자 1] 今日はとても良い天気ですね。",
+        confidence: 0.4,
+        recentDetections: []
+    ) == nil)
+
+    // 충분한 길이 + 높은 신뢰도면 즉시 고정
+    #expect(TranscriptTextSanitizer.shouldLockDetectedLanguage(
+        candidate: "JA",
+        text: "[화자 1] 今日はとても良い天気ですね。",
+        confidence: 0.65,
+        recentDetections: []
+    ) == "ja")
+
+    // 보통 신뢰도라도 2개 청크가 같은 언어로 일치하면 고정
+    #expect(TranscriptTextSanitizer.shouldLockDetectedLanguage(
+        candidate: "ko",
+        text: "[화자 1] 안녕하세요 반갑습니다",
+        confidence: 0.42,
+        recentDetections: ["ko"]
+    ) == "ko")
+}
+
+@Test func translationSanitizerStripsThinkingFencesHeadersAndOuterQuotes() {
+    #expect(TranslationTextSanitizer.cleanLLMOutput("<think>Let me translate this.</think>\n안녕하세요") == "안녕하세요")
+    #expect(TranslationTextSanitizer.cleanLLMOutput("<think>아직 사고 중...") == "")
+    #expect(TranslationTextSanitizer.cleanLLMOutput("```text\nCURRENT SUBTITLE:\n안녕하세요\n```") == "안녕하세요")
+    #expect(TranslationTextSanitizer.cleanLLMOutput("\"안녕하세요\"", source: "Hello") == "안녕하세요")
+    #expect(TranslationTextSanitizer.cleanLLMOutput("\"안녕하세요\"", source: "\"Hello\"") == "\"안녕하세요\"")
+}
+
+@Test func translationContextTrimsLongChunksFiltersGlossaryAndScalesTokenBudget() {
+    let longPrev = (1...30).map { "이전 문장 \($0) 입니다." }.joined(separator: "\n")
+    let trimmedPrev = TranslationContextBuilder.trimPreviousContext([longPrev], maxCharacters: 120)
+    #expect(trimmedPrev.joined().count <= 120)
+    #expect(trimmedPrev.last?.contains("30") == true)
+
+    let longNext = (1...30).map { "다음 문장 \($0) 입니다." }.joined(separator: "\n")
+    let trimmedNext = TranslationContextBuilder.trimNextContext([longNext], maxCharacters: 100)
+    #expect(trimmedNext.joined().count <= 100)
+    #expect(trimmedNext.first?.contains("1") == true)
+
+    let largeGlossary = (1...20).map { GlossaryEntry(source: "Term\($0)", target: "용어\($0)") }
+    let relevant = TranslationContextBuilder.relevantGlossary(largeGlossary, for: "Here we use Term7 and Term19.")
+    #expect(relevant.map(\.source) == ["Term7", "Term19"])
+
+    let denseChunk = String(repeating: "a", count: 900)
+    #expect(TranslationContextBuilder.maxResponseTokens(for: denseChunk, backend: .mlx) > 1000)
+    #expect(TranslationContextBuilder.maxResponseTokens(for: denseChunk, backend: .appleFoundation) > 1000)
+    #expect(TranslationContextBuilder.maxResponseTokens(for: denseChunk, backend: .externalServer) >= 2700)
+}
+
+@Test func translationValidatorRepairsSpeakerLabelsChecksIssuesAndGuardsAgainstRegression() {
+    let source = "[화자 1] Hello world, it costs 1,000 dollars.\n[화자 2] Nice to meet you."
+    let mangledLabels = "[Speaker 1] 안녕하세요, 1000달러입니다.\n만나서 반갑습니다."
+    let repaired = TranslationQualityValidator.repairSpeakerLabelsIfAligned(source: source, translation: mangledLabels)
+    #expect(repaired == "[화자 1] 안녕하세요, 1000달러입니다.\n[화자 2] 만나서 반갑습니다.")
+
+    // 천단위 쉼표 정규화(1,000 == 1000) 및 복원된 화자 라벨은 결함 없음
+    let cleanIssues = TranslationQualityValidator.issues(
+        source: source,
+        translation: repaired,
+        sourceLanguage: "en",
+        targetLanguage: "ko",
+        glossary: []
+    )
+    #expect(cleanIssues.isEmpty)
+
+    // 원문 그대로 반환한 번역 누락 탐지
+    let echoedIssues = TranslationQualityValidator.issues(
+        source: "This sentence was never translated at all.",
+        translation: "This sentence was never translated at all.",
+        sourceLanguage: "en",
+        targetLanguage: "ko",
+        glossary: []
+    )
+    #expect(echoedIssues.contains("원문이 번역되지 않고 그대로 남음"))
+
+    // 짧은 CJK -> 영어 번역에서 길이 오탐이 나지 않아야 함
+    let shortCjkIssues = TranslationQualityValidator.issues(
+        source: "はい",
+        translation: "Yes, of course.",
+        sourceLanguage: "ja",
+        targetLanguage: "en",
+        glossary: []
+    )
+    #expect(shortCjkIssues.isEmpty)
+
+    // 검수 결과가 오히려 결함을 늘리면 채택하지 않음
+    #expect(!TranslationQualityValidator.prefersRepaired(
+        draft: "초안",
+        repaired: "망가진 검수본",
+        draftIssues: ["필수 용어 누락: Foo"],
+        repairedIssues: ["화자 라벨 누락", "번역 길이 이상"],
+        qualityMode: .enhanced
+    ))
+    #expect(TranslationQualityValidator.prefersRepaired(
+        draft: "초안",
+        repaired: "개선된 검수본",
+        draftIssues: ["필수 용어 누락: Foo"],
+        repairedIssues: [],
+        qualityMode: .enhanced
+    ))
+
+    // 동일 언어 판별
+    #expect(TranslationQualityValidator.isSameLanguage("ko-KR", "ko"))
+    #expect(TranslationQualityValidator.isSameLanguage("en_US", "en"))
+    #expect(!TranslationQualityValidator.isSameLanguage("zh-Hans", "zh-Hant"))
+    #expect(!TranslationQualityValidator.isSameLanguage("en", "ko"))
+}
