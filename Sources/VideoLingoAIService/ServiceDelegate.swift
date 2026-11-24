@@ -390,19 +390,24 @@ final class VideoLingoAIService: NSObject, VideoLingoAIServiceProtocol, @uncheck
         updateModelProgress(key: key, progress: 0.8)
 
         if source.pathExtension.lowercased() == "zip" {
-            let zip = demosaicDir.appending(path: "\(request.modelID).zip")
-            try? fm.removeItem(at: zip)
+            let stagingDir = demosaicDir.appending(path: ".staging-\(UUID().uuidString)", directoryHint: .isDirectory)
+            try fm.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+            defer { try? fm.removeItem(at: stagingDir) }
+
+            let zip = stagingDir.appending(path: "\(request.modelID).zip")
             try fm.moveItem(at: downloaded, to: zip)
-            try extractZip(zip, into: demosaicDir)
+            try extractZip(zip, into: stagingDir)
             try? fm.removeItem(at: zip)
-            guard let extracted = firstModel(in: demosaicDir) else {
+            guard let extracted = firstModel(in: stagingDir) else {
                 throw VideoLingoError.modelUnavailable("압축 파일에서 .mlpackage/.mlmodelc를 찾지 못했습니다.")
             }
             let dest = demosaicDir.appending(path: "\(request.modelID).\(extracted.pathExtension)")
-            if extracted.standardizedFileURL != dest.standardizedFileURL {
-                try? fm.removeItem(at: dest)
-                try fm.moveItem(at: extracted, to: dest)
+            try? fm.removeItem(at: dest)
+            // 기존에 컴파일된 캐시(.mlmodelc)가 있다면 새 패키지에 맞게 갱신되도록 정리합니다.
+            if extracted.pathExtension == "mlpackage" {
+                try? fm.removeItem(at: demosaicDir.appending(path: "\(request.modelID).mlmodelc"))
             }
+            try fm.moveItem(at: extracted, to: dest)
             updateModelProgress(key: key, progress: 1)
             return dest
         } else {

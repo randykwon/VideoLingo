@@ -38,13 +38,41 @@ final class DemosaicPipeline: @unchecked Sendable {
             let transform = try await videoTrack.load(.preferredTransform)
             let frameRate = try await videoTrack.load(.nominalFrameRate)
             let fps = frameRate > 0 ? Double(frameRate) : 30
-            let totalFrames = max(1, Int((duration.seconds * fps).rounded()))
             let width = Int(abs(naturalSize.width).rounded())
             let height = Int(abs(naturalSize.height).rounded())
             guard width > 0, height > 0 else { throw VideoLingoError.mediaHasNoVideo }
 
-            // 읽기
+            let clipTimeRange = Self.resolvedClipTimeRange(options: request.options, totalDuration: duration)
+            let effectiveDurationSeconds = clipTimeRange?.duration.seconds ?? duration.seconds
+            let totalFrames = max(1, Int((effectiveDurationSeconds * fps).rounded()))
+            let outputTag = request.options.model.rawValue
+            let clipSuffix = clipTimeRange.map { "-\(Int($0.duration.seconds.rounded()))s" } ?? ""
+            let outputName = "demosaiced-\(outputTag)\(clipSuffix)-\(mediaURL.deletingPathExtension().lastPathComponent).mp4"
+            let finalURL = request.workspaceURL.appending(path: outputName)
+
+            // Track 2(FlashVSR MLX) 및 Track 3(ComfyUI / uv MPS 워커)은 클립 단위 외부 엔진으로 실행합니다.
+            if request.options.model.track != .coreMLNative {
+                try await runExternalVideoTrack(
+                    request: request,
+                    mediaURL: mediaURL,
+                    asset: asset,
+                    videoTrack: videoTrack,
+                    clipTimeRange: clipTimeRange,
+                    fps: fps,
+                    width: width,
+                    height: height,
+                    transform: transform,
+                    outputName: outputName,
+                    finalURL: finalURL
+                )
+                return
+            }
+
+            // Track 1: CoreML 네이티브 / Core Image 프레임 파이프라인
             let reader = try AVAssetReader(asset: asset)
+            if let clipTimeRange {
+                reader.timeRange = clipTimeRange
+            }
             let readerOutput = AVAssetReaderTrackOutput(
                 track: videoTrack,
                 outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
@@ -90,7 +118,7 @@ final class DemosaicPipeline: @unchecked Sendable {
             snapshot.status = .extracting
             snapshot.totalChunks = totalFrames
             snapshot.progress = 0
-            snapshot.message = "모자이크 제거 준비 중 · \(restorer.displayName)"
+            snapshot.message = "복원 준비 중 · \(restorer.displayName)"
             snapshot.updatedAt = .now
             publish(snapshot)
 
@@ -101,12 +129,15 @@ final class DemosaicPipeline: @unchecked Sendable {
             var previousTracks: [Int: (rect: CGRect, crop: CIImage)] = [:]
             var previousBoxes: [(id: Int, rect: CGRect)] = []
             var nextTrackID = 0
+            var firstPTS: CMTime?
 
             var frameIndex = 0
             while reader.status == .reading, let sample = readerOutput.copyNextSampleBuffer() {
                 try Task.checkCancellation()
                 guard let pixelBuffer = CMSampleBufferGetImageBuffer(sample) else { continue }
-                let pts = CMSampleBufferGetPresentationTimeStamp(sample)
+                let rawPTS = CMSampleBufferGetPresentationTimeStamp(sample)
+                if firstPTS == nil { firstPTS = rawPTS }
+                let pts = CMTimeSubtract(rawPTS, firstPTS ?? .zero)
 
                 var image = CIImage(cvPixelBuffer: pixelBuffer)
                 if regionMode == .wholeFrame {
@@ -154,7 +185,7 @@ final class DemosaicPipeline: @unchecked Sendable {
                     snapshot.currentChunk = frameIndex
                     snapshot.totalChunks = max(totalFrames, frameIndex)
                     snapshot.progress = min(0.98, Double(frameIndex) / Double(max(totalFrames, frameIndex)))
-                    snapshot.message = "모자이크 제거 \(frameIndex)/\(snapshot.totalChunks) 프레임"
+                    snapshot.message = "\(restorer.displayName) · \(frameIndex)/\(snapshot.totalChunks) 프레임"
                     snapshot.updatedAt = .now
                     publish(snapshot)
                 }
@@ -169,11 +200,10 @@ final class DemosaicPipeline: @unchecked Sendable {
             snapshot.updatedAt = .now
             publish(snapshot)
 
-            let outputName = "demosaiced-\(mediaURL.deletingPathExtension().lastPathComponent).mp4"
-            let finalURL = request.workspaceURL.appending(path: outputName)
             try await muxOriginalAudio(
                 videoURL: videoOnlyURL,
                 originalAsset: asset,
+                audioTimeRange: clipTimeRange,
                 outputURL: finalURL,
                 synthetic: request.options.watermarkSynthetic
             )
@@ -182,7 +212,7 @@ final class DemosaicPipeline: @unchecked Sendable {
             snapshot.status = .completed
             snapshot.progress = 1
             snapshot.currentChunk = snapshot.totalChunks
-            snapshot.message = "모자이크 제거 완료 · \(outputName)"
+            snapshot.message = "영상 복원 완료 · \(outputName)"
             snapshot.updatedAt = .now
             publish(snapshot)
         } catch is CancellationError {
