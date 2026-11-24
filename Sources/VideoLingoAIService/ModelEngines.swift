@@ -328,11 +328,15 @@ actor FoundationTranslationEngine {
         modelID: String,
         modelsURL: URL,
         externalServer: ExternalLLMClient.Configuration? = nil,
+        translationEngine: TranslationEngineKind? = nil,
+        managedTranslationURL: String? = nil,
+        managedTranslationAPIKey: String? = nil,
         onPartialText: @escaping @Sendable (String) -> Void
     ) async throws -> [String: String] {
         // 재분석에서는 이미 이름이 적용된 라벨을 그대로 다시 판별하도록 외부에서 목록을 넘깁니다.
         let labels = overrideLabels ?? SpeakerLabelRewriter.labels(in: transcripts)
         guard !labels.isEmpty else { return [:] }
+        let resolvedEngine = translationEngine ?? inferredEngine(for: modelID)
         let document = speakerEvidence(from: transcripts, labels: labels)
         let prompt = """
             Analyze the complete speaker-attributed video transcript below and identify each speaker.
@@ -357,7 +361,16 @@ actor FoundationTranslationEngine {
             """
 
         let response: String
-        if modelID == ProcessingOptions.externalServerModelID {
+        if resolvedEngine == .managedLlama,
+           let url = managedTranslationURL,
+           let managedConfig = ExternalLLMClient.Configuration(endpoint: url, model: "local", apiKey: managedTranslationAPIKey) {
+            onPartialText("화자 이름 분석 중 · 자체 llama.cpp 서버 요청")
+            response = try await ExternalLLMClient(configuration: managedConfig).complete(
+                instructions: "문서의 화자를 식별하는 분석기입니다. 반드시 요청된 JSON만 출력하세요.",
+                prompt: prompt,
+                maximumTokens: min(1024, max(256, labels.count * 96))
+            )
+        } else if resolvedEngine == .externalOpenAI {
             guard let externalServer else {
                 throw VideoLingoError.modelUnavailable("외부 LLM 서버 주소와 모델 이름을 설정에서 입력하세요.")
             }
@@ -367,9 +380,11 @@ actor FoundationTranslationEngine {
                 prompt: prompt,
                 maximumTokens: min(1024, max(256, labels.count * 96))
             )
-        } else if modelID == "apple-foundation-models" {
+        } else if resolvedEngine == .appleFoundation || resolvedEngine == .appleTranslation || resolvedEngine == .azure || resolvedEngine == .localAPI {
             let model = SystemLanguageModel.default
             guard case .available = model.availability else {
+                // 비-LLM 번역 엔진(Apple 전용 번역/Azure/로컬 API) 사용 중 Apple Intelligence가 꺼져 있으면 화자 번호를 유지합니다.
+                if resolvedEngine != .appleFoundation { return [:] }
                 throw VideoLingoError.modelUnavailable("Apple Intelligence 언어 모델이 현재 사용 불가합니다.")
             }
             let session = LanguageModelSession(model: model, instructions: "문서의 화자를 식별하는 분석기입니다. 반드시 요청된 JSON만 출력하세요.")
@@ -416,6 +431,7 @@ actor FoundationTranslationEngine {
         glossary: [GlossaryEntry],
         qualityMode: ProcessingQualityMode,
         externalServer: ExternalLLMClient.Configuration? = nil,
+        options: ProcessingOptions? = nil,
         attempt: Int = 0,
         onPartialText: @escaping @Sendable (String) -> Void
     ) async throws -> TranslationOutput {
@@ -429,7 +445,130 @@ actor FoundationTranslationEngine {
                 qualityNotes: ["원문과 대상 언어가 같아 원문을 유지함"]
             )
         }
-        if modelID == ProcessingOptions.externalServerModelID {
+
+        let engine = options?.effectiveTranslationEngine ?? inferredEngine(for: modelID)
+        switch engine {
+        case .appleTranslation:
+            let translated = try await AppleNativeTranslationEngine.shared.translate(
+                trimmedText,
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage,
+                onPartialText: onPartialText
+            )
+            translationFailureStreaks[jobID] = 0
+            let aligned = TranslationQualityValidator.repairSpeakerLabelsIfAligned(source: trimmedText, translation: translated)
+            let issues = TranslationQualityValidator.issues(
+                source: trimmedText,
+                translation: aligned,
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage,
+                glossary: glossary
+            )
+            return TranslationOutput(
+                text: aligned,
+                qualityStatus: issues.isEmpty ? .good : .warning,
+                qualityNotes: issues.isEmpty ? ["Apple 전용 번역(NMT)"] : issues
+            )
+
+        case .azure:
+            let client = AzureTranslatorClient(
+                apiKey: options?.azureAPIKey ?? "",
+                region: options?.azureRegion ?? ""
+            )
+            let translated = try await client.translate(trimmedText, targetLanguage: targetLanguage)
+            if !translated.isEmpty { onPartialText(translated) }
+            translationFailureStreaks[jobID] = 0
+            let aligned = TranslationQualityValidator.repairSpeakerLabelsIfAligned(source: trimmedText, translation: translated)
+            let issues = TranslationQualityValidator.issues(
+                source: trimmedText,
+                translation: aligned,
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage,
+                glossary: glossary
+            )
+            return TranslationOutput(
+                text: aligned,
+                qualityStatus: issues.isEmpty ? .good : .warning,
+                qualityNotes: issues.isEmpty ? ["Azure Translator"] : issues
+            )
+
+        case .localAPI:
+            let apiSettings = options?.localTranslationAPI ?? LocalTranslationAPISettings()
+            let client = CustomLocalTranslatorClient(
+                settings: apiSettings,
+                apiKey: options?.localTranslationAPIKey ?? ""
+            )
+            let sourceCode = VideoLingoLanguageCatalog.whisperParameter(for: sourceLanguage)
+            let translated = try await client.translate(trimmedText, source: sourceCode, target: targetLanguage)
+            if !translated.isEmpty { onPartialText(translated) }
+            translationFailureStreaks[jobID] = 0
+            let aligned = TranslationQualityValidator.repairSpeakerLabelsIfAligned(source: trimmedText, translation: translated)
+            let issues = TranslationQualityValidator.issues(
+                source: trimmedText,
+                translation: aligned,
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage,
+                glossary: glossary
+            )
+            return TranslationOutput(
+                text: aligned,
+                qualityStatus: issues.isEmpty ? .good : .warning,
+                qualityNotes: issues.isEmpty ? ["로컬 커스텀 번역 API"] : issues
+            )
+
+        case .managedLlama:
+            let endpoint = options?.managedTranslationURL ?? ManagedRuntimeRole.translation.baseURL.appendingPathComponent("v1/chat/completions").absoluteString
+            guard let managedConfig = ExternalLLMClient.Configuration(
+                endpoint: endpoint,
+                model: "local",
+                apiKey: options?.managedTranslationAPIKey
+            ) else {
+                throw VideoLingoError.modelUnavailable("자체 llama.cpp 번역 서버 주소가 올바르지 않습니다.")
+            }
+            do {
+                let draft = try await translateWithExternalServer(
+                    trimmedText,
+                    sourceLanguage: sourceLanguage,
+                    targetLanguage: targetLanguage,
+                    externalServer: managedConfig,
+                    previousContext: previousContext,
+                    previousTranslations: previousTranslations,
+                    nextContext: nextContext,
+                    glossary: glossary,
+                    onPartialText: onPartialText
+                )
+                translationFailureStreaks[jobID] = 0
+                return try await finalizeTranslation(
+                    source: trimmedText, draft: draft, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage,
+                    modelID: ProcessingOptions.externalServerModelID, modelsURL: modelsURL, glossary: glossary,
+                    qualityMode: qualityMode, externalServer: managedConfig, onPartialText: onPartialText
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                if attempt == 0 && (!previousContext.isEmpty || !previousTranslations.isEmpty || !nextContext.isEmpty) {
+                    return try await translate(
+                        trimmedText,
+                        jobID: jobID,
+                        sourceLanguage: sourceLanguage,
+                        targetLanguage: targetLanguage,
+                        modelID: modelID,
+                        modelsURL: modelsURL,
+                        previousContext: [],
+                        previousTranslations: [],
+                        nextContext: [],
+                        glossary: glossary,
+                        qualityMode: .fast,
+                        externalServer: managedConfig,
+                        options: options,
+                        attempt: attempt + 1,
+                        onPartialText: onPartialText
+                    )
+                }
+                throw error
+            }
+
+        case .externalOpenAI:
             do {
                 let draft = try await translateWithExternalServer(
                     trimmedText,
@@ -465,14 +604,15 @@ actor FoundationTranslationEngine {
                         glossary: glossary,
                         qualityMode: .fast,
                         externalServer: externalServer,
+                        options: options,
                         attempt: attempt + 1,
                         onPartialText: onPartialText
                     )
                 }
                 throw error
             }
-        }
-        if modelID != "apple-foundation-models" {
+
+        case .mlx:
             do {
                 var draft = try await translateWithMLX(
                     trimmedText,
@@ -486,7 +626,6 @@ actor FoundationTranslationEngine {
                     glossary: glossary,
                     onPartialText: onPartialText
                 )
-                // 사고 과정만 출력되어 결과가 비었으면 문맥을 비우고 1회 재시도합니다.
                 if draft.isEmpty && attempt == 0 {
                     draft = try await translateWithMLX(
                         trimmedText,
@@ -530,12 +669,16 @@ actor FoundationTranslationEngine {
                         glossary: glossary,
                         qualityMode: .fast,
                         externalServer: externalServer,
+                        options: options,
                         attempt: attempt + 1,
                         onPartialText: onPartialText
                     )
                 }
                 return try skipSegment(jobID: jobID, note: "MLX 번역 실패 · \(error.localizedDescription)")
             }
+
+        case .appleFoundation:
+            break
         }
         let model = SystemLanguageModel.default
         guard case .available = model.availability else {
@@ -1050,21 +1193,18 @@ actor FoundationTranslationEngine {
         )
     }
 
+    private func inferredEngine(for modelID: String) -> TranslationEngineKind {
+        if modelID == "apple-foundation-models" { return .appleFoundation }
+        if modelID == ProcessingOptions.externalServerModelID { return .externalOpenAI }
+        if modelID == ProcessingOptions.appleTranslationModelID { return .appleTranslation }
+        if modelID == ProcessingOptions.azureTranslationModelID { return .azure }
+        if modelID == ProcessingOptions.localAPITranslationModelID { return .localAPI }
+        if modelID.hasPrefix(ProcessingOptions.managedLlamaModelPrefix) { return .managedLlama }
+        return .mlx
+    }
+
     private func languageName(_ code: String?) -> String {
-        switch code?.lowercased() {
-        case "ko": "Korean"
-        case "ja": "Japanese"
-        case "zh": "Chinese"
-        case "en": "English"
-        case "es": "Spanish"
-        case "fr": "French"
-        case "de": "German"
-        case "pt": "Portuguese"
-        case "it": "Italian"
-        case "ru": "Russian"
-        case .some(let value): value
-        case nil: "the automatically detected source language"
-        }
+        VideoLingoLanguageCatalog.englishName(for: code)
     }
 }
 

@@ -120,7 +120,7 @@ public enum APIKeyStore {
             let update = SecItemUpdate(query as CFDictionary, [kSecValueData as String: bytes] as CFDictionary)
             if update == errSecItemNotFound {
                 var insert = query
-                insert[kSecValueData as String: bytes] = bytes
+                insert[kSecValueData as String] = bytes
                 insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
                 status = SecItemAdd(insert as CFDictionary, nil)
             } else {
