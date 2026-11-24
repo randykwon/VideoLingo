@@ -239,6 +239,9 @@ final class MediaPipeline: @unchecked Sendable {
                         modelID: request.options.translationModel,
                         modelsURL: modelsURL,
                         externalServer: externalServerConfiguration(request.options),
+                        translationEngine: request.options.effectiveTranslationEngine,
+                        managedTranslationURL: request.options.managedTranslationURL,
+                        managedTranslationAPIKey: request.options.managedTranslationAPIKey,
                         onPartialText: { [onLiveTranscript] text in
                             onLiveTranscript(request.jobID, total, total, text)
                         }
@@ -419,9 +422,9 @@ final class MediaPipeline: @unchecked Sendable {
                 }
 
                 try await coordinator.markStatus(.transcribing, index: index, message: "STT \(index + 1)/\(total) 처리 중")
-                let sttOutput = try await stt.transcribe(
+                let sttOutput = try await transcribeAudioChunk(
                     audioURL: audioURL,
-                    model: request.options.sttModel,
+                    options: request.options,
                     language: detectedLanguage,
                     modelsURL: modelsURL,
                     qualityMode: qualityMode,
@@ -602,6 +605,7 @@ final class MediaPipeline: @unchecked Sendable {
                             glossary: glossary,
                             qualityMode: qualityMode,
                             externalServer: externalServerConfiguration(request.options),
+                            options: request.options,
                             onPartialText: { [onLiveTranslation] text in
                                 onLiveTranslation(request.jobID, index, total, language, text)
                             }
@@ -711,9 +715,9 @@ final class MediaPipeline: @unchecked Sendable {
                     if !FileManager.default.fileExists(atPath: audioURL.path) {
                         try await exportAudio(asset: asset, start: extractionStart, duration: extractionEnd - extractionStart, to: audioURL)
                     }
-                    let output = try await stt.transcribe(
+                    let output = try await transcribeAudioChunk(
                         audioURL: audioURL,
-                        model: request.options.sttModel,
+                        options: request.options,
                         language: currentTranscript.language ?? request.options.sourceLanguage,
                         modelsURL: modelsURL,
                         qualityMode: .maximum,
@@ -818,6 +822,7 @@ final class MediaPipeline: @unchecked Sendable {
                         glossary: glossary,
                         qualityMode: .maximum,
                         externalServer: externalServerConfiguration(request.options),
+                        options: request.options,
                         onPartialText: { [onLiveTranslation] text in
                             onLiveTranslation(request.jobID, index, total, language, "품질 개선 후보 · \(text)")
                         }
@@ -918,6 +923,69 @@ final class MediaPipeline: @unchecked Sendable {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         guard let prefix = speakerPrefix(trimmed) else { return trimmed }
         return String(trimmed.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+    }
+
+    /// 선택된 STT 엔진(WhisperKit / 자체 whisper.cpp / Apple 음성 인식 / Deepgram Nova-3)으로 오디오 청크를 전사합니다.
+    private func transcribeAudioChunk(
+        audioURL: URL,
+        options: ProcessingOptions,
+        language: String?,
+        modelsURL: URL,
+        qualityMode: ProcessingQualityMode,
+        onPartialText: @escaping @Sendable (String) -> Void
+    ) async throws -> WhisperSTTEngine.Output {
+        switch options.effectiveSTTEngine {
+        case .whisperKit:
+            return try await stt.transcribe(
+                audioURL: audioURL,
+                model: options.sttModel,
+                language: language,
+                modelsURL: modelsURL,
+                qualityMode: qualityMode,
+                onPartialText: onPartialText
+            )
+
+        case .managedWhisper:
+            let baseURL = options.managedSTTURL.flatMap(URL.init(string:)) ?? ManagedRuntimeRole.stt.baseURL
+            let wav = try await AudioWAVConverter.wavData(from: audioURL)
+            let client = ManagedWhisperClient(baseURL: baseURL, apiKey: options.managedSTTAPIKey ?? "")
+            let result = try await client.transcribe(audioData: wav, language: language)
+            if !result.text.isEmpty { onPartialText(result.text) }
+            let notes: [String] = result.text.isEmpty
+                ? [TranscriptCoverage.verifiedSilenceNote, TranscriptCoverage.promptFreeVerificationNote]
+                : ["자체 whisper.cpp 서버"]
+            return WhisperSTTEngine.Output(
+                text: result.text,
+                language: result.language ?? VideoLingoLanguageCatalog.detectLanguage(for: result.text)?.whisperCode,
+                confidence: result.confidence,
+                cues: result.cues,
+                retryCount: 0,
+                qualityNotes: notes
+            )
+
+        case .appleSpeech:
+            return try await AppleSpeechFileSTTEngine.transcribe(
+                audioURL: audioURL,
+                language: language,
+                onPartialText: onPartialText
+            )
+
+        case .deepgram:
+            let client = DeepgramPreRecordedClient(apiKey: options.deepgramAPIKey ?? "")
+            let result = try await client.transcribe(audioURL: audioURL, language: language)
+            if !result.text.isEmpty { onPartialText(result.text) }
+            let notes: [String] = result.text.isEmpty
+                ? [TranscriptCoverage.verifiedSilenceNote, TranscriptCoverage.promptFreeVerificationNote]
+                : ["Deepgram Nova-3"]
+            return WhisperSTTEngine.Output(
+                text: result.text,
+                language: result.language ?? VideoLingoLanguageCatalog.detectLanguage(for: result.text)?.whisperCode,
+                confidence: result.confidence,
+                cues: result.cues,
+                retryCount: 0,
+                qualityNotes: notes
+            )
+        }
     }
 
     private func exportAudio(asset: AVAsset, start: TimeInterval, duration: TimeInterval, to outputURL: URL) async throws {
