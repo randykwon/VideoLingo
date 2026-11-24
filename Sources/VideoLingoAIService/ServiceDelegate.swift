@@ -79,11 +79,22 @@ final class VideoLingoAIService: NSObject, VideoLingoAIServiceProtocol, @uncheck
     }
 
     func serviceStatus(withReply reply: @escaping @Sendable (Data?, String?) -> Void) {
+        let shortVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        let versionString: String
+        switch (shortVersion, build) {
+        case let (version?, build?) where !version.isEmpty && !build.isEmpty:
+            versionString = "\(version) (\(build))"
+        case let (version?, _) where !version.isEmpty:
+            versionString = version
+        default:
+            versionString = "development"
+        }
         let status = AIServiceStatus(
             processIdentifier: ProcessInfo.processInfo.processIdentifier,
             startedAt: startedAt,
             activeJobCount: lock.withLock { tasks.count },
-            version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development"
+            version: versionString
         )
         do { reply(try WireCodec.encode(status), nil) }
         catch { reply(nil, error.localizedDescription) }

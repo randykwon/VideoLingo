@@ -54,7 +54,7 @@ STT, translation, speech synthesis, and demosaicing still run in the macOS XPC s
 ./scripts/build_dmg.sh
 ```
 
-The image is created at `dist/VideoLingo-<version>.dmg`. The script currently uses ad-hoc signing for local execution. Public distribution requires a Developer ID Application signature followed by Apple notarization.
+The image is created at `dist/VAutoLang-<version>.dmg`. App versions are managed centrally via `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `project.yml` and can be updated with `./scripts/bump_version.sh <version>`. The script currently uses ad-hoc signing for local execution. Public distribution requires a Developer ID Application signature followed by Apple notarization.
 
 ## Usage
 

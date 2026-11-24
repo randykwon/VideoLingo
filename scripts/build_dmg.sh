@@ -4,9 +4,7 @@ set -euo pipefail
 ROOT_DIR="${0:A:h}/.."
 BUILD_DIR="$ROOT_DIR/.build/DerivedData"
 APP_PATH="$BUILD_DIR/Build/Products/Release/VAutoLang.app"
-VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/Sources/VideoLingo/Info.plist")
 DIST_DIR="$ROOT_DIR/dist"
-DMG_PATH="$DIST_DIR/VAutoLang-$VERSION.dmg"
 STAGING_DIR=$(mktemp -d "${TMPDIR:-/tmp}/videolingo-dmg.XXXXXX")
 
 cleanup() {
@@ -15,6 +13,13 @@ cleanup() {
 trap cleanup EXIT
 
 "$ROOT_DIR/scripts/build_app.sh"
+
+VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Contents/Info.plist")
+if [[ -z "$VERSION" || "$VERSION" == *'$('* ]]; then
+  echo "error: 앱 번들에서 유효한 버전을 읽지 못했습니다: '$VERSION'" >&2
+  exit 1
+fi
+DMG_PATH="$DIST_DIR/VAutoLang-$VERSION.dmg"
 
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 

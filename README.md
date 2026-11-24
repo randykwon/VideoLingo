@@ -56,7 +56,7 @@ STT·번역·음성 합성·모자이크 연산 자체는 macOS XPC 서비스에
 ./scripts/build_dmg.sh
 ```
 
-완성된 DMG는 `dist/VideoLingo-<version>.dmg`에 생성됩니다. 현재 스크립트는 로컬 실행용 ad-hoc 서명을 사용합니다. 외부 배포 시에는 Developer ID Application 인증서로 서명한 뒤 Apple 공증을 추가해야 합니다.
+완성된 DMG는 `dist/VAutoLang-<version>.dmg`에 생성됩니다. 버전은 `project.yml`의 `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`에서 단일 관리하며 `./scripts/bump_version.sh <version>`으로 갱신할 수 있습니다. 현재 스크립트는 로컬 실행용 ad-hoc 서명을 사용합니다. 외부 배포 시에는 Developer ID Application 인증서로 서명한 뒤 Apple 공증을 추가해야 합니다.
 
 ## 사용 순서
 

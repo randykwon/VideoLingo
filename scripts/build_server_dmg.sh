@@ -6,7 +6,11 @@ set -euo pipefail
 ROOT_DIR="${0:A:h}/.."
 SOURCE_DIR="$ROOT_DIR/tools/RemoteWorker"
 DIST_DIR="$ROOT_DIR/dist"
-VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/Sources/VideoLingo/Info.plist")
+VERSION=$(awk -F'"' '/^[[:space:]]*MARKETING_VERSION:/ { print $2; exit }' "$ROOT_DIR/project.yml")
+if [[ -z "$VERSION" ]]; then
+  echo "error: project.yml에서 MARKETING_VERSION을 찾지 못했습니다." >&2
+  exit 1
+fi
 DMG_PATH="$DIST_DIR/VAutoLang-Server-$VERSION.dmg"
 STAGING_DIR=$(mktemp -d "${TMPDIR:-/tmp}/videolingo-server-dmg.XXXXXX")
 PAYLOAD="$STAGING_DIR/VAutoLang Server"

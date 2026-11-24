@@ -186,14 +186,14 @@ final class EmbeddedAPIServer {
         do {
             switch (request.method, request.path) {
             case ("GET", "/health"):
-                sendJSON(["status": "ok", "version": "VideoLingo", "accelerator": "metal",
+                sendJSON(["status": "ok", "version": Self.appVersionString, "accelerator": "metal",
                           "stt_backend": "whisperkit", "llm_backend": "mlx_lm",
                           "stt_model_installed": true, "llm_model_installed": true,
                           "loaded_models": 0, "warnings": []], connection: connection)
             case ("GET", "/v1/system"):
                 let sttModel = UserDefaults.standard.string(forKey: "sttModel") ?? "large-v3-v20240930_626MB"
                 let llmModel = UserDefaults.standard.string(forKey: "translationModel") ?? "mlx-community/Qwen3-8B-4bit"
-                sendJSON(["version": "VideoLingo", "effective_performance": ["stt_concurrency": 1, "llm_concurrency": 1,
+                sendJSON(["version": Self.appVersionString, "effective_performance": ["stt_concurrency": 1, "llm_concurrency": 1,
                           "max_upload_mb": 200, "max_audio_seconds": 10800],
                           "defaults": ["stt_model": sttModel, "llm_model": llmModel],
                           "runtime": ["in_flight": ["stt_waiting": activeRequests, "llm_waiting": 0]]], connection: connection)
@@ -222,6 +222,20 @@ final class EmbeddedAPIServer {
             responseStatus = error is APIError ? 400 : 500
             lastError = error.localizedDescription
             sendJSON(["error": ["message": error.localizedDescription]], status: responseStatus, connection: connection)
+        }
+    }
+
+    private static var appVersionString: String {
+        let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "VAutoLang"
+        let shortVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        switch (shortVersion, build) {
+        case let (version?, build?) where !version.isEmpty && !build.isEmpty:
+            return "\(name) \(version) (\(build))"
+        case let (version?, _) where !version.isEmpty:
+            return "\(name) \(version)"
+        default:
+            return name
         }
     }
 
