@@ -39,10 +39,12 @@
 		71AF96C00DB31CB885B81BB7 /* VideoLingoCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; };
 		71CA479FF422A0D6A92A495E /* EmbeddedAPIServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46546950666544E955B03C39 /* EmbeddedAPIServer.swift */; };
 		76CC2D41CBE1755C0EF376A9 /* VideoLingoMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56207C7826B10154A0FE4983 /* VideoLingoMobileApp.swift */; };
+		7801A494162B37D90C22C492 /* VideoRestorationCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C15D356E320CB977268C06A /* VideoRestorationCatalog.swift */; };
 		7B6E4D6AB96969EA70E57110 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A5043D4A8F25D593601FB90 /* UniformTypeIdentifiers.framework */; };
 		7E46AF02273F3CDD5CF48F7A /* TranslationQuality.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF19A8EA6074F776A8208B37 /* TranslationQuality.swift */; };
 		7ED19338E2E1FBC5B5FD6B20 /* DemosaicPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C832255181DE453DEE6FEEB /* DemosaicPipeline.swift */; };
 		7FAC6B27E39ACC79C646D2A2 /* MultiEngineClients.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AF3E7072D21501D3FE5E3EE /* MultiEngineClients.swift */; };
+		8335F2714488B6A0AB059988 /* video-enhancer in Resources */ = {isa = PBXBuildFile; fileRef = B82771FDDF473EB30F7A0514 /* video-enhancer */; };
 		8914F072CB83FEE3460D642F /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = F2540BFA03D82677F4CB2DD9 /* MLXLMCommon */; };
 		8BFEE98D0588EACC8EBE480B /* SegmentQualityComparator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D0E033737DF093CD2426172 /* SegmentQualityComparator.swift */; };
 		8D6CA2AE2A754C6BF84565DE /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4733F909A2286563C9BA2E3 /* ContentView.swift */; };
@@ -81,10 +83,12 @@
 		EC2439846AF83ED2B3D8E696 /* AVKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1A29A29F494EC232C80E8516 /* AVKit.framework */; };
 		EFEBC93D9B1D7FF375B0B260 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C9DED6B67062A46FC6A28F0F /* Assets.xcassets */; };
 		F1FBFD40AF667E1104575C7B /* AppPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = 706A159B88AE7E7F0E3B8EEE /* AppPaths.swift */; };
+		F331E69AC775238E04520ECB /* VideoEnhancerSetupManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A621AD1148967FF9AFA69679 /* VideoEnhancerSetupManager.swift */; };
 		F435B1B1439F6747A2191990 /* RemoteWorkerPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45F5D328BCCFF44DB68B115B /* RemoteWorkerPool.swift */; };
 		F54751ECA8FFC3C61C240919 /* NaturalLanguage.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA435637755E4FAA9CFA5048 /* NaturalLanguage.framework */; };
 		F60B18D54AB749FC03566017 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7CD60344D8EAC5BD9D96EC7 /* main.swift */; };
 		F7E331D7AD07DA1808DA09B6 /* JobStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A14B444585205085F771932 /* JobStore.swift */; };
+		FBC956BD7DCCD8D70F7498B6 /* VideoRestorationBackends.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65EEAA8767BD178157A3F27A /* VideoRestorationBackends.swift */; };
 		FD622FF84922BCF6A0AF6D4F /* KeyboardShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56255223A93BEE599B1BE55B /* KeyboardShortcuts.swift */; };
 		FD76F04FE5F46E56BCE9CF22 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C1EAFEF20CEC31F93495A2 /* AppModel.swift */; };
 		FEFCAF89EBC417A671E65E2E /* ExternalLLMClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6CF6AE62B2660E16CC59D41 /* ExternalLLMClient.swift */; };
@@ -190,7 +194,9 @@
 		62775C242691BCD4B3C8EDBD /* SpeakerLabelRewriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerLabelRewriter.swift; sourceTree = "<group>"; };
 		646E49E8FB61BA60715DD692 /* MediaSidecarStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaSidecarStore.swift; sourceTree = "<group>"; };
 		64EA4C6F17A556F8A5CB6782 /* PanelLocationMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelLocationMemory.swift; sourceTree = "<group>"; };
+		65EEAA8767BD178157A3F27A /* VideoRestorationBackends.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRestorationBackends.swift; sourceTree = "<group>"; };
 		697523BC2EFF38888B491717 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
+		6C15D356E320CB977268C06A /* VideoRestorationCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRestorationCatalog.swift; sourceTree = "<group>"; };
 		6F9FF3E1248A71F566050CF8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		706A159B88AE7E7F0E3B8EEE /* AppPaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPaths.swift; sourceTree = "<group>"; };
 		709523048B431CBC0307F264 /* BatchProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchProcessor.swift; sourceTree = "<group>"; };
@@ -207,6 +213,7 @@
 		A349C763E7806063B6CC44B5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		A4B7964BF779A1D49A28B618 /* MediaDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaDiagnostics.swift; sourceTree = "<group>"; };
 		A4C1EAFEF20CEC31F93495A2 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		A621AD1148967FF9AFA69679 /* VideoEnhancerSetupManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoEnhancerSetupManager.swift; sourceTree = "<group>"; };
 		A69BCC96C71BB567B63C4A3F /* RemoteServerMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteServerMetrics.swift; sourceTree = "<group>"; };
 		A77000A3238B525A3BBEB590 /* ServiceDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServiceDelegate.swift; sourceTree = "<group>"; };
 		A9330574CAEDAD64EBA366D5 /* VideoLingoMobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = VideoLingoMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -214,6 +221,7 @@
 		B2DFEFF209476E48A4EF8139 /* ManagedRuntimeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedRuntimeManager.swift; sourceTree = "<group>"; };
 		B6D9A04CC36771C743BB21CF /* MediaFilenameDeduplicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaFilenameDeduplicator.swift; sourceTree = "<group>"; };
 		B7CD60344D8EAC5BD9D96EC7 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		B82771FDDF473EB30F7A0514 /* video-enhancer */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "video-enhancer"; path = "tools/video-enhancer"; sourceTree = SOURCE_ROOT; };
 		C0F318A10C1BFFF17672455A /* MediaLibraryViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibraryViews.swift; sourceTree = "<group>"; };
 		C57EADFA1E673C871BB0BC1E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		C6CF6AE62B2660E16CC59D41 /* ExternalLLMClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalLLMClient.swift; sourceTree = "<group>"; };
@@ -319,6 +327,7 @@
 				45FA6A183D82B1561541968F /* RemoteWorkerInstaller.swift */,
 				45F5D328BCCFF44DB68B115B /* RemoteWorkerPool.swift */,
 				DED4EBD517BE61BC093C449E /* Theme.swift */,
+				A621AD1148967FF9AFA69679 /* VideoEnhancerSetupManager.swift */,
 				72ED8A6BCA7371F5C1F61EB0 /* VideoLingo.entitlements */,
 				9DD89FEABFD63CD5DDE25032 /* VideoLingoApp.swift */,
 				B4EE507A9AE1E71FDCB1F7FC /* Resources */,
@@ -356,6 +365,7 @@
 				030837DF8066B9905C335525 /* MediaPipeline.swift */,
 				0DC3B7097938C5DC4805FCA5 /* ModelEngines.swift */,
 				A77000A3238B525A3BBEB590 /* ServiceDelegate.swift */,
+				65EEAA8767BD178157A3F27A /* VideoRestorationBackends.swift */,
 			);
 			path = VideoLingoAIService;
 			sourceTree = "<group>";
@@ -387,6 +397,7 @@
 				8622B216D379DB3EFB80BE0B /* TranscriptCoverage.swift */,
 				E2876CAD09B83DF7F2EBD6CC /* TranscriptTextSanitizer.swift */,
 				AF19A8EA6074F776A8208B37 /* TranslationQuality.swift */,
+				6C15D356E320CB977268C06A /* VideoRestorationCatalog.swift */,
 				251F41FF88391DBF04DD4A1E /* XPCProtocol.swift */,
 			);
 			path = VideoLingoCore;
@@ -462,6 +473,7 @@
 			isa = PBXGroup;
 			children = (
 				DEB24D9AF04B5D8A4CC8BC14 /* RemoteWorker */,
+				B82771FDDF473EB30F7A0514 /* video-enhancer */,
 			);
 			path = tools;
 			sourceTree = "<group>";
@@ -636,6 +648,7 @@
 				EFEBC93D9B1D7FF375B0B260 /* Assets.xcassets in Resources */,
 				9EB513A8FC7BA8E4E6779740 /* Localizable.strings in Resources */,
 				01925D520EAC40D18E6C3BEA /* RemoteWorker in Resources */,
+				8335F2714488B6A0AB059988 /* video-enhancer in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -670,6 +683,7 @@
 				66B4E95470361214F3F3B6BA /* TranscriptCoverage.swift in Sources */,
 				8EC7A0FACCE4BD10C4F7CA6E /* TranscriptTextSanitizer.swift in Sources */,
 				7E46AF02273F3CDD5CF48F7A /* TranslationQuality.swift in Sources */,
+				7801A494162B37D90C22C492 /* VideoRestorationCatalog.swift in Sources */,
 				27055CA002B344DD1114FDF2 /* XPCProtocol.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -683,6 +697,7 @@
 				E9CC298CBBDCB316648F3ECF /* MediaPipeline.swift in Sources */,
 				49383AFC6BB83EFEC4A62AC5 /* ModelEngines.swift in Sources */,
 				931EC3EA68A19A0BA6A68811 /* ServiceDelegate.swift in Sources */,
+				FBC956BD7DCCD8D70F7498B6 /* VideoRestorationBackends.swift in Sources */,
 				F60B18D54AB749FC03566017 /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -711,6 +726,7 @@
 				A94967282F5BAD8D0265DBC8 /* RemoteWorkerInstaller.swift in Sources */,
 				F435B1B1439F6747A2191990 /* RemoteWorkerPool.swift in Sources */,
 				010D9A1AF38E0CBA1C30A84B /* Theme.swift in Sources */,
+				F331E69AC775238E04520ECB /* VideoEnhancerSetupManager.swift in Sources */,
 				96D173351507CA322D5DBE16 /* VideoLingoApp.swift in Sources */,
 				5B587B4492F8F7AB42842A21 /* VideoLingoPackage.swift in Sources */,
 			);
