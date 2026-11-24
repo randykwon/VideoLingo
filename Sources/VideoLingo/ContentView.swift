@@ -1340,7 +1340,7 @@ private struct DemosaicSheet: View {
                 setup.probeComfyUI(baseURLString: model.demosaicComfyUIURL)
             }
         }
-        .onChange(of: model.managedModels) { _, _ in
+        .onChange(of: model.managedModels.filter { $0.kind == .demosaic }.map { "\($0.modelID):\($0.state.rawValue)" }) { _, _ in
             setup.refreshStatus()
         }
     }
