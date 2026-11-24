@@ -354,6 +354,7 @@ struct EngineSettingsTabView: View {
             try APIKeyStore.write(externalOpenAIKey, account: .externalOpenAI)
             // 기존 UserDefaults 평문 키는 키체인 이관 후 제거합니다.
             model.externalServerAPIKey = ""
+            AppModel.notifyAPIKeysUpdated()
             statusMessage = "API 키를 macOS 키체인에 저장했습니다."
         } catch {
             statusMessage = error.localizedDescription

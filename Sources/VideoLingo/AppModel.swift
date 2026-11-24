@@ -809,6 +809,122 @@ final class AppModel {
         }
     }
 
+    /// 비어 있지 않은 줄 중 `원문=번역` 형식이 맞지 않는 줄 수를 반환합니다.
+    var glossaryInvalidLineCount: Int {
+        glossaryText.split(separator: "\n").reduce(into: 0) { count, rawLine in
+            let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            let parts = trimmed.split(separator: "=", maxSplits: 1).map {
+                String($0).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if parts.count != 2 || parts[0].isEmpty || parts[1].isEmpty {
+                count += 1
+            }
+        }
+    }
+
+    /// 현재 선택된 번역 엔진이 LLM 기반 2차 검수·용어집 프롬프트를 지원하는지 여부입니다.
+    var supportsLLMTranslationControls: Bool {
+        switch translationEngine {
+        case .mlx, .managedLlama, .appleFoundation, .externalOpenAI: true
+        case .appleTranslation, .azure, .localAPI: false
+        }
+    }
+
+    /// 접힌 `모델·고급 설정` 헤더에 표시할 한 줄 요약입니다.
+    var advancedSettingsSummary: String {
+        let sttLabel: String = switch sttEngine {
+        case .whisperKit:
+            ModelCatalog.whisperKitDescriptor(for: sttModel)?.displayName ?? sttModel
+        case .managedWhisper:
+            ManagedRuntimeManager.shared.selected(.stt)?.name ?? "whisper.cpp"
+        case .appleSpeech:
+            "Apple 음성 인식"
+        case .deepgram:
+            "Deepgram \(deepgramModel)"
+        }
+        let translationLabel: String = switch translationEngine {
+        case .mlx:
+            ModelCatalog.mlxDescriptor(for: translationModel)?.displayName ?? translationModel
+        case .appleTranslation:
+            "Apple 전용 번역"
+        case .managedLlama:
+            ManagedRuntimeManager.shared.selected(.translation)?.name ?? "llama.cpp"
+        case .appleFoundation:
+            "Apple Intelligence"
+        case .azure:
+            "Azure"
+        case .localAPI:
+            "로컬 API"
+        case .externalOpenAI:
+            externalServerModel.isEmpty ? "외부 서버" : externalServerModel
+        }
+        let qualityLabel: String = switch qualityMode {
+        case .fast: "빠름"
+        case .enhanced: "품질 강화"
+        case .maximum: "최고 품질"
+        }
+        return "\(sttLabel) · \(translationLabel) · \(qualityLabel)"
+    }
+
+    /// 선택한 STT 엔진을 바로 실행하기 전에 확인이 필요한 항목을 알려줍니다.
+    var sttReadinessWarning: String? {
+        _ = keyStoreRevision
+        switch sttEngine {
+        case .whisperKit, .appleSpeech:
+            return nil
+        case .managedWhisper:
+            let runtime = ManagedRuntimeManager.shared
+            if !runtime.hasRuntimeExecutable(for: .stt) {
+                return "whisper-server 런타임이 설치되지 않았습니다."
+            }
+            if let selected = runtime.selected(.stt), !runtime.installed.contains(selected.id) {
+                return "선택한 GGML 모델이 다운로드되지 않았습니다."
+            }
+            return nil
+        case .deepgram:
+            return APIKeyStore.read(.deepgram).isEmpty
+                ? "Deepgram API 키가 키체인에 저장되지 않았습니다."
+                : nil
+        }
+    }
+
+    /// 선택한 번역 엔진을 바로 실행하기 전에 확인이 필요한 항목을 알려줍니다.
+    var translationReadinessWarning: String? {
+        _ = keyStoreRevision
+        switch translationEngine {
+        case .mlx, .appleTranslation, .appleFoundation:
+            return nil
+        case .managedLlama:
+            let runtime = ManagedRuntimeManager.shared
+            if !runtime.hasRuntimeExecutable(for: .translation) {
+                return "llama-server 런타임이 설치되지 않았습니다."
+            }
+            if let selected = runtime.selected(.translation), !runtime.installed.contains(selected.id) {
+                return "선택한 GGUF 모델이 다운로드되지 않았습니다."
+            }
+            return nil
+        case .azure:
+            return APIKeyStore.read(.azure).isEmpty
+                ? "Azure Translator API 키가 키체인에 저장되지 않았습니다."
+                : nil
+        case .localAPI:
+            return localTranslationAPI.endpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "로컬 번역 API 주소를 입력하세요."
+                : nil
+        case .externalOpenAI:
+            if externalServerEndpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || externalServerModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "외부 서버 주소와 모델 이름을 모두 입력하세요."
+            }
+            return nil
+        }
+    }
+
+    func isModelDownloaded(kind: ManagedModelKind, modelID: String) -> Bool {
+        managedModel(kind: kind, modelID: modelID)?.state == .downloaded
+    }
+
     func sourceLanguageName(_ code: String) -> String {
         guard !code.isEmpty else { return String(localized: "자동 감지") }
         let localized = Locale.current.localizedString(forLanguageCode: code) ?? code.uppercased()

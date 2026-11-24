@@ -164,67 +164,173 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
                 Section {
-                    DisclosureGroup("모델·고급 설정", isExpanded: $showAdvancedSettings) {
-                        Picker("품질 모드", selection: $model.qualityMode) {
-                            Text("빠름").tag(ProcessingQualityMode.fast)
-                            Text("품질 강화").tag(ProcessingQualityMode.enhanced)
-                            Text("최고 품질").tag(ProcessingQualityMode.maximum)
-                        }
-                        Toggle("완료 후 자동 품질 개선", isOn: $model.continuousImprovement)
-                        Toggle("완료 후 미번역 구간 자동 재시도", isOn: $model.autoRetryUntranslated)
-                            .help("품질 개선까지 끝나면 번역이 비어 있는 구간만 한 번 더 시도합니다. STT 재검토 상태는 자동 재추출하지 않습니다.")
-                        Toggle("앱 전체 반투명 모드", isOn: $model.translucentMode)
-                            .help("Command+Shift+T로 전환")
-                        if model.continuousImprovement {
-                            Picker("최대 개선 회차", selection: $model.maximumRefinementPasses) {
-                                ForEach(1...5, id: \.self) { Text("\($0)회").tag($0) }
-                            }
-                            Text("완료 결과는 유지하며 백그라운드 후보가 더 좋을 때만 교체합니다.")
+                    DisclosureGroup(isExpanded: $showAdvancedSettings) {
+                        if !model.canMutateStorage {
+                            Label("작업이 진행 중입니다. 완료 또는 중지 후 엔진·모델 설정을 변경할 수 있습니다.", systemImage: "lock.fill")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
-                        Picker("STT 엔진", selection: $model.sttEngine) {
-                            ForEach(STTEngineKind.allCases) { Text($0.displayName).tag($0) }
-                        }
-                        if model.sttEngine == .whisperKit {
-                            Picker("WhisperKit STT", selection: $model.sttModel) {
-                                ForEach(model.models, id: \.self) { Text(sttModelName($0)).tag($0) }
+
+                        // MARK: 1. STT · 번역 엔진 및 모델
+                        Group {
+                            Text("STT · 번역 모델")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Picker("STT 엔진", selection: $model.sttEngine) {
+                                ForEach(STTEngineKind.allCases) { Text($0.displayName).tag($0) }
                             }
-                        } else if model.sttEngine == .managedWhisper {
-                            ManagedRuntimeQuickPicker(role: .stt)
-                        } else if model.sttEngine == .deepgram {
-                            Picker("Deepgram 모델", selection: $model.deepgramModel) {
-                                ForEach(ModelCatalog.deepgramModels) { Text($0.pickerLabel).tag($0.id) }
-                            }
-                        }
-                        Picker("번역 엔진", selection: $model.translationEngine) {
-                            ForEach(TranslationEngineKind.allCases) { Text($0.displayName).tag($0) }
-                        }
-                        .onChange(of: model.translationEngine) { _, _ in
-                            model.syncTranslationModelForEngine()
-                            model.refreshResults()
-                        }
-                        if model.translationEngine == .mlx {
-                            Picker("MLX 번역 LLM", selection: $model.translationModel) {
-                                ForEach(model.mlxTranslationModels, id: \.self) { modelID in
-                                    Text(translationModelName(modelID)).tag(modelID)
+                            if model.sttEngine == .whisperKit {
+                                Picker("WhisperKit STT", selection: $model.sttModel) {
+                                    ForEach(model.models, id: \.self) { id in
+                                        Text(sttModelName(id) + (model.isModelDownloaded(kind: .stt, modelID: id) ? " ✓" : ""))
+                                            .tag(id)
+                                    }
+                                }
+                            } else if model.sttEngine == .managedWhisper {
+                                ManagedRuntimeQuickPicker(role: .stt)
+                            } else if model.sttEngine == .deepgram {
+                                Picker("Deepgram 모델", selection: $model.deepgramModel) {
+                                    ForEach(ModelCatalog.deepgramModels) { Text($0.pickerLabel).tag($0.id) }
                                 }
                             }
-                            .onChange(of: model.translationModel) { _, _ in model.refreshResults() }
-                        } else if model.translationEngine == .managedLlama {
-                            ManagedRuntimeQuickPicker(role: .translation)
+                            if let warning = model.sttReadinessWarning {
+                                EngineReadinessNotice(message: warning)
+                            }
+
+                            Picker("번역 엔진", selection: $model.translationEngine) {
+                                ForEach(TranslationEngineKind.allCases) { Text($0.displayName).tag($0) }
+                            }
+                            .onChange(of: model.translationEngine) { _, _ in
+                                model.syncTranslationModelForEngine()
+                                if model.canMutateStorage { model.refreshResults() }
+                            }
+                            if model.translationEngine == .mlx {
+                                Picker("MLX 번역 LLM", selection: $model.translationModel) {
+                                    ForEach(model.mlxTranslationModels, id: \.self) { modelID in
+                                        Text(translationModelName(modelID) + (model.isModelDownloaded(kind: .translation, modelID: modelID) ? " ✓" : ""))
+                                            .tag(modelID)
+                                    }
+                                }
+                                .onChange(of: model.translationModel) { _, _ in
+                                    if model.canMutateStorage { model.refreshResults() }
+                                }
+                            } else if model.translationEngine == .managedLlama {
+                                ManagedRuntimeQuickPicker(role: .translation)
+                            } else if model.translationEngine == .externalOpenAI {
+                                ExternalServerFields()
+                            } else if model.translationEngine == .appleTranslation {
+                                HStack(spacing: 6) {
+                                    Text("온디바이스 NMT · 언어 팩은 엔진 설정에서 준비")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    SettingsLink {
+                                        Text("설정")
+                                    }
+                                    .controlSize(.mini)
+                                }
+                            } else if model.translationEngine == .localAPI {
+                                Text("주소: \(model.localTranslationAPI.endpoint)")
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            if let warning = model.translationReadinessWarning {
+                                EngineReadinessNotice(message: warning)
+                            }
                         }
-                        if model.translationEngine == .externalOpenAI {
-                            ExternalServerFields()
+                        .disabled(!model.canMutateStorage)
+
+                        Divider()
+
+                        // MARK: 2. 품질 · 자동 개선
+                        Group {
+                            Text("품질 · 자동 개선")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Picker("품질 모드", selection: $model.qualityMode) {
+                                Text("빠름").tag(ProcessingQualityMode.fast)
+                                Text("품질 강화").tag(ProcessingQualityMode.enhanced)
+                                Text("최고 품질").tag(ProcessingQualityMode.maximum)
+                            }
+                            Toggle("완료 후 자동 품질 개선", isOn: $model.continuousImprovement)
+                            if model.continuousImprovement {
+                                Picker("최대 개선 회차", selection: $model.maximumRefinementPasses) {
+                                    ForEach(1...5, id: \.self) { Text("\($0)회").tag($0) }
+                                }
+                                Text("완료 결과는 유지하며 백그라운드 후보가 더 좋을 때만 교체합니다.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Toggle("완료 후 미번역 구간 자동 재시도", isOn: $model.autoRetryUntranslated)
+                                .help("품질 개선까지 끝나면 번역이 비어 있는 구간만 한 번 더 시도합니다. STT 재검토 상태는 자동 재추출하지 않습니다.")
+                            if !model.supportsLLMTranslationControls {
+                                Text("현재 번역 엔진은 비-LLM 방식이므로 2차 LLM 검수와 용어집 프롬프트가 적용되지 않습니다.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
-                        Toggle("번역 음성 MP4 생성", isOn: $model.synthesizeSpeech)
-                        Text("용어집 · 원문=번역, 한 줄에 하나")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        TextEditor(text: $model.glossaryText)
-                            .font(.caption.monospaced())
-                            .frame(minHeight: 70)
-                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(.separator))
+                        .disabled(!model.canMutateStorage)
+
+                        Divider()
+
+                        // MARK: 3. 출력 · 용어집
+                        Group {
+                            Text("출력 · 용어집")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Toggle("번역 음성 MP4 생성", isOn: $model.synthesizeSpeech)
+                            HStack(spacing: 6) {
+                                Text("용어집 · 원문=번역")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                if !model.glossaryEntries.isEmpty {
+                                    Text("\(model.glossaryEntries.count)개 적용")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .monospacedDigit()
+                                }
+                                if model.glossaryInvalidLineCount > 0 {
+                                    Label("형식 오류 \(model.glossaryInvalidLineCount)줄", systemImage: "exclamationmark.triangle.fill")
+                                        .font(.caption2)
+                                        .foregroundStyle(.orange)
+                                        .monospacedDigit()
+                                }
+                            }
+                            TextEditor(text: $model.glossaryText)
+                                .font(.caption.monospaced())
+                                .frame(minHeight: 68)
+                                .overlay(RoundedRectangle(cornerRadius: 5).stroke(.separator))
+                                .opacity(model.supportsLLMTranslationControls ? 1 : 0.65)
+                        }
+                        .disabled(!model.canMutateStorage)
+
+                        HStack {
+                            Spacer()
+                            SettingsLink {
+                                Label("엔진 · 키 상세 설정…", systemImage: "slider.horizontal.3")
+                            }
+                            .controlSize(.small)
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text("모델·고급 설정")
+                                if model.sttReadinessWarning != nil || model.translationReadinessWarning != nil {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .font(.caption2)
+                                        .foregroundStyle(.orange)
+                                        .help(model.sttReadinessWarning ?? model.translationReadinessWarning ?? "")
+                                }
+                            }
+                            if !showAdvancedSettings {
+                                Text(model.advancedSettingsSummary)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
                     }
                 }
                 Section("결과 및 재처리") {
@@ -2240,7 +2346,7 @@ private struct GeneralSettingsView: View {
                 }
                 .disabled(!model.continuousImprovement)
                 Toggle("완료 후 미번역 구간 자동 재시도", isOn: $model.autoRetryUntranslated)
-                Text("변경 사항은 새로 시작하는 작업부터 적용됩니다. 실행 중인 창은 앱을 재시작하면 반영됩니다.")
+                Text("변경 사항은 열려 있는 모든 창에 즉시 동기화되며 새로 시작하는 작업부터 적용됩니다.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -3119,7 +3225,25 @@ private func formattedBytes(_ bytes: Int64) -> String {
     ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
 }
 
-/// 사이드바에서 자체 whisper.cpp / llama.cpp 모델을 즉시 전환하고 관리 창을 열 수 있는 위젯입니다.
+/// 엔진 준비 누락(API 키/런타임/모델 미설치 등)을 안내하고 설정 창으로 바로 이동할 수 있게 합니다.
+private struct EngineReadinessNotice: View {
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+            Spacer(minLength: 4)
+            SettingsLink {
+                Text("설정")
+            }
+            .controlSize(.mini)
+        }
+    }
+}
+
+/// 사이드바에서 자체 whisper.cpp / llama.cpp 모델을 즉시 전환하고 서버 상태 확인·관리 창을 열 수 있는 위젯입니다.
 private struct ManagedRuntimeQuickPicker: View {
     @Environment(AppModel.self) private var model
     @State private var runtime = ManagedRuntimeManager.shared
@@ -3128,6 +3252,7 @@ private struct ManagedRuntimeQuickPicker: View {
 
     var body: some View {
         let installedModels = runtime.models(for: role).filter { runtime.installed.contains($0.id) }
+        let serverPhase = runtime.servers[role]?.phase ?? .stopped
         VStack(alignment: .leading, spacing: 4) {
             if !installedModels.isEmpty {
                 Picker(role == .stt ? "GGML 모델" : "GGUF 모델", selection: Binding(
@@ -3138,7 +3263,7 @@ private struct ManagedRuntimeQuickPicker: View {
                                 await runtime.select(chosen)
                                 if role == .translation {
                                     model.syncTranslationModelForEngine()
-                                    model.refreshResults()
+                                    if model.canMutateStorage { model.refreshResults() }
                                 }
                             }
                         }
@@ -3153,10 +3278,19 @@ private struct ManagedRuntimeQuickPicker: View {
                     .font(.caption2)
                     .foregroundStyle(.orange)
             }
-            Button("자체 모델 · 서버 관리…", systemImage: "cpu") {
-                showingSheet = true
+            HStack(spacing: 8) {
+                Label(
+                    serverPhase.rawValue,
+                    systemImage: serverPhase == .ready ? "checkmark.circle.fill" : (serverPhase == .failed ? "exclamationmark.triangle.fill" : "circle")
+                )
+                .font(.caption2)
+                .foregroundStyle(serverPhase == .ready ? .green : (serverPhase == .failed ? .orange : .secondary))
+                Spacer()
+                Button("모델 · 서버 관리…", systemImage: "cpu") {
+                    showingSheet = true
+                }
+                .controlSize(.small)
             }
-            .controlSize(.small)
         }
         .sheet(isPresented: $showingSheet) {
             ManagedRuntimeModelsSheet()
@@ -3172,20 +3306,30 @@ private func sttModelName(_ modelID: String) -> String {
     return modelID
 }
 
-/// 외부 LLM 서버 접속 정보를 입력받습니다. API 키는 필요한 서버에서만 씁니다.
+/// 외부 LLM 서버 접속 정보를 입력받습니다. 좁은 사이드바에서도 잘리지 않도록 프리셋은 메뉴로 제공합니다.
 private struct ExternalServerFields: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 4) {
-                Button("Ollama") { model.externalServerEndpoint = "http://localhost:11434/v1" }
-                Button("LM Studio") { model.externalServerEndpoint = "http://localhost:1234/v1" }
-                Button("vLLM") { model.externalServerEndpoint = "http://localhost:8000/v1" }
-                Button("OpenAI") { model.externalServerEndpoint = "https://api.openai.com/v1" }
+            HStack(spacing: 6) {
+                Menu("서버 프리셋") {
+                    Button("Ollama (localhost:11434)") { model.externalServerEndpoint = "http://localhost:11434/v1" }
+                    Button("LM Studio (localhost:1234)") { model.externalServerEndpoint = "http://localhost:1234/v1" }
+                    Button("vLLM (localhost:8000)") { model.externalServerEndpoint = "http://localhost:8000/v1" }
+                    Divider()
+                    Button("OpenAI API") { model.externalServerEndpoint = "https://api.openai.com/v1" }
+                    Button("OpenRouter API") { model.externalServerEndpoint = "https://openrouter.ai/api/v1" }
+                }
+                .controlSize(.small)
+                Spacer()
+                Button("모델 목록") {
+                    Task { await model.fetchExternalServerModels() }
+                }
+                .controlSize(.small)
+                .disabled(model.isFetchingExternalModels || model.externalServerEndpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            .controlSize(.mini)
             TextField("서버 주소", text: $model.externalServerEndpoint, prompt: Text("http://localhost:11434/v1"))
                 .textFieldStyle(.roundedBorder)
             TextField("모델 이름", text: $model.externalServerModel, prompt: Text("qwen3:8b · gemma3:12b"))
@@ -3196,17 +3340,19 @@ private struct ExternalServerFields: View {
                 }
             }
             HStack(spacing: 8) {
-                Button("모델 목록") {
-                    Task { await model.fetchExternalServerModels() }
-                }
-                .disabled(model.isFetchingExternalModels || model.externalServerEndpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Button("연결 테스트") {
                     Task { await model.testExternalServerConnection() }
                 }
+                .controlSize(.small)
                 .disabled(model.isTestingExternalServer)
                 if model.isTestingExternalServer || model.isFetchingExternalModels {
                     ProgressView().controlSize(.small)
                 }
+                Spacer()
+                SettingsLink {
+                    Text("키 설정")
+                }
+                .controlSize(.small)
             }
             if !model.externalServerTestMessage.isEmpty {
                 Text(model.externalServerTestMessage)
@@ -3214,9 +3360,6 @@ private struct ExternalServerFields: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
-            Text("Ollama · LM Studio · vLLM · OpenAI · OpenRouter 호환 서버를 지원합니다. API 키는 설정 → 엔진 설정에서 키체인에 저장하세요.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
         }
     }
 }
