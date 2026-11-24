@@ -639,11 +639,22 @@ final class AppModel {
     static func videoIsBeingProcessed(_ url: URL) -> Bool {
         let url = url.standardizedFileURL
         if MediaLibrary.shared.isMovingVideo(url) { return true }
+        if BackgroundTranslationManager.shared.isProcessing(url) { return true }
         let batch = BatchProcessor.shared
         if batch.isRunning, batch.items.contains(where: { $0.url.standardizedFileURL == url }) { return true }
         return liveModels.contains { box in
             guard let model = box.model, model.mediaURL?.standardizedFileURL == url else { return false }
             return model.snapshot.map { model.activeStatuses.contains($0.status) } ?? false
+        }
+    }
+
+    /// 백그라운드 STT·번역에서 결과가 저장되었을 때 해당 영상을 보고 있는 창에 자막을 즉시 반영합니다.
+    static func refreshOpenWindows(for url: URL) {
+        let target = url.standardizedFileURL
+        liveModels.removeAll { $0.model == nil }
+        for box in liveModels {
+            guard let model = box.model, model.mediaURL?.standardizedFileURL == target else { continue }
+            model.refreshResults()
         }
     }
 

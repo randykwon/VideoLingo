@@ -18,10 +18,16 @@ private enum MediaLibraryResultFilter: String, CaseIterable, Identifiable {
 struct PlayerMediaLibraryView: View {
     @Environment(AppModel.self) private var model
     @State private var library = MediaLibrary.shared
+    @State private var backgroundManager = BackgroundTranslationManager.shared
+    @AppStorage("playerLibraryClickToBackgroundTranslate") private var clickToBackgroundTranslate = false
     @State private var searchText = ""
     @State private var pendingTrash: MediaLibraryItem?
     @State private var isTrashing = false
     @State private var trashMessage = ""
+
+    private var isTranslationMode: Bool {
+        model.playerMode == .translation
+    }
 
     private var matchingItems: [MediaLibraryItem] {
         let folderPrefix = model.playerFolderPath.hasSuffix("/") ? model.playerFolderPath : model.playerFolderPath + "/"
@@ -46,7 +52,11 @@ struct PlayerMediaLibraryView: View {
             get: { model.mediaURL?.standardizedFileURL.path(percentEncoded: false) },
             set: { selected in
                 guard let item = visibleItems.first(where: { $0.id == selected }) else { return }
-                model.playLibraryVideo(item.videoURL)
+                if isTranslationMode && clickToBackgroundTranslate {
+                    startBackgroundTranslation(for: item)
+                } else {
+                    model.playLibraryVideo(item.videoURL)
+                }
             }
         )
     }
@@ -97,6 +107,13 @@ struct PlayerMediaLibraryView: View {
                 .help("라이브러리 폴더 관리")
             }
 
+            if isTranslationMode {
+                Toggle("클릭 시 백그라운드 STT·번역", isOn: $clickToBackgroundTranslate)
+                    .toggleStyle(.checkbox)
+                    .font(.caption)
+                    .help("켜면 목록에서 영상을 클릭할 때 재생을 바꾸지 않고 바로 백그라운드 STT·번역 대기열에 추가합니다. 꺼져 있어도 각 항목 오른쪽 버튼으로 백그라운드 실행이 가능합니다.")
+            }
+
             if library.isScanning {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -109,7 +126,7 @@ struct PlayerMediaLibraryView: View {
                 ContentUnavailableView {
                     Label("영상 폴더를 추가하세요", systemImage: "folder.badge.plus")
                 } description: {
-                    Text("폴더와 하위 폴더의 영상을 목록에서 선택해 재생할 수 있습니다.")
+                    Text("폴더와 하위 폴더의 영상을 목록에서 선택해 재생하거나 백그라운드 번역할 수 있습니다.")
                 } actions: {
                     Button("영상 폴더 열기…") { model.openVideoFolder() }
                         .buttonStyle(.borderedProminent)
@@ -123,41 +140,18 @@ struct PlayerMediaLibraryView: View {
             } else {
                 List(selection: playbackSelection) {
                     ForEach(items) { item in
-                        HStack(spacing: 8) {
-                            Image(systemName: model.mediaURL?.standardizedFileURL == item.videoURL.standardizedFileURL ? "play.circle.fill" : "film")
-                                .foregroundStyle(model.mediaURL?.standardizedFileURL == item.videoURL.standardizedFileURL ? Color.accentColor : Color.secondary)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(item.videoURL.lastPathComponent).lineLimit(1)
-                                HStack(spacing: 6) {
-                                    Text(item.directoryName)
-                                    if item.resultSummary.hasTranscript { Text("STT \(item.resultSummary.transcriptSegmentCount)") }
-                                    if !item.resultSummary.translationLanguages.isEmpty {
-                                        Text(item.resultSummary.translationLanguages.map { $0.uppercased() }.joined(separator: ", "))
-                                    }
-                                }
-                                .font(.caption2).foregroundStyle(.secondary)
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        .tag(item.id)
-                        .help(item.videoURL.path)
-                        .contextMenu {
-                            Button("재생", systemImage: "play.fill") { model.playLibraryVideo(item.videoURL) }
-                            Button("Finder에서 영상 보기", systemImage: "finder") { library.revealVideo(item) }
-                            Button("번역 결과 폴더 열기", systemImage: "captions.bubble") { library.revealResults(item) }
-                                .disabled(!item.hasResults)
-                            Divider()
-                            Button("영상 파일 휴지통 이동…", systemImage: "trash", role: .destructive) {
-                                pendingTrash = item
-                            }
-                            .disabled(isTrashing || AppModel.videoIsBeingProcessed(item.videoURL))
-                        }
+                        libraryRow(item)
                     }
                 }
                 .frame(minHeight: 100, maxHeight: .infinity)
                 .scrollIndicators(.visible)
                 .disabled(isTrashing)
             }
+
+            if backgroundManager.hasJobs {
+                backgroundSummaryBar
+            }
+
             HStack(spacing: 8) {
                 Text("영상 \(items.count)개 · 동명 파일 \(matchingItems.count - items.count)개 숨김")
                     .font(.caption).foregroundStyle(.secondary).monospacedDigit()
@@ -186,6 +180,152 @@ struct PlayerMediaLibraryView: View {
             set: { if !$0 { trashMessage = "" } }
         )) { Button("확인", role: .cancel) { trashMessage = "" } } message: { Text(trashMessage) }
     }
+
+    @ViewBuilder
+    private func libraryRow(_ item: MediaLibraryItem) -> some View {
+        let isPlayingThis = model.mediaURL?.standardizedFileURL == item.videoURL.standardizedFileURL
+        let bgJob = backgroundManager.job(for: item.videoURL)
+
+        HStack(spacing: 8) {
+            Image(systemName: isPlayingThis ? "play.circle.fill" : "film")
+                .foregroundStyle(isPlayingThis ? Color.accentColor : Color.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.videoURL.lastPathComponent).lineLimit(1)
+                if let bgJob, bgJob.isActive {
+                    HStack(spacing: 6) {
+                        ProgressView(value: bgJob.progress)
+                            .frame(width: 56)
+                        Text("\(Int((bgJob.progress * 100).rounded()))%")
+                            .monospacedDigit()
+                        Text(bgJob.message)
+                            .lineLimit(1)
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(Color.accentColor)
+                } else if let bgJob, bgJob.status == .failed {
+                    Label(bgJob.error ?? "백그라운드 실패", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .lineLimit(1)
+                } else {
+                    HStack(spacing: 6) {
+                        Text(item.directoryName)
+                        if item.resultSummary.hasTranscript { Text("STT \(item.resultSummary.transcriptSegmentCount)") }
+                        if !item.resultSummary.translationLanguages.isEmpty {
+                            Text(item.resultSummary.translationLanguages.map { $0.uppercased() }.joined(separator: ", "))
+                        }
+                        if bgJob?.status == .completed {
+                            Label("완료", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 4)
+            if isTranslationMode {
+                rowBackgroundAction(for: item, job: bgJob)
+            }
+        }
+        .tag(item.id)
+        .help(item.videoURL.path)
+        .contextMenu {
+            Button("재생", systemImage: "play.fill") { model.playLibraryVideo(item.videoURL) }
+            if let bgJob, bgJob.isActive {
+                Button("백그라운드 STT·번역 중지", systemImage: "stop.circle", role: .destructive) {
+                    backgroundManager.cancel(url: item.videoURL)
+                }
+            } else {
+                Button("백그라운드에서 STT·번역 시작", systemImage: "waveform.badge.plus") {
+                    startBackgroundTranslation(for: item)
+                }
+            }
+            Divider()
+            Button("Finder에서 영상 보기", systemImage: "finder") { library.revealVideo(item) }
+            Button("번역 결과 폴더 열기", systemImage: "captions.bubble") { library.revealResults(item) }
+                .disabled(!item.hasResults)
+            Divider()
+            Button("영상 파일 휴지통 이동…", systemImage: "trash", role: .destructive) {
+                pendingTrash = item
+            }
+            .disabled(isTrashing || AppModel.videoIsBeingProcessed(item.videoURL))
+        }
+    }
+
+    @ViewBuilder
+    private func rowBackgroundAction(
+        for item: MediaLibraryItem,
+        job: BackgroundTranslationManager.BackgroundJob?
+    ) -> some View {
+        if let job, job.isActive {
+            Button {
+                backgroundManager.cancel(url: item.videoURL)
+            } label: {
+                Image(systemName: "stop.circle.fill")
+                    .foregroundStyle(.red)
+            }
+            .buttonStyle(.borderless)
+            .help("이 영상의 백그라운드 STT·번역 중지")
+        } else if job?.status == .failed {
+            Button {
+                startBackgroundTranslation(for: item)
+            } label: {
+                Image(systemName: "arrow.clockwise.circle")
+                    .foregroundStyle(.orange)
+            }
+            .buttonStyle(.borderless)
+            .help("백그라운드 STT·번역 다시 시도")
+        } else {
+            Button {
+                startBackgroundTranslation(for: item)
+            } label: {
+                Image(systemName: "waveform.badge.plus")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("재생을 유지한 채 이 영상을 백그라운드에서 STT·번역")
+        }
+    }
+
+    private var backgroundSummaryBar: some View {
+        HStack(spacing: 8) {
+            if backgroundManager.activeCount > 0 {
+                ProgressView().controlSize(.small)
+                Text("백그라운드 \(backgroundManager.activeCount)개 처리 중")
+                    .font(.caption)
+                    .monospacedDigit()
+            } else {
+                Image(systemName: backgroundManager.failedCount > 0 ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(backgroundManager.failedCount > 0 ? .orange : .green)
+                Text("백그라운드 완료 \(backgroundManager.completedCount)개" + (backgroundManager.failedCount > 0 ? " · 실패 \(backgroundManager.failedCount)개" : ""))
+                    .font(.caption)
+                    .monospacedDigit()
+            }
+            Spacer(minLength: 4)
+            if backgroundManager.activeCount > 0 {
+                Button("모두 중지", role: .destructive) {
+                    backgroundManager.cancelAll()
+                }
+                .controlSize(.mini)
+            } else {
+                Button("지우기") {
+                    backgroundManager.clearFinished()
+                }
+                .controlSize(.mini)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func startBackgroundTranslation(for item: MediaLibraryItem) {
+        let options = model.currentProcessingOptions()
+        backgroundManager.enqueue(url: item.videoURL, options: options)
+    }
+
     private func moveToTrash(_ item: MediaLibraryItem) {
         guard !isTrashing else { return }
         guard !AppModel.videoIsBeingProcessed(item.videoURL) else {

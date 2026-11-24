@@ -156,6 +156,21 @@ final class MediaLibrary {
         NSWorkspace.shared.activateFileViewerSelecting([item.videoURL])
     }
 
+    /// 단일 영상의 STT·번역 사이드카 요약만 즉시 갱신합니다 (전체 폴더 재검색 없음).
+    func refreshResultSummary(for url: URL) {
+        let target = url.standardizedFileURL
+        guard let index = items.firstIndex(where: { $0.videoURL.standardizedFileURL == target }) else { return }
+        let current = items[index]
+        let updatedSummary = MediaSidecarStore.resultSummary(for: current.videoURL)
+        items[index] = MediaLibraryItem(
+            videoURL: current.videoURL,
+            rootURL: current.rootURL,
+            size: current.size,
+            modifiedAt: current.modifiedAt,
+            resultSummary: updatedSummary
+        )
+    }
+
     func revealVideos(_ items: [MediaLibraryItem]) {
         let urls = items.map(\.videoURL)
         guard !urls.isEmpty else { return }
