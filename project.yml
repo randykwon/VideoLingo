@@ -90,6 +90,9 @@ targets:
       - path: tools/RemoteWorker
         type: folder
         buildPhase: resources
+      - path: tools/video-enhancer
+        type: folder
+        buildPhase: resources
     info:
       path: Sources/VideoLingo/Info.plist
       properties:
