@@ -74,6 +74,7 @@
 		DAC357F9AA408A83FB9FEE02 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 31297E0EF82C7E7A4D6368C1 /* WhisperKit */; };
 		E07B0979885A14E8A676BAA7 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A5043D4A8F25D593601FB90 /* UniformTypeIdentifiers.framework */; };
 		E2BCBBE7D201D4443F063E55 /* VideoLingoCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2487691E3A520CDD89C03160 /* VideoLingoCoreTests.swift */; };
+		E3B4B35F3FEF1FFC6F9BF8E8 /* BackgroundTranslationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40FA0E3C2112CD9333896D79 /* BackgroundTranslationManager.swift */; };
 		E931EE4288F424363A3C5A93 /* Hub in Frameworks */ = {isa = PBXBuildFile; productRef = 0749C79D629840BC0F298513 /* Hub */; };
 		E9CC298CBBDCB316648F3ECF /* MediaPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 030837DF8066B9905C335525 /* MediaPipeline.swift */; };
 		EA8C16B7023925B4EDCFE78A /* SubtitleExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D34AF221652871C5DA018C3 /* SubtitleExporter.swift */; };
@@ -176,6 +177,7 @@
 		34EDE4FA74ABF2A414FC146C /* BatchLiveMonitorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchLiveMonitorView.swift; sourceTree = "<group>"; };
 		3C5C249F9EA92D76B0F1B57A /* VideoLingo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VideoLingo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3C7F9084D8CDF7DA4C10CD51 /* RemoteWorkerClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWorkerClient.swift; sourceTree = "<group>"; };
+		40FA0E3C2112CD9333896D79 /* BackgroundTranslationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundTranslationManager.swift; sourceTree = "<group>"; };
 		45F5D328BCCFF44DB68B115B /* RemoteWorkerPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWorkerPool.swift; sourceTree = "<group>"; };
 		45FA6A183D82B1561541968F /* RemoteWorkerInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWorkerInstaller.swift; sourceTree = "<group>"; };
 		46546950666544E955B03C39 /* EmbeddedAPIServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedAPIServer.swift; sourceTree = "<group>"; };
@@ -298,6 +300,7 @@
 				A4C1EAFEF20CEC31F93495A2 /* AppModel.swift */,
 				C9DED6B67062A46FC6A28F0F /* Assets.xcassets */,
 				90C158E751A85A0B3C729BCF /* AudioExtractionLimiter.swift */,
+				40FA0E3C2112CD9333896D79 /* BackgroundTranslationManager.swift */,
 				34EDE4FA74ABF2A414FC146C /* BatchLiveMonitorView.swift */,
 				709523048B431CBC0307F264 /* BatchProcessor.swift */,
 				D4733F909A2286563C9BA2E3 /* ContentView.swift */,
@@ -690,6 +693,7 @@
 			files = (
 				FD76F04FE5F46E56BCE9CF22 /* AppModel.swift in Sources */,
 				8EB88DBEF1D31FF157A67375 /* AudioExtractionLimiter.swift in Sources */,
+				E3B4B35F3FEF1FFC6F9BF8E8 /* BackgroundTranslationManager.swift in Sources */,
 				40F30F46A32B49D468ACC408 /* BatchLiveMonitorView.swift in Sources */,
 				9ED15EC1D94252A1C51E13B0 /* BatchProcessor.swift in Sources */,
 				8D6CA2AE2A754C6BF84565DE /* ContentView.swift in Sources */,
