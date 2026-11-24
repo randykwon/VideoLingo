@@ -271,6 +271,9 @@ private struct VideoLingoCommands: Commands {
             Button("결과 폴더 열기") { model?.revealOutput() }
                 .keyboardShortcut(shortcuts[.revealOutput].keyEquivalent, modifiers: shortcuts[.revealOutput].modifiers)
                 .disabled(model == nil)
+            Button("모자이크 제거…") { model?.isShowingDemosaicSheet = true }
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+                .disabled(!(model?.canOpenDemosaicSheet ?? false))
             Divider()
             Button("현재 작업 취소") { model?.cancel() }
                 .keyboardShortcut(shortcuts[.cancelJob].keyEquivalent, modifiers: shortcuts[.cancelJob].modifiers)

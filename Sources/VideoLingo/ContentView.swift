@@ -548,6 +548,12 @@ private struct SimpleSidebarView: View {
                         .buttonStyle(.borderedProminent)
                         .disabled(!model.canStart)
                 }
+                Button("모자이크 제거…", systemImage: "wand.and.stars") {
+                    model.isShowingDemosaicSheet = true
+                }
+                .buttonStyle(.bordered)
+                .disabled(!model.canOpenDemosaicSheet)
+                .help(model.mediaURL == nil ? "먼저 영상을 열어 주세요" : "모자이크 제거 · 영상 복원 테스트 창 열기 (⌘⇧M)")
                 if let snapshot = model.snapshot {
                     ProgressView(value: snapshot.progress)
                     Text(snapshot.message)
@@ -608,7 +614,14 @@ private struct ViewingSidebarView: View {
             Divider()
             VStack(alignment: .leading, spacing: 12) {
                 ViewingSidebarTransport()
-                Button("자막·화면 설정", systemImage: "gearshape") { showSettings.toggle() }
+                HStack(spacing: 8) {
+                    Button("자막·화면 설정", systemImage: "gearshape") { showSettings.toggle() }
+                    Button("모자이크 제거…", systemImage: "wand.and.stars") {
+                        model.isShowingDemosaicSheet = true
+                    }
+                    .disabled(!model.canOpenDemosaicSheet)
+                    .help(model.mediaURL == nil ? "먼저 영상을 열어 주세요" : "모자이크 제거 · 영상 복원 테스트 창 열기 (⌘⇧M)")
+                }
                     .popover(isPresented: $showSettings) {
                         Form {
             Section("자막") {
@@ -2477,23 +2490,28 @@ struct SettingsView: View {
     }
 }
 
-/// Experimental processing tools are deliberately available only in Settings.
+/// Experimental processing tools in Settings (mirrors player window action).
 private struct AdvancedFeatureSettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var showDemosaicSheet = false
+    @State private var targetPlayerModel: AppModel?
 
     var body: some View {
         @Bindable var model = model
+        let activePlayer = model.mediaURL != nil ? model : AppModel.firstPlayerModelWithMedia()
         Form {
-            Section("얼굴 모자이크 제거") {
-                Button("얼굴 모자이크 제거…", systemImage: "wand.and.stars") {
-                    showDemosaicSheet = true
+            Section("영상 복원 · 모자이크 제거") {
+                Button("모자이크 제거…", systemImage: "wand.and.stars") {
+                    if let activePlayer {
+                        targetPlayerModel = activePlayer
+                        showDemosaicSheet = true
+                    }
                 }
-                .disabled(!model.canStartDemosaic)
-                Text("실험적 · 결과는 AI로 재구성된 합성이며 실제 인물이 아닙니다. 권리 있는 영상에만 사용하세요.")
+                .disabled(activePlayer?.canOpenDemosaicSheet != true)
+                Text("실험적 · CoreML(LaMa/Real-ESRGAN/GFPGAN) · MLX FlashVSR · ComfyUI/uv MPS 3가지 트랙을 선택해 테스트할 수 있습니다. 권리 있는 영상에만 사용하세요.")
                     .font(.caption).foregroundStyle(.secondary)
-                if model.mediaURL == nil {
-                    Text("플레이어에서 영상을 연 뒤 사용할 수 있습니다.")
+                if activePlayer == nil {
+                    Text("플레이어에서 영상을 연 뒤 사용할 수 있습니다. 플레이어 왼쪽 사이드바나 메뉴(⌘⇧M)에서도 바로 열 수 있습니다.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -2507,7 +2525,9 @@ private struct AdvancedFeatureSettingsView: View {
         }
         .formStyle(.grouped)
         .sheet(isPresented: $showDemosaicSheet) {
-            DemosaicSheet().environment(model)
+            if let sheetModel = targetPlayerModel ?? activePlayer {
+                DemosaicSheet().environment(sheetModel)
+            }
         }
     }
 }
