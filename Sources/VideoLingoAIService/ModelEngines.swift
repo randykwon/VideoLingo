@@ -48,16 +48,16 @@ final class WhisperSTTEngine: @unchecked Sendable {
             }
         }
         guard let pipe else { throw VideoLingoError.modelUnavailable("WhisperKit 초기화 실패") }
-        let options = DecodingOptions(
+        var options = DecodingOptions(
             task: .transcribe,
             language: language,
             detectLanguage: language == nil,
-            temperatureFallbackCount: qualityMode == .fast ? 2 : (qualityMode == .maximum ? 6 : 4),
             skipSpecialTokens: true,
             wordTimestamps: true,
             concurrentWorkerCount: 1,
             chunkingStrategy: .vad
         )
+        options.temperatureFallbackCount = qualityMode == .fast ? 2 : (qualityMode == .maximum ? 6 : 4)
         var results = try await pipe.transcribe(
             audioPath: audioURL.path,
             decodeOptions: options,
@@ -137,9 +137,13 @@ final class WhisperSTTEngine: @unchecked Sendable {
         }.filter { !$0.text.isEmpty && $0.endTime > $0.startTime }
         let text = diarized.text.isEmpty ? filteredText : diarized.text
         let cues = diarized.cues.isEmpty ? fallbackCues : diarized.cues
-        let confidence: Double? = selection.segments.isEmpty
-            ? nil
-            : selection.segments.map { exp(Double($0.avgLogprob)) }.reduce(0, +) / Double(selection.segments.count)
+        let confidence: Double?
+        if selection.segments.isEmpty {
+            confidence = nil
+        } else {
+            let sum = selection.segments.reduce(0.0) { $0 + exp(Double($1.avgLogprob)) }
+            confidence = sum / Double(selection.segments.count)
+        }
         if selection.usedRelaxedFilter {
             qualityNotes.append("엄격 필터 탈락 문장을 완화 기준으로 복구")
         }
