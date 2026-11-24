@@ -61,6 +61,7 @@
 		A39202263C330E80102784EF /* Translation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0B7BDA26205243CACCD6B7BB /* Translation.framework */; };
 		A5BDE1A2E1B2923093E32A58 /* VideoLingoCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E827E047831CF98D776646F /* VideoLingoCore.framework */; };
 		A61F1F9BDF5073A83EB01D09 /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4B5CA03129456DF44AEC88F4 /* FoundationModels.framework */; };
+		A7B318CCBCA3ECD503581BD1 /* ModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6D4902BF650F6387FDB63A6 /* ModelCatalog.swift */; };
 		A94967282F5BAD8D0265DBC8 /* RemoteWorkerInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45FA6A183D82B1561541968F /* RemoteWorkerInstaller.swift */; };
 		ABB785596B2AF8C31A9F3AEB /* AVKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1A29A29F494EC232C80E8516 /* AVKit.framework */; };
 		AC0CF0F4EECEA1EB810219D8 /* ManagedRuntimeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2DFEFF209476E48A4EF8139 /* ManagedRuntimeManager.swift */; };
@@ -216,6 +217,7 @@
 		C6CF6AE62B2660E16CC59D41 /* ExternalLLMClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalLLMClient.swift; sourceTree = "<group>"; };
 		C9DED6B67062A46FC6A28F0F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D4733F909A2286563C9BA2E3 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		D6D4902BF650F6387FDB63A6 /* ModelCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelCatalog.swift; sourceTree = "<group>"; };
 		D90D29C25E10A1B9B2BB883D /* VideoLingoPackage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoLingoPackage.swift; sourceTree = "<group>"; };
 		DCEB4D1A3FF1AF17DFE806A7 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		DEB24D9AF04B5D8A4CC8BC14 /* RemoteWorker */ = {isa = PBXFileReference; lastKnownFileType = folder; name = RemoteWorker; path = tools/RemoteWorker; sourceTree = SOURCE_ROOT; };
@@ -372,6 +374,7 @@
 				4A14B444585205085F771932 /* JobStore.swift */,
 				B6D9A04CC36771C743BB21CF /* MediaFilenameDeduplicator.swift */,
 				646E49E8FB61BA60715DD692 /* MediaSidecarStore.swift */,
+				D6D4902BF650F6387FDB63A6 /* ModelCatalog.swift */,
 				301CAE7D02DB599971B5DA8D /* Models.swift */,
 				4AF3E7072D21501D3FE5E3EE /* MultiEngineClients.swift */,
 				71060A2117004A8B4E49F458 /* RemoteWorkerProtocol.swift */,
@@ -654,6 +657,7 @@
 				F7E331D7AD07DA1808DA09B6 /* JobStore.swift in Sources */,
 				A0A26E93DD56C21B6E97AF4C /* MediaFilenameDeduplicator.swift in Sources */,
 				90D2545110A5EC29AB25B524 /* MediaSidecarStore.swift in Sources */,
+				A7B318CCBCA3ECD503581BD1 /* ModelCatalog.swift in Sources */,
 				5177BD6DE1C97C6978D5BA3D /* Models.swift in Sources */,
 				7FAC6B27E39ACC79C646D2A2 /* MultiEngineClients.swift in Sources */,
 				297D051225F60461BEF392DA /* RemoteWorkerProtocol.swift in Sources */,

@@ -1095,3 +1095,25 @@ import Testing
     #expect(decoded.azureRegion == "koreacentral")
     #expect(decoded.localTranslationAPI?.endpoint == "http://localhost:8848/v1/translate")
 }
+
+@Test func builtinModelCatalogAndServerModelDiscoveryWork() throws {
+    #expect(ModelCatalog.whisperKitModels.count == 12)
+    #expect(ModelCatalog.mlxTranslationModels.count == 13)
+    #expect(ModelCatalog.deepgramModels.count == 5)
+    #expect(Set(ModelCatalog.whisperKitModels.map(\.id)).count == 12)
+    #expect(Set(ModelCatalog.mlxTranslationModels.map(\.id)).count == 13)
+
+    let dgMeeting = try DeepgramPreRecordedClient(apiKey: "dg-key", model: "nova-2-meeting")
+        .makeRequest(audioData: Data([1]), language: "ko")
+    #expect(dgMeeting.url?.absoluteString.contains("model=nova-2-meeting") == true)
+
+    #expect(ExternalLLMClient.modelsEndpointURL(from: "http://localhost:11434")?.absoluteString == "http://localhost:11434/v1/models")
+    #expect(ExternalLLMClient.modelsEndpointURL(from: "http://localhost:11434/v1/chat/completions")?.absoluteString == "http://localhost:11434/v1/models")
+    #expect(ExternalLLMClient.modelsEndpointURL(from: "https://api.openai.com/v1")?.absoluteString == "https://api.openai.com/v1/models")
+
+    let openAIList = Data(#"{"data":[{"id":"qwen3:8b"},{"id":"gemma3:12b"}]}"#.utf8)
+    #expect(try ExternalLLMClient.parseModelList(openAIList) == ["gemma3:12b", "qwen3:8b"])
+
+    let ollamaList = Data(#"{"models":[{"name":"qwen2.5:7b"},{"name":"llama3.2:3b"}]}"#.utf8)
+    #expect(try ExternalLLMClient.parseModelList(ollamaList) == ["llama3.2:3b", "qwen2.5:7b"])
+}
