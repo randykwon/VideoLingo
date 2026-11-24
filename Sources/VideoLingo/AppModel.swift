@@ -322,7 +322,10 @@ final class AppModel {
     var maximumRefinementPasses = UserDefaults.standard.object(forKey: "maximumRefinementPasses") == nil
         ? 3
         : max(1, UserDefaults.standard.integer(forKey: "maximumRefinementPasses")) {
-        didSet { UserDefaults.standard.set(maximumRefinementPasses, forKey: "maximumRefinementPasses") }
+        didSet {
+            UserDefaults.standard.set(maximumRefinementPasses, forKey: "maximumRefinementPasses")
+            broadcastSharedPreferences()
+        }
     }
     /// 단축키를 누를 때마다 순환하는 창 불투명도 단계입니다. (75% → 50% → 25% → 100%)
     static let translucencyLevels: [Double] = [0.75, 0.5, 0.25, 1.0]
