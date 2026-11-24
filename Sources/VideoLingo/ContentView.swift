@@ -65,10 +65,20 @@ struct ContentView: View {
                         .help("여러 영상을 새 창에서 동시에 STT·LLM 번역합니다")
                     }
                     .buttonStyle(.bordered)
-                    Button("영상 폴더 열기…", systemImage: "folder") { model.openVideoFolder() }
-                        .buttonStyle(.bordered)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 8) {
+                        Button { model.openVideoFolder() } label: {
+                            Label("폴더 열기…", systemImage: "folder")
+                                .frame(maxWidth: .infinity)
+                        }
                         .help("폴더 안의 영상 목록을 보고 선택해서 재생합니다")
+                        Button { model.isShowingDemosaicSheet = true } label: {
+                            Label("모자이크 제거…", systemImage: "wand.and.stars")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .disabled(!model.canOpenDemosaicSheet)
+                        .help(model.mediaURL == nil ? "먼저 영상을 열어 주세요" : (model.canMutateStorage ? "CoreML · MLX FlashVSR · ComfyUI/uv 3가지 엔진으로 모자이크 제거·영상 복원 테스트 (⌘⇧M)" : "현재 진행 중인 작업이 끝난 뒤 사용할 수 있습니다"))
+                    }
+                    .buttonStyle(.bordered)
 
                     if isCurrentJobRunning {
                         Button(role: .destructive) {
@@ -471,6 +481,10 @@ struct ContentView: View {
             Button("취소", role: .cancel) { regenerationRequest = nil }
         } message: { request in
             Text(request.message)
+        }
+        .sheet(isPresented: $model.isShowingDemosaicSheet) {
+            DemosaicSheet()
+                .environment(model)
         }
         .alert("VAutoLang", isPresented: Binding(
             get: { model.errorMessage != nil },

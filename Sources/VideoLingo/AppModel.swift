@@ -338,6 +338,12 @@ final class AppModel {
     }
     /// 현재 영상에서 사용자가 직접 지정한 모자이크 영역입니다. 영상이 바뀌면 다시 지정합니다.
     var demosaicManualRegions: [DemosaicRegion] = []
+    /// 플레이어 창에서 모자이크 제거·복원 테스트 시트를 표시할지 여부입니다.
+    var isShowingDemosaicSheet = false
+
+    static func firstPlayerModelWithMedia() -> AppModel? {
+        liveModels.compactMap(\.model).first { $0.mediaURL != nil }
+    }
     var maximumRefinementPasses = UserDefaults.standard.object(forKey: "maximumRefinementPasses") == nil
         ? 3
         : max(1, UserDefaults.standard.integer(forKey: "maximumRefinementPasses")) {
@@ -1161,6 +1167,10 @@ final class AppModel {
     func cancel() {
         guard let id = currentJobID, let service = remoteService() else { return }
         service.cancelJob(id.uuidString) { _ in }
+    }
+
+    var canOpenDemosaicSheet: Bool {
+        mediaURL != nil && canMutateStorage
     }
 
     var canStartDemosaic: Bool {
