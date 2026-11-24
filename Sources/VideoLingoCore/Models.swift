@@ -27,6 +27,14 @@ public struct ProcessingOptions: Codable, Sendable, Equatable {
     /// OpenAI 호환 외부 LLM 서버를 쓸 때 translationModel에 넣는 값입니다.
     /// Ollama·LM Studio·llama.cpp·vLLM처럼 API 키 없이 도는 로컬/사내 서버를 상정합니다.
     public static let externalServerModelID = "external-openai"
+    /// Apple 전용 온디바이스 번역(Translation.framework)을 쓸 때 translationModel에 기록하는 식별자입니다.
+    public static let appleTranslationModelID = "apple-translation"
+    /// Azure Translator를 쓸 때 translationModel에 기록하는 식별자입니다.
+    public static let azureTranslationModelID = "azure-translator"
+    /// 사용자 정의 로컬 번역 API를 쓸 때 translationModel에 기록하는 식별자입니다.
+    public static let localAPITranslationModelID = "local-translation-api"
+    /// 앱 자체 llama.cpp 서버(GGUF)를 쓸 때 translationModel 접두사로 사용합니다.
+    public static let managedLlamaModelPrefix = "managed-llama:"
 
     public var sourceLanguage: String?
     public var targetLanguages: [String]
@@ -46,6 +54,24 @@ public struct ProcessingOptions: Codable, Sendable, Equatable {
     /// 인증이 필요한 서버를 위한 선택 항목입니다. 비어 있으면 인증 헤더를 보내지 않습니다.
     public var externalServerAPIKey: String?
     public var maximumRefinementPasses: Int?
+    /// STT 엔진 선택 (nil이면 기존 호환성 유지를 위해 WhisperKit 사용).
+    public var sttEngine: STTEngineKind?
+    /// 번역 엔진 선택 (nil이면 translationModel 문자열에서 자동 추론).
+    public var translationEngine: TranslationEngineKind?
+    /// 자체 whisper-server 주소 및 실행 토큰.
+    public var managedSTTURL: String?
+    public var managedSTTAPIKey: String?
+    /// 자체 llama-server 주소 및 실행 토큰.
+    public var managedTranslationURL: String?
+    public var managedTranslationAPIKey: String?
+    /// Deepgram Nova-3 API 키.
+    public var deepgramAPIKey: String?
+    /// Azure Translator API 키 및 리전.
+    public var azureAPIKey: String?
+    public var azureRegion: String?
+    /// 로컬 커스텀 번역 API 설정 및 API 키.
+    public var localTranslationAPI: LocalTranslationAPISettings?
+    public var localTranslationAPIKey: String?
 
     public init(
         sourceLanguage: String? = nil,
@@ -61,7 +87,18 @@ public struct ProcessingOptions: Codable, Sendable, Equatable {
         externalServerEndpoint: String? = nil,
         externalServerModel: String? = nil,
         externalServerAPIKey: String? = nil,
-        maximumRefinementPasses: Int = 3
+        maximumRefinementPasses: Int = 3,
+        sttEngine: STTEngineKind? = nil,
+        translationEngine: TranslationEngineKind? = nil,
+        managedSTTURL: String? = nil,
+        managedSTTAPIKey: String? = nil,
+        managedTranslationURL: String? = nil,
+        managedTranslationAPIKey: String? = nil,
+        deepgramAPIKey: String? = nil,
+        azureAPIKey: String? = nil,
+        azureRegion: String? = nil,
+        localTranslationAPI: LocalTranslationAPISettings? = nil,
+        localTranslationAPIKey: String? = nil
     ) {
         self.sourceLanguage = sourceLanguage
         self.targetLanguages = targetLanguages
@@ -77,12 +114,38 @@ public struct ProcessingOptions: Codable, Sendable, Equatable {
         self.externalServerModel = externalServerModel
         self.externalServerAPIKey = externalServerAPIKey
         self.maximumRefinementPasses = maximumRefinementPasses
+        self.sttEngine = sttEngine
+        self.translationEngine = translationEngine
+        self.managedSTTURL = managedSTTURL
+        self.managedSTTAPIKey = managedSTTAPIKey
+        self.managedTranslationURL = managedTranslationURL
+        self.managedTranslationAPIKey = managedTranslationAPIKey
+        self.deepgramAPIKey = deepgramAPIKey
+        self.azureAPIKey = azureAPIKey
+        self.azureRegion = azureRegion
+        self.localTranslationAPI = localTranslationAPI
+        self.localTranslationAPIKey = localTranslationAPIKey
     }
 }
 
 public extension ProcessingOptions {
     /// 외부 LLM 서버를 쓰도록 설정돼 있는지.
-    var usesExternalServer: Bool { translationModel == ProcessingOptions.externalServerModelID }
+    var usesExternalServer: Bool { effectiveTranslationEngine == .externalOpenAI }
+
+    var effectiveSTTEngine: STTEngineKind {
+        sttEngine ?? .whisperKit
+    }
+
+    var effectiveTranslationEngine: TranslationEngineKind {
+        if let translationEngine { return translationEngine }
+        if translationModel == "apple-foundation-models" { return .appleFoundation }
+        if translationModel == Self.externalServerModelID { return .externalOpenAI }
+        if translationModel == Self.appleTranslationModelID { return .appleTranslation }
+        if translationModel == Self.azureTranslationModelID { return .azure }
+        if translationModel == Self.localAPITranslationModelID { return .localAPI }
+        if translationModel.hasPrefix(Self.managedLlamaModelPrefix) { return .managedLlama }
+        return .mlx
+    }
 }
 
 public struct StartJobRequest: Codable, Sendable {
