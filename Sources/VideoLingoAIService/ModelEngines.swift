@@ -52,6 +52,7 @@ final class WhisperSTTEngine: @unchecked Sendable {
             task: .transcribe,
             language: language,
             detectLanguage: language == nil,
+            temperatureFallbackCount: qualityMode == .fast ? 2 : (qualityMode == .maximum ? 6 : 4),
             skipSpecialTokens: true,
             wordTimestamps: true,
             concurrentWorkerCount: 1,
@@ -86,7 +87,8 @@ final class WhisperSTTEngine: @unchecked Sendable {
                 retryOptions.promptTokens = nil
                 qualityNotes.append(TranscriptCoverage.promptFreeVerificationNote)
             }
-            retryOptions.temperature = qualityMode == .maximum ? 0.2 : 0.0
+            // 처음부터 높은 temperature를 강제하면 무작위 오인식이 늘어나므로 0.0에서 시작해 단계적 폴백합니다.
+            retryOptions.temperature = 0.0
             retryOptions.temperatureFallbackCount = qualityMode == .maximum ? 8 : 6
             retryOptions.logProbThreshold = -1.2
             let retryResults = try await pipe.transcribe(
@@ -101,7 +103,7 @@ final class WhisperSTTEngine: @unchecked Sendable {
             let retrySelection = segmentSelection(retryResults)
             let retryText = extractedText(retryResults, selection: retrySelection)
             possibleSpeechDetected = possibleSpeechDetected || containsPotentialSpeech(retryResults)
-            if (initialText.isEmpty && !retryText.isEmpty) || transcriptionScore(retryResults) > initialScore {
+            if !retryText.isEmpty && (initialText.isEmpty || transcriptionScore(retryResults) > initialScore) {
                 results = retryResults
                 qualityNotes.append("재시도 결과 채택")
             } else {
@@ -111,11 +113,21 @@ final class WhisperSTTEngine: @unchecked Sendable {
         let selection = segmentSelection(results)
         let rawText = extractedText(results, selection: selection)
         let filteredText = TranscriptTextSanitizer.cleanWhisperText(rawText)
-        let diarized = try await diarizedOutput(
-            audioURL: audioURL,
-            results: results,
-            modelsURL: modelsURL
-        )
+        let diarized: DiarizedOutput
+        do {
+            diarized = try await diarizedOutput(
+                audioURL: audioURL,
+                results: results,
+                selection: selection,
+                modelsURL: modelsURL
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // 화자 분리 모델 오류로 이미 완료된 Whisper STT 결과를 버리지 않도록 안전하게 폴백합니다.
+            diarized = DiarizedOutput(text: "", cues: [])
+            qualityNotes.append("화자 분리 생략(Whisper 자막 유지)")
+        }
         let fallbackCues = selection.segments.map { segment in
             TranscriptCue(
                 startTime: Double(segment.start),
@@ -145,6 +157,11 @@ final class WhisperSTTEngine: @unchecked Sendable {
         let strict = segments.filter { segment in
             let text = TranscriptTextSanitizer.cleanWhisperText(segment.text)
             return !text.isEmpty
+                && !TranscriptTextSanitizer.isLikelyHallucination(
+                    text,
+                    noSpeechProb: Double(segment.noSpeechProb),
+                    avgLogprob: Double(segment.avgLogprob)
+                )
                 && segment.noSpeechProb <= 0.6
                 && segment.compressionRatio <= 2.4
                 && segment.avgLogprob >= -1.2
@@ -154,6 +171,11 @@ final class WhisperSTTEngine: @unchecked Sendable {
         let relaxed = segments.filter { segment in
             let text = TranscriptTextSanitizer.cleanWhisperText(segment.text)
             return !text.isEmpty
+                && !TranscriptTextSanitizer.isLikelyHallucination(
+                    text,
+                    noSpeechProb: Double(segment.noSpeechProb),
+                    avgLogprob: Double(segment.avgLogprob)
+                )
                 && segment.noSpeechProb <= 0.85
                 && segment.compressionRatio <= 3.0
                 && segment.avgLogprob >= -1.8
@@ -166,19 +188,38 @@ final class WhisperSTTEngine: @unchecked Sendable {
             return selection.segments.map(\.text).joined(separator: " ")
         }
         guard results.allSatisfy({ $0.segments.isEmpty }) else { return "" }
-        return results.map(\.text).joined(separator: " ")
+        let fallback = results.map(\.text).joined(separator: " ")
+        return TranscriptTextSanitizer.isLikelyHallucination(fallback, noSpeechProb: 0.5, avgLogprob: -0.8) ? "" : fallback
     }
 
     private func containsPotentialSpeech(_ results: [TranscriptionResult]) -> Bool {
-        if results.contains(where: { !TranscriptTextSanitizer.cleanWhisperText($0.text).isEmpty }) { return true }
+        if results.contains(where: {
+            let text = TranscriptTextSanitizer.cleanWhisperText($0.text)
+            return !text.isEmpty && !TranscriptTextSanitizer.isLikelyHallucination(text, noSpeechProb: 0.5, avgLogprob: -0.8)
+        }) { return true }
         return results.flatMap(\.segments).contains { segment in
-            !TranscriptTextSanitizer.cleanWhisperText(segment.text).isEmpty && segment.noSpeechProb <= 0.9
+            let text = TranscriptTextSanitizer.cleanWhisperText(segment.text)
+            return !text.isEmpty
+                && !TranscriptTextSanitizer.isLikelyHallucination(
+                    text,
+                    noSpeechProb: Double(segment.noSpeechProb),
+                    avgLogprob: Double(segment.avgLogprob)
+                )
+                && segment.noSpeechProb <= 0.9
         }
     }
 
     private func transcriptionScore(_ results: [TranscriptionResult]) -> Double {
-        let segments = results.flatMap(\.segments).filter {
-            !TranscriptTextSanitizer.cleanWhisperText($0.text).isEmpty && $0.noSpeechProb <= 0.6 && $0.compressionRatio <= 2.4
+        let segments = results.flatMap(\.segments).filter { segment in
+            let text = TranscriptTextSanitizer.cleanWhisperText(segment.text)
+            return !text.isEmpty
+                && !TranscriptTextSanitizer.isLikelyHallucination(
+                    text,
+                    noSpeechProb: Double(segment.noSpeechProb),
+                    avgLogprob: Double(segment.avgLogprob)
+                )
+                && segment.noSpeechProb <= 0.6
+                && segment.compressionRatio <= 2.4
         }
         guard !segments.isEmpty else { return 0 }
         return segments.map { exp(Double($0.avgLogprob)) }.reduce(0, +) / Double(segments.count)
@@ -187,9 +228,11 @@ final class WhisperSTTEngine: @unchecked Sendable {
     private func diarizedOutput(
         audioURL: URL,
         results: [TranscriptionResult],
+        selection: SegmentSelection,
         modelsURL: URL
     ) async throws -> DiarizedOutput {
-        guard results.contains(where: { !$0.segments.isEmpty }) else {
+        // 유효한 음성 세그먼트가 없는 무음/환각 청크에서는 화자 분리 모델 실행을 생략합니다.
+        guard !selection.segments.isEmpty else {
             return DiarizedOutput(text: "", cues: [])
         }
         let kit: SpeakerKit
@@ -207,14 +250,23 @@ final class WhisperSTTEngine: @unchecked Sendable {
         }
         let audio = try AudioProcessor.loadAudioAsFloatArray(fromPath: audioURL.path)
         let diarization = try await kit.diarize(audioArray: audio)
+        let maxNoSpeech: Float = selection.usedRelaxedFilter ? 0.85 : 0.6
+        let maxCompression: Float = selection.usedRelaxedFilter ? 3.0 : 2.4
+        let minLogprob: Float = selection.usedRelaxedFilter ? -1.8 : -1.2
         let aligned = diarization.addSpeakerInfo(to: results, strategy: .subsegment)
             .flatMap { $0 }
             .filter { segment in
                 guard let transcription = segment.transcription else { return false }
-                return transcription.noSpeechProb <= 0.6
-                    && transcription.compressionRatio <= 2.4
-                    && transcription.avgLogprob >= -1.2
-                    && !TranscriptTextSanitizer.cleanWhisperText(segment.text).isEmpty
+                let text = TranscriptTextSanitizer.cleanWhisperText(segment.text)
+                return !text.isEmpty
+                    && !TranscriptTextSanitizer.isLikelyHallucination(
+                        text,
+                        noSpeechProb: Double(transcription.noSpeechProb),
+                        avgLogprob: Double(transcription.avgLogprob)
+                    )
+                    && transcription.noSpeechProb <= maxNoSpeech
+                    && transcription.compressionRatio <= maxCompression
+                    && transcription.avgLogprob >= minLogprob
             }
 
         var turns: [(speaker: String, start: TimeInterval, end: TimeInterval, text: String)] = []
@@ -359,6 +411,7 @@ actor FoundationTranslationEngine {
         modelID: String,
         modelsURL: URL,
         previousContext: [String],
+        previousTranslations: [String] = [],
         nextContext: [String],
         glossary: [GlossaryEntry],
         qualityMode: ProcessingQualityMode,
@@ -366,42 +419,123 @@ actor FoundationTranslationEngine {
         attempt: Int = 0,
         onPartialText: @escaping @Sendable (String) -> Void
     ) async throws -> TranslationOutput {
-        guard !text.isEmpty else { return TranslationOutput(text: "", qualityStatus: .good, qualityNotes: []) }
-        if modelID == ProcessingOptions.externalServerModelID {
-            let draft = try await translateWithExternalServer(
-                text,
-                sourceLanguage: sourceLanguage,
-                targetLanguage: targetLanguage,
-                externalServer: externalServer,
-                previousContext: previousContext,
-                nextContext: nextContext,
-                glossary: glossary,
-                onPartialText: onPartialText
-            )
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else { return TranslationOutput(text: "", qualityStatus: .good, qualityNotes: []) }
+        if TranslationQualityValidator.isSameLanguage(sourceLanguage, targetLanguage) {
             translationFailureStreaks[jobID] = 0
-            return try await finalizeTranslation(
-                source: text, draft: draft, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage,
-                modelID: modelID, modelsURL: modelsURL, glossary: glossary, qualityMode: qualityMode,
-                externalServer: externalServer, onPartialText: onPartialText
+            return TranslationOutput(
+                text: trimmedText,
+                qualityStatus: .good,
+                qualityNotes: ["원문과 대상 언어가 같아 원문을 유지함"]
             )
         }
+        if modelID == ProcessingOptions.externalServerModelID {
+            do {
+                let draft = try await translateWithExternalServer(
+                    trimmedText,
+                    sourceLanguage: sourceLanguage,
+                    targetLanguage: targetLanguage,
+                    externalServer: externalServer,
+                    previousContext: previousContext,
+                    previousTranslations: previousTranslations,
+                    nextContext: nextContext,
+                    glossary: glossary,
+                    onPartialText: onPartialText
+                )
+                translationFailureStreaks[jobID] = 0
+                return try await finalizeTranslation(
+                    source: trimmedText, draft: draft, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage,
+                    modelID: modelID, modelsURL: modelsURL, glossary: glossary, qualityMode: qualityMode,
+                    externalServer: externalServer, onPartialText: onPartialText
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                if attempt == 0 && (!previousContext.isEmpty || !previousTranslations.isEmpty || !nextContext.isEmpty) {
+                    return try await translate(
+                        trimmedText,
+                        jobID: jobID,
+                        sourceLanguage: sourceLanguage,
+                        targetLanguage: targetLanguage,
+                        modelID: modelID,
+                        modelsURL: modelsURL,
+                        previousContext: [],
+                        previousTranslations: [],
+                        nextContext: [],
+                        glossary: glossary,
+                        qualityMode: .fast,
+                        externalServer: externalServer,
+                        attempt: attempt + 1,
+                        onPartialText: onPartialText
+                    )
+                }
+                throw error
+            }
+        }
         if modelID != "apple-foundation-models" {
-            let draft = try await translateWithMLX(
-                text,
-                sourceLanguage: sourceLanguage,
-                targetLanguage: targetLanguage,
-                modelID: modelID,
-                modelsURL: modelsURL,
-                previousContext: previousContext,
-                nextContext: nextContext,
-                glossary: glossary,
-                onPartialText: onPartialText
-            )
-            return try await finalizeTranslation(
-                source: text, draft: draft, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage,
-                modelID: modelID, modelsURL: modelsURL, glossary: glossary, qualityMode: qualityMode,
-                externalServer: externalServer, onPartialText: onPartialText
-            )
+            do {
+                var draft = try await translateWithMLX(
+                    trimmedText,
+                    sourceLanguage: sourceLanguage,
+                    targetLanguage: targetLanguage,
+                    modelID: modelID,
+                    modelsURL: modelsURL,
+                    previousContext: previousContext,
+                    previousTranslations: previousTranslations,
+                    nextContext: nextContext,
+                    glossary: glossary,
+                    onPartialText: onPartialText
+                )
+                // 사고 과정만 출력되어 결과가 비었으면 문맥을 비우고 1회 재시도합니다.
+                if draft.isEmpty && attempt == 0 {
+                    draft = try await translateWithMLX(
+                        trimmedText,
+                        sourceLanguage: sourceLanguage,
+                        targetLanguage: targetLanguage,
+                        modelID: modelID,
+                        modelsURL: modelsURL,
+                        previousContext: [],
+                        previousTranslations: [],
+                        nextContext: [],
+                        glossary: glossary,
+                        onPartialText: onPartialText
+                    )
+                }
+                guard !draft.isEmpty else {
+                    return try skipSegment(jobID: jobID, note: "로컬 MLX 모델이 빈 번역을 반환해 이 구간을 건너뛰었습니다.")
+                }
+                translationFailureStreaks[jobID] = 0
+                return try await finalizeTranslation(
+                    source: trimmedText, draft: draft, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage,
+                    modelID: modelID, modelsURL: modelsURL, glossary: glossary, qualityMode: qualityMode,
+                    externalServer: externalServer, onPartialText: onPartialText
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as VideoLingoError {
+                throw error
+            } catch {
+                if attempt < 1 {
+                    try await Task.sleep(for: .milliseconds(400))
+                    return try await translate(
+                        trimmedText,
+                        jobID: jobID,
+                        sourceLanguage: sourceLanguage,
+                        targetLanguage: targetLanguage,
+                        modelID: modelID,
+                        modelsURL: modelsURL,
+                        previousContext: [],
+                        previousTranslations: [],
+                        nextContext: [],
+                        glossary: glossary,
+                        qualityMode: .fast,
+                        externalServer: externalServer,
+                        attempt: attempt + 1,
+                        onPartialText: onPartialText
+                    )
+                }
+                return try skipSegment(jobID: jobID, note: "MLX 번역 실패 · \(error.localizedDescription)")
+            }
         }
         let model = SystemLanguageModel.default
         guard case .available = model.availability else {
@@ -412,39 +546,46 @@ actor FoundationTranslationEngine {
         let source = languageName(sourceLanguage)
         let session = LanguageModelSession(model: model, instructions: """
             영상 자막을 \(source)에서 \(languageName(targetLanguage))로 번역하세요.
-            이전 문장은 문맥 확인에만 사용하고 CURRENT SUBTITLE만 번역하세요.
+            PREVIOUS CONTEXT·PREVIOUS TRANSLATION·NEXT CONTEXT는 문맥·말투·용어 일관성 확인에만 사용하고 CURRENT SUBTITLE만 번역하세요.
             대괄호 안의 화자 라벨(예: [화자 1], [김민수], [진행자])은 번역하거나 제거하지 말고 각 화자의 줄 구분을 그대로 유지하세요.
             의미, 이름, 숫자, 존댓말과 말투를 보존하고 설명이나 따옴표를 추가하지 마세요.
             자연스럽고 간결한 번역문만 출력하세요.
             """)
         var translated = ""
-        let prompt = translationPrompt(text: text, previousContext: previousContext, nextContext: nextContext, glossary: glossary)
+        let prompt = TranslationContextBuilder.buildPrompt(
+            text: trimmedText,
+            previousContext: previousContext,
+            previousTranslations: previousTranslations,
+            nextContext: nextContext,
+            glossary: glossary
+        )
         let options = GenerationOptions(
             sampling: .greedy,
             temperature: 0,
-            maximumResponseTokens: min(512, max(64, text.count * 2))
+            maximumResponseTokens: TranslationContextBuilder.maxResponseTokens(for: trimmedText, backend: .appleFoundation)
         )
         do {
             for try await partial in session.streamResponse(to: prompt, options: options) {
-                translated = partial.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                translated = TranslationTextSanitizer.cleanLLMOutput(partial.content, source: trimmedText)
                 if !translated.isEmpty { onPartialText(translated) }
             }
             translationFailureStreaks[jobID] = 0
             return try await finalizeTranslation(
-                source: text, draft: translated, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage,
+                source: trimmedText, draft: translated, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage,
                 modelID: modelID, modelsURL: modelsURL, glossary: glossary, qualityMode: qualityMode,
                 onPartialText: onPartialText
             )
         } catch {
             return try await recoverFromTranslationFailure(
                 error,
-                text: text,
+                text: trimmedText,
                 jobID: jobID,
                 sourceLanguage: sourceLanguage,
                 targetLanguage: targetLanguage,
                 modelID: modelID,
                 modelsURL: modelsURL,
                 previousContext: previousContext,
+                previousTranslations: previousTranslations,
                 nextContext: nextContext,
                 glossary: glossary,
                 qualityMode: qualityMode,
@@ -467,6 +608,7 @@ actor FoundationTranslationEngine {
         modelID: String,
         modelsURL: URL,
         previousContext: [String],
+        previousTranslations: [String],
         nextContext: [String],
         glossary: [GlossaryEntry],
         qualityMode: ProcessingQualityMode,
@@ -482,7 +624,7 @@ actor FoundationTranslationEngine {
                 "Apple Intelligence 모델을 사용할 수 없습니다. 디스크 여유 공간을 확보한 뒤 시스템 설정에서 Apple Intelligence를 확인하거나, 설정에서 번역 모델을 Qwen으로 바꾸세요."
             )
         }
-        let hasContext = !previousContext.isEmpty || !nextContext.isEmpty
+        let hasContext = !previousContext.isEmpty || !previousTranslations.isEmpty || !nextContext.isEmpty
 
         func retry(dropContext: Bool, delay: Duration?, downgrade: Bool) async throws -> TranslationOutput {
             if let delay { try await Task.sleep(for: delay) }
@@ -494,6 +636,7 @@ actor FoundationTranslationEngine {
                 modelID: modelID,
                 modelsURL: modelsURL,
                 previousContext: dropContext ? [] : previousContext,
+                previousTranslations: dropContext ? [] : previousTranslations,
                 nextContext: dropContext ? [] : nextContext,
                 glossary: glossary,
                 qualityMode: downgrade ? .fast : qualityMode,
@@ -601,6 +744,7 @@ actor FoundationTranslationEngine {
         targetLanguage: String,
         externalServer: ExternalLLMClient.Configuration?,
         previousContext: [String],
+        previousTranslations: [String],
         nextContext: [String],
         glossary: [GlossaryEntry],
         onPartialText: @escaping @Sendable (String) -> Void
@@ -611,18 +755,24 @@ actor FoundationTranslationEngine {
         let client = ExternalLLMClient(configuration: externalServer)
         let instructions = """
             영상 자막을 \(languageName(sourceLanguage))에서 \(languageName(targetLanguage))로 번역하세요.
-            이전 문장은 문맥 확인에만 사용하고 CURRENT SUBTITLE만 번역하세요.
+            PREVIOUS CONTEXT·PREVIOUS TRANSLATION·NEXT CONTEXT는 문맥·말투·용어 일관성 확인에만 사용하고 CURRENT SUBTITLE만 번역하세요.
             대괄호 안의 화자 라벨(예: [화자 1], [김민수])은 번역하거나 제거하지 말고 각 화자의 줄 구분을 그대로 유지하세요.
             의미, 이름, 숫자, 존댓말과 말투를 보존하고 설명이나 따옴표를 추가하지 마세요.
             자연스럽고 간결한 번역문만 출력하세요.
             """
-        let prompt = translationPrompt(text: text, previousContext: previousContext, nextContext: nextContext, glossary: glossary)
+        let prompt = TranslationContextBuilder.buildPrompt(
+            text: text,
+            previousContext: previousContext,
+            previousTranslations: previousTranslations,
+            nextContext: nextContext,
+            glossary: glossary
+        )
         let value = try await client.complete(
             instructions: instructions,
             prompt: prompt,
-            maximumTokens: min(4096, max(1024, text.count * 3))
+            maximumTokens: TranslationContextBuilder.maxResponseTokens(for: text, backend: .externalServer)
         )
-        let cleaned = cleanMLXResponse(value)
+        let cleaned = TranslationTextSanitizer.cleanLLMOutput(value, source: text)
         if !cleaned.isEmpty { onPartialText(cleaned) }
         return cleaned
     }
@@ -634,6 +784,7 @@ actor FoundationTranslationEngine {
         modelID: String,
         modelsURL: URL,
         previousContext: [String],
+        previousTranslations: [String],
         nextContext: [String],
         glossary: [GlossaryEntry],
         onPartialText: @escaping @Sendable (String) -> Void
@@ -644,13 +795,13 @@ actor FoundationTranslationEngine {
             container,
             instructions: """
                 Translate video subtitles from \(source) to \(languageName(targetLanguage)).
-                Use PREVIOUS CONTEXT only to understand continuity and translate only CURRENT SUBTITLE.
+                Use PREVIOUS CONTEXT, PREVIOUS TRANSLATION, and NEXT CONTEXT only to maintain continuity, tone, honorifics, and terminology; translate only CURRENT SUBTITLE.
                 Preserve every bracketed speaker label exactly (for example [화자 1], [Kim], or [Host]) and keep each speaker on a separate line.
                 Preserve meaning, names, numbers, politeness, and tone. Be natural and concise.
                 Return only the translated subtitle with the original speaker labels; add no quotes, notes, or explanations.
                 """,
             generateParameters: GenerateParameters(
-                maxTokens: min(512, max(64, text.count * 2)),
+                maxTokens: TranslationContextBuilder.maxResponseTokens(for: text, backend: .mlx),
                 temperature: 0.1,
                 topP: 0.9,
                 repetitionPenalty: 1.05,
@@ -658,21 +809,23 @@ actor FoundationTranslationEngine {
             )
         )
         var response = ""
-        let prompt = translationPrompt(text: text, previousContext: previousContext, nextContext: nextContext, glossary: glossary) + "\n/no_think"
+        let prompt = TranslationContextBuilder.buildPrompt(
+            text: text,
+            previousContext: previousContext,
+            previousTranslations: previousTranslations,
+            nextContext: nextContext,
+            glossary: glossary
+        ) + "\n/no_think"
         for try await token in session.streamResponse(to: prompt) {
             response += token
-            let cleaned = cleanMLXResponse(response)
+            let cleaned = TranslationTextSanitizer.cleanLLMOutput(response, source: text)
             if !cleaned.isEmpty { onPartialText(cleaned) }
         }
-        return cleanMLXResponse(response)
+        return TranslationTextSanitizer.cleanLLMOutput(response, source: text)
     }
 
     private func cleanMLXResponse(_ value: String) -> String {
-        var text = value
-        if let end = text.range(of: "</think>") { text = String(text[end.upperBound...]) }
-        return text
-            .replacingOccurrences(of: "```", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        TranslationTextSanitizer.cleanLLMOutput(value)
     }
 
     private func mlxContainer(modelID: String, modelsURL: URL) async throws -> ModelContainer {
@@ -753,16 +906,35 @@ actor FoundationTranslationEngine {
         externalServer: ExternalLLMClient.Configuration? = nil,
         onPartialText: @escaping @Sendable (String) -> Void
     ) async throws -> TranslationOutput {
-        var issues = translationIssues(source: source, translation: draft, glossary: glossary)
-        if qualityMode == .maximum && issues.isEmpty { issues.append("최고 품질 모드의 의미·말투 2차 검수") }
-        guard qualityMode != .fast, !issues.isEmpty else {
-            return TranslationOutput(text: draft, qualityStatus: issues.isEmpty ? .good : .warning, qualityNotes: issues)
+        // 줄 수가 맞으면 화자 라벨 누락·오번역을 추가 LLM 호출 없이 즉시 복원합니다.
+        let alignedDraft = TranslationQualityValidator.repairSpeakerLabelsIfAligned(source: source, translation: draft)
+        let draftIssues = TranslationQualityValidator.issues(
+            source: source,
+            translation: alignedDraft,
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage,
+            glossary: glossary
+        )
+        var reviewReasons = draftIssues
+        if qualityMode == .maximum && reviewReasons.isEmpty {
+            reviewReasons.append("최고 품질 모드의 의미·말투 2차 검수")
         }
+        guard qualityMode != .fast, !reviewReasons.isEmpty else {
+            return TranslationOutput(
+                text: alignedDraft,
+                qualityStatus: draftIssues.isEmpty ? .good : .warning,
+                qualityNotes: draftIssues
+            )
+        }
+        let filteredGlossary = TranslationContextBuilder.relevantGlossary(glossary, for: source)
+        let glossarySection = filteredGlossary.isEmpty
+            ? ""
+            : "\n\nREQUIRED GLOSSARY:\n" + filteredGlossary.map { "\($0.source) => \($0.target)" }.joined(separator: "\n")
         let prompt = """
             Review and repair this video subtitle translation.
             Source language: \(languageName(sourceLanguage))
             Target language: \(languageName(targetLanguage))
-            Detected issues: \(issues.joined(separator: "; "))
+            Detected issues: \(reviewReasons.joined(separator: "; "))
             Preserve every bracketed speaker label, number, date, unit, name, line order, and required glossary term.
             Do not add explanations. Return only the corrected target-language subtitle.
 
@@ -770,102 +942,112 @@ actor FoundationTranslationEngine {
             \(source)
 
             DRAFT:
-            \(draft)
+            \(alignedDraft)\(glossarySection)
             """
-        let repaired: String
-        if modelID == "apple-foundation-models" {
-            let model = SystemLanguageModel.default
-            guard case .available = model.availability else {
-                return TranslationOutput(text: draft, qualityStatus: .warning, qualityNotes: issues + ["검수 모델 사용 불가"])
-            }
-            let session = LanguageModelSession(model: model, instructions: "영상 자막 번역 검수기입니다. 수정된 자막만 출력하세요.")
-            var value = ""
-            for try await partial in session.streamResponse(
-                to: prompt,
-                options: GenerationOptions(sampling: .greedy, temperature: 0, maximumResponseTokens: min(512, max(64, draft.count * 2)))
-            ) {
-                value = partial.content.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty { onPartialText("2차 검수 · \(value)") }
-            }
-            repaired = value
-        } else if modelID == ProcessingOptions.externalServerModelID {
-            guard let externalServer else {
-                return TranslationOutput(text: draft, qualityStatus: .warning, qualityNotes: issues + ["검수 서버 설정 없음"])
-            }
-            let client = ExternalLLMClient(configuration: externalServer)
-            let value = try await client.complete(
-                instructions: "You review video subtitle translations. Return only the corrected subtitle.",
-                prompt: prompt,
-                maximumTokens: min(4096, max(1024, draft.count * 3))
-            )
-            if !value.isEmpty { onPartialText("2차 검수 · \(value)") }
-            repaired = value
-        } else {
-            let container = try await mlxContainer(modelID: modelID, modelsURL: modelsURL)
-            let session = ChatSession(
-                container,
-                instructions: "Repair subtitle translation and return only the corrected subtitle.",
-                generateParameters: GenerateParameters(maxTokens: min(512, max(64, draft.count * 2)), temperature: 0.05)
-            )
-            var value = ""
-            for try await token in session.streamResponse(to: prompt + "\n/no_think") {
-                value += token
-                let cleaned = cleanMLXResponse(value)
+        let repairedRaw: String
+        do {
+            if modelID == "apple-foundation-models" {
+                let model = SystemLanguageModel.default
+                guard case .available = model.availability else {
+                    return TranslationOutput(text: alignedDraft, qualityStatus: draftIssues.isEmpty ? .good : .warning, qualityNotes: draftIssues + ["검수 모델 사용 불가"])
+                }
+                let session = LanguageModelSession(model: model, instructions: "영상 자막 번역 검수기입니다. 수정된 자막만 출력하세요.")
+                var value = ""
+                for try await partial in session.streamResponse(
+                    to: prompt,
+                    options: GenerationOptions(
+                        sampling: .greedy,
+                        temperature: 0,
+                        maximumResponseTokens: TranslationContextBuilder.maxResponseTokens(
+                            for: source,
+                            referenceText: alignedDraft,
+                            backend: .appleFoundation
+                        )
+                    )
+                ) {
+                    value = TranslationTextSanitizer.cleanLLMOutput(partial.content, source: source)
+                    if !value.isEmpty { onPartialText("2차 검수 · \(value)") }
+                }
+                repairedRaw = value
+            } else if modelID == ProcessingOptions.externalServerModelID {
+                guard let externalServer else {
+                    return TranslationOutput(text: alignedDraft, qualityStatus: draftIssues.isEmpty ? .good : .warning, qualityNotes: draftIssues + ["검수 서버 설정 없음"])
+                }
+                let client = ExternalLLMClient(configuration: externalServer)
+                let value = try await client.complete(
+                    instructions: "You review video subtitle translations. Return only the corrected subtitle.",
+                    prompt: prompt,
+                    maximumTokens: TranslationContextBuilder.maxResponseTokens(
+                        for: source,
+                        referenceText: alignedDraft,
+                        backend: .externalServer
+                    )
+                )
+                let cleaned = TranslationTextSanitizer.cleanLLMOutput(value, source: source)
                 if !cleaned.isEmpty { onPartialText("2차 검수 · \(cleaned)") }
+                repairedRaw = cleaned
+            } else {
+                let container = try await mlxContainer(modelID: modelID, modelsURL: modelsURL)
+                let session = ChatSession(
+                    container,
+                    instructions: "Repair subtitle translation and return only the corrected subtitle.",
+                    generateParameters: GenerateParameters(
+                        maxTokens: TranslationContextBuilder.maxResponseTokens(
+                            for: source,
+                            referenceText: alignedDraft,
+                            backend: .mlx
+                        ),
+                        temperature: 0.05
+                    )
+                )
+                var value = ""
+                for try await token in session.streamResponse(to: prompt + "\n/no_think") {
+                    value += token
+                    let cleaned = TranslationTextSanitizer.cleanLLMOutput(value, source: source)
+                    if !cleaned.isEmpty { onPartialText("2차 검수 · \(cleaned)") }
+                }
+                repairedRaw = TranslationTextSanitizer.cleanLLMOutput(value, source: source)
             }
-            repaired = cleanMLXResponse(value)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // 2차 검수 실패로 이미 생성된 초안을 잃지 않도록 안전하게 초안을 유지합니다.
+            return TranslationOutput(
+                text: alignedDraft,
+                qualityStatus: draftIssues.isEmpty ? .good : .warning,
+                qualityNotes: draftIssues + ["2차 검수 생략(초안 유지)"]
+            )
         }
-        let finalText = repaired.isEmpty ? draft : repaired
-        let remaining = translationIssues(source: source, translation: finalText, glossary: glossary)
+        let repaired = TranslationQualityValidator.repairSpeakerLabelsIfAligned(source: source, translation: repairedRaw)
+        let repairedIssues = TranslationQualityValidator.issues(
+            source: source,
+            translation: repaired,
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage,
+            glossary: glossary
+        )
+        let adoptRepaired = TranslationQualityValidator.prefersRepaired(
+            draft: alignedDraft,
+            repaired: repaired,
+            draftIssues: draftIssues,
+            repairedIssues: repairedIssues,
+            qualityMode: qualityMode
+        )
+        let finalText = adoptRepaired ? repaired : alignedDraft
+        let remaining = adoptRepaired ? repairedIssues : draftIssues
+        let outcomeNote: String
+        if adoptRepaired {
+            outcomeNote = remaining.isEmpty
+                ? "LLM 2차 검수 완료"
+                : "검수 후에도 확인 필요: \(remaining.joined(separator: ", "))"
+        } else {
+            outcomeNote = "2차 검수 결과가 개선되지 않아 초안 유지"
+        }
         return TranslationOutput(
             text: finalText,
             qualityStatus: remaining.isEmpty ? .reviewed : .warning,
-            qualityNotes: issues + (remaining.isEmpty ? ["LLM 2차 검수 완료"] : ["검수 후에도 확인 필요: \(remaining.joined(separator: ", "))"])
+            qualityNotes: reviewReasons + [outcomeNote]
         )
-    }
-
-    private func translationIssues(source: String, translation: String, glossary: [GlossaryEntry]) -> [String] {
-        var issues: [String] = []
-        let labels = matches(pattern: #"\[[^\]\n]+\]"#, in: source)
-        if labels.contains(where: { !translation.contains($0) }) { issues.append("화자 라벨 누락") }
-        let numbers = matches(pattern: #"\d+(?:[.,:]\d+)*"#, in: source)
-        if numbers.contains(where: { !translation.contains($0) }) { issues.append("숫자·시간·단위 누락 가능성") }
-        let missingTerms = glossary.filter {
-            source.localizedCaseInsensitiveContains($0.source) && !translation.localizedCaseInsensitiveContains($0.target)
-        }
-        if !missingTerms.isEmpty { issues.append("필수 용어 누락: \(missingTerms.map(\.source).joined(separator: ", "))") }
-        if !source.isEmpty && (translation.count < max(1, source.count / 8) || translation.count > source.count * 5) {
-            issues.append("번역 길이 이상")
-        }
-        return issues
-    }
-
-    private func matches(pattern: String, in text: String) -> [String] {
-        guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
-        return expression.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap {
-            Range($0.range, in: text).map { String(text[$0]) }
-        }
-    }
-
-    private func translationPrompt(text: String, previousContext: [String], nextContext: [String], glossary: [GlossaryEntry]) -> String {
-        let context = previousContext.isEmpty
-            ? "(none)"
-            : previousContext.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
-        let following = nextContext.isEmpty ? "(none)" : nextContext.joined(separator: "\n")
-        let terms = glossary.isEmpty ? "(none)" : glossary.map { "\($0.source) => \($0.target)" }.joined(separator: "\n")
-        return """
-            PREVIOUS CONTEXT:
-            \(context)
-
-            CURRENT SUBTITLE:
-            \(text)
-
-            NEXT CONTEXT (understand only; do not translate):
-            \(following)
-
-            REQUIRED GLOSSARY:
-            \(terms)
-            """
     }
 
     private func languageName(_ code: String?) -> String {

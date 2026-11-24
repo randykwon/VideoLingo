@@ -393,6 +393,7 @@ final class MediaPipeline: @unchecked Sendable {
         let asset = AVURLAsset(url: mediaURL)
         var producedTranscripts = await coordinator.currentTranscripts()
         var detectedLanguage = await coordinator.currentDetectedLanguage()
+        var recentDetectedLanguages: [String] = []
         let retryChunkIndices = Set(request.retryChunkIndices ?? [])
         do {
             for index in 0..<total {
@@ -428,11 +429,30 @@ final class MediaPipeline: @unchecked Sendable {
                         onLiveTranscript(request.jobID, index, total, text)
                     }
                 )
-                let timedCues = sttOutput.cues.compactMap { cue -> TranscriptCue? in
-                    let cueStart = max(start, min(end, extractionStart + cue.startTime))
-                    let cueEnd = max(cueStart, min(end, extractionStart + cue.endTime))
-                    guard cueEnd > cueStart, !cue.text.isEmpty else { return nil }
-                    return TranscriptCue(startTime: cueStart, endTime: cueEnd, text: cue.text)
+                let timedCues = TranscriptTextSanitizer.assignChunkCues(
+                    sttOutput.cues,
+                    extractionStart: extractionStart,
+                    chunkStart: start,
+                    chunkEnd: end,
+                    isLastChunk: index == total - 1
+                )
+                // 겹침 구간에만 있던 큐가 인접 청크로 귀속되어 timedCues가 비었다면,
+                // 인접 청크의 발화를 중복 저장하지 않고 이 구간은 검증된 빈 구간으로 처리합니다.
+                let allCuesOwnedByNeighbors = !sttOutput.cues.isEmpty && timedCues.isEmpty
+                let resolvedText = sttOutput.cues.isEmpty
+                    ? sttOutput.text
+                    : timedCues.map(\.text).joined(separator: "\n")
+                var candidateNotes = sttOutput.qualityNotes
+                if allCuesOwnedByNeighbors {
+                    if !candidateNotes.contains(TranscriptCoverage.verifiedSilenceNote) {
+                        candidateNotes.append(TranscriptCoverage.verifiedSilenceNote)
+                    }
+                    if !candidateNotes.contains(TranscriptCoverage.promptFreeVerificationNote) {
+                        candidateNotes.append(TranscriptCoverage.promptFreeVerificationNote)
+                    }
+                }
+                if existingTranscript != nil {
+                    candidateNotes.append("기존 결과와 재시도 후보 비교")
                 }
                 let candidate = TranscriptSegment(
                     id: existingTranscript?.id ?? UUID(),
@@ -440,13 +460,13 @@ final class MediaPipeline: @unchecked Sendable {
                     chunkIndex: index,
                     startTime: timedCues.first?.startTime ?? start,
                     endTime: timedCues.last?.endTime ?? end,
-                    text: timedCues.isEmpty ? sttOutput.text : timedCues.map(\.text).joined(separator: "\n"),
+                    text: resolvedText,
                     language: request.options.sourceLanguage ?? sttOutput.language,
-                    confidence: sttOutput.confidence,
+                    confidence: allCuesOwnedByNeighbors ? nil : sttOutput.confidence,
                     cues: timedCues,
-                    qualityStatus: sttOutput.qualityNotes.contains(where: { $0.contains("검토 권장") }) ? .warning : (sttOutput.retryCount > 0 ? .reviewed : .good),
+                    qualityStatus: candidateNotes.contains(where: { $0.contains("검토 권장") }) ? .warning : (sttOutput.retryCount > 0 ? .reviewed : .good),
                     retryCount: (existingTranscript?.retryCount ?? 0) + sttOutput.retryCount + (existingTranscript == nil ? 0 : 1),
-                    qualityNotes: sttOutput.qualityNotes + (existingTranscript == nil ? [] : ["기존 결과와 재시도 후보 비교"])
+                    qualityNotes: candidateNotes
                 )
                 let transcript = existingTranscript.map { existing in
                     if !TranscriptCoverage.hasCompleteCheckpoint(existing),
@@ -455,9 +475,21 @@ final class MediaPipeline: @unchecked Sendable {
                     }
                     return SegmentQualityComparator.prefersCandidate(candidate, over: existing) ? candidate : existing
                 } ?? candidate
-                if detectedLanguage == nil, (transcript.confidence ?? 0) >= 0.35 {
-                    detectedLanguage = transcript.language
-                    await coordinator.setDetectedLanguage(detectedLanguage)
+                if detectedLanguage == nil {
+                    if let locked = TranscriptTextSanitizer.shouldLockDetectedLanguage(
+                        candidate: transcript.language,
+                        text: transcript.text,
+                        confidence: transcript.confidence,
+                        recentDetections: recentDetectedLanguages
+                    ) {
+                        detectedLanguage = locked
+                        await coordinator.setDetectedLanguage(detectedLanguage)
+                    } else if let candidateLang = transcript.language?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                              !candidateLang.isEmpty,
+                              (transcript.confidence ?? 0) >= 0.35,
+                              !transcript.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        recentDetectedLanguages.append(candidateLang)
+                    }
                 }
                 producedTranscripts[index] = transcript
                 if existingTranscript == nil || transcript != existingTranscript {
@@ -514,9 +546,10 @@ final class MediaPipeline: @unchecked Sendable {
                 transcript = await coordinator.transcript(at: index)
             }
             guard let transcript else { continue }
+            let isSilentTranscript = transcript.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
             // 다음 문맥(다음 청크)이 준비될 때까지만 잠시 대기해 번역 품질을 유지합니다.
-            if index + 1 < total {
+            if !isSilentTranscript, index + 1 < total {
                 while await coordinator.transcript(at: index + 1) == nil, await coordinator.isSTTFinished() == false {
                     try Task.checkCancellation()
                     try await Task.sleep(nanoseconds: 100_000_000)
@@ -527,13 +560,30 @@ final class MediaPipeline: @unchecked Sendable {
                 try Task.checkCancellation()
                 let translation: TranslationSegment
                 let existing = await coordinator.existingTranslation(language: language, transcriptID: transcript.id)
-                if let existing,
+                if isSilentTranscript {
+                    if let existing {
+                        translation = existing
+                    } else {
+                        let emptyTranslation = TranslationSegment(
+                            transcriptID: transcript.id,
+                            jobID: request.jobID,
+                            targetLanguage: language,
+                            modelID: request.options.translationModel,
+                            text: "",
+                            qualityStatus: .good,
+                            qualityNotes: []
+                        )
+                        try await coordinator.commitTranslation(emptyTranslation, index: index, language: language)
+                        translation = emptyTranslation
+                    }
+                } else if let existing,
                    !existing.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                    !retryChunkIndices.contains(index) {
                     translation = existing
                 } else {
                     try await coordinator.markTranslating(index: index, language: language, message: "\(language) 번역 \(index + 1)/\(total)")
                     let previousContext = await coordinator.translationContextBefore(index: index)
+                    let previousTranslations = await coordinator.previousTranslations(before: index, language: language)
                     let nextContext = await coordinator.translationContextAfter(index: index)
                     // 한 청크의 번역 실패가 작업 전체를 중단시키지 않도록 격리합니다.
                     // 취소와 모델 자체를 쓸 수 없는 systemic 실패만 위로 전파합니다.
@@ -547,6 +597,7 @@ final class MediaPipeline: @unchecked Sendable {
                             modelID: request.options.translationModel,
                             modelsURL: modelsURL,
                             previousContext: previousContext,
+                            previousTranslations: previousTranslations,
                             nextContext: nextContext,
                             glossary: glossary,
                             qualityMode: qualityMode,
