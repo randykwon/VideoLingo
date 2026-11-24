@@ -602,10 +602,13 @@ public struct DeepgramPreRecordedClient: Sendable {
     }
 
     public let apiKey: String
+    public let model: String
     public var session: URLSession
 
-    public init(apiKey: String, session: URLSession = .shared) {
+    public init(apiKey: String, model: String = "nova-3", session: URLSession = .shared) {
         self.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.model = trimmedModel.isEmpty ? "nova-3" : trimmedModel
         self.session = session
     }
 
@@ -615,7 +618,7 @@ public struct DeepgramPreRecordedClient: Sendable {
         }
         var components = URLComponents(string: "https://api.deepgram.com/v1/listen")!
         var items = [
-            URLQueryItem(name: "model", value: "nova-3"),
+            URLQueryItem(name: "model", value: model),
             URLQueryItem(name: "smart_format", value: "true"),
             URLQueryItem(name: "diarize", value: "true"),
             URLQueryItem(name: "utterances", value: "true")

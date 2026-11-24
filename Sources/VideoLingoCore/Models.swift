@@ -64,8 +64,9 @@ public struct ProcessingOptions: Codable, Sendable, Equatable {
     /// 자체 llama-server 주소 및 실행 토큰.
     public var managedTranslationURL: String?
     public var managedTranslationAPIKey: String?
-    /// Deepgram Nova-3 API 키.
+    /// Deepgram API 키 및 모델(기본 nova-3).
     public var deepgramAPIKey: String?
+    public var deepgramModel: String?
     /// Azure Translator API 키 및 리전.
     public var azureAPIKey: String?
     public var azureRegion: String?
@@ -95,6 +96,7 @@ public struct ProcessingOptions: Codable, Sendable, Equatable {
         managedTranslationURL: String? = nil,
         managedTranslationAPIKey: String? = nil,
         deepgramAPIKey: String? = nil,
+        deepgramModel: String? = nil,
         azureAPIKey: String? = nil,
         azureRegion: String? = nil,
         localTranslationAPI: LocalTranslationAPISettings? = nil,
@@ -121,6 +123,7 @@ public struct ProcessingOptions: Codable, Sendable, Equatable {
         self.managedTranslationURL = managedTranslationURL
         self.managedTranslationAPIKey = managedTranslationAPIKey
         self.deepgramAPIKey = deepgramAPIKey
+        self.deepgramModel = deepgramModel
         self.azureAPIKey = azureAPIKey
         self.azureRegion = azureRegion
         self.localTranslationAPI = localTranslationAPI
