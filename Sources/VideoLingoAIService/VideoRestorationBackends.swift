@@ -611,6 +611,11 @@ enum LocalWorkerVideoRunner {
 // MARK: - 취소 지원 비동기 서브프로세스 러너
 
 enum SubprocessRunner {
+    private final class ProcessBox: @unchecked Sendable {
+        let process: Process
+        init(_ process: Process) { self.process = process }
+    }
+
     private final class LineCollector: @unchecked Sendable {
         private let lock = NSLock()
         private var tail: [String] = []
@@ -648,6 +653,7 @@ enum SubprocessRunner {
         process.standardOutput = pipe
         process.standardError = pipe
         let collector = LineCollector()
+        let box = ProcessBox(process)
 
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
@@ -661,7 +667,7 @@ enum SubprocessRunner {
 
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                process.terminationHandler = { proc in
+                box.process.terminationHandler = { proc in
                     pipe.fileHandleForReading.readabilityHandler = nil
                     if proc.terminationStatus == 0 {
                         continuation.resume()
@@ -674,15 +680,15 @@ enum SubprocessRunner {
                     }
                 }
                 do {
-                    try process.run()
+                    try box.process.run()
                 } catch {
                     pipe.fileHandleForReading.readabilityHandler = nil
                     continuation.resume(throwing: error)
                 }
             }
         } onCancel: {
-            if process.isRunning {
-                process.terminate()
+            if box.process.isRunning {
+                box.process.terminate()
             }
         }
     }
