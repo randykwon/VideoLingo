@@ -50,3 +50,58 @@ public enum SubtitleExporter {
         return String(format: "%02d:%02d:%02d%@%03d", hours, minutes, seconds, String(separator), remainder)
     }
 }
+
+/// 외부 SRT / WebVTT 자막 파일을 타임스탬프 큐([TranscriptCue])로 파싱합니다.
+public enum SubtitleParser {
+    public static func parse(_ content: String) -> [TranscriptCue] {
+        let normalized = content
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let blocks = normalized.components(separatedBy: "\n\n")
+        var cues: [TranscriptCue] = []
+        cues.reserveCapacity(blocks.count)
+
+        for rawBlock in blocks {
+            let lines = rawBlock
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            guard !lines.isEmpty else { continue }
+            if lines.first?.uppercased().hasPrefix("WEBVTT") == true { continue }
+
+            guard let timeLineIndex = lines.firstIndex(where: { $0.contains("-->") }) else { continue }
+            let timeParts = lines[timeLineIndex].components(separatedBy: "-->")
+            guard timeParts.count >= 2,
+                  let start = parseTimestamp(timeParts[0]),
+                  let end = parseTimestamp(timeParts[1].split(separator: " ").first.map(String.init) ?? timeParts[1]),
+                  end > start else { continue }
+
+            let textLines = lines[(timeLineIndex + 1)...]
+                .map { stripTags($0) }
+                .filter { !$0.isEmpty }
+            guard !textLines.isEmpty else { continue }
+            cues.append(TranscriptCue(startTime: start, endTime: end, text: textLines.joined(separator: "\n")))
+        }
+        return cues.sorted { $0.startTime < $1.startTime }
+    }
+
+    public static func parseTimestamp(_ raw: String) -> TimeInterval? {
+        let cleaned = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: ",", with: ".")
+        let parts = cleaned.split(separator: ":")
+        guard parts.count == 2 || parts.count == 3 else { return nil }
+        if parts.count == 3 {
+            guard let h = Double(parts[0]), let m = Double(parts[1]), let s = Double(parts[2]) else { return nil }
+            return max(0, h * 3_600 + m * 60 + s)
+        } else {
+            guard let m = Double(parts[0]), let s = Double(parts[1]) else { return nil }
+            return max(0, m * 60 + s)
+        }
+    }
+
+    private static func stripTags(_ line: String) -> String {
+        line.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}

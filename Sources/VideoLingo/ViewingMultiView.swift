@@ -41,6 +41,16 @@ final class MultiViewTileModel: Identifiable {
     var isLooping = true
     var fillsFrame = false
 
+    // MARK: - 슬롯별 자막 상태
+    var subtitlesEnabled = true
+    private(set) var hasSubtitles = false
+    private(set) var subtitleSourceLabel: String?
+    private(set) var activeOriginalSubtitle = ""
+    private(set) var activeTranslationSubtitle: String?
+    private(set) var externalSubtitleURL: URL?
+
+    @ObservationIgnored private var subtitleItems: [AlignedSentenceItem] = []
+    @ObservationIgnored private var subtitleLoadTask: Task<Void, Never>?
     @ObservationIgnored private nonisolated(unsafe) var timeObserver: Any?
     @ObservationIgnored private nonisolated(unsafe) var endObserver: NSObjectProtocol?
     @ObservationIgnored private var durationTask: Task<Void, Never>?
@@ -50,7 +60,10 @@ final class MultiViewTileModel: Identifiable {
         rect: MultiViewNormalizedRect,
         zIndex: Double,
         volume: Float = 0.85,
-        isMuted: Bool = false
+        isMuted: Bool = false,
+        subtitlesEnabled: Bool = true,
+        preferredLanguage: String = "ko",
+        preferredTranslationModel: String = ""
     ) {
         self.url = url.standardizedFileURL
         self.title = url.lastPathComponent
@@ -58,17 +71,34 @@ final class MultiViewTileModel: Identifiable {
         self.zIndex = zIndex
         self.volume = volume
         self.isMuted = isMuted
+        self.subtitlesEnabled = subtitlesEnabled
         player.volume = volume
         player.isMuted = isMuted
-        load(url: url, autoPlay: false)
+        load(
+            url: url,
+            autoPlay: false,
+            preferredLanguage: preferredLanguage,
+            preferredTranslationModel: preferredTranslationModel
+        )
     }
 
-    func load(url newURL: URL, autoPlay: Bool) {
+    func load(
+        url newURL: URL,
+        autoPlay: Bool,
+        preferredLanguage: String = "ko",
+        preferredTranslationModel: String = ""
+    ) {
         cleanupObservers()
         self.url = newURL.standardizedFileURL
         self.title = newURL.lastPathComponent
         self.currentTime = 0
         self.duration = 0
+        self.externalSubtitleURL = nil
+        self.subtitleItems = []
+        self.hasSubtitles = false
+        self.subtitleSourceLabel = nil
+        self.activeOriginalSubtitle = ""
+        self.activeTranslationSubtitle = nil
 
         let asset = AVURLAsset(url: self.url)
         let item = AVPlayerItem(asset: asset)
@@ -83,12 +113,16 @@ final class MultiViewTileModel: Identifiable {
             }
         }
 
+        loadSubtitles(preferredLanguage: preferredLanguage, preferredTranslationModel: preferredTranslationModel)
+
         let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             let sec = time.seconds
             Task { @MainActor [weak self] in
                 guard let self, sec.isFinite else { return }
-                self.currentTime = max(0, sec)
+                let clamped = max(0, sec)
+                self.currentTime = clamped
+                self.updateActiveSubtitle(at: clamped)
                 let running = self.player.rate != 0
                 if self.isPlaying != running { self.isPlaying = running }
                 if self.duration <= 0,
@@ -140,6 +174,7 @@ final class MultiViewTileModel: Identifiable {
     func seek(to seconds: TimeInterval) {
         let clamped = duration > 0 ? min(duration, max(0, seconds)) : max(0, seconds)
         currentTime = clamped
+        updateActiveSubtitle(at: clamped)
         player.seek(to: CMTime(seconds: clamped, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
@@ -154,9 +189,140 @@ final class MultiViewTileModel: Identifiable {
         }
     }
 
+    func loadSubtitles(preferredLanguage: String, preferredTranslationModel: String) {
+        if let external = externalSubtitleURL {
+            loadExternalSubtitle(from: external)
+            return
+        }
+        subtitleLoadTask?.cancel()
+        let videoURL = self.url
+        subtitleLoadTask = Task.detached(priority: .utility) { [weak self] in
+            let loaded = Self.discoverSubtitleItems(
+                for: videoURL,
+                preferredLanguage: preferredLanguage,
+                preferredTranslationModel: preferredTranslationModel
+            )
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                guard let self, self.url == videoURL else { return }
+                self.subtitleItems = loaded.items
+                self.hasSubtitles = !loaded.items.isEmpty
+                self.subtitleSourceLabel = loaded.label
+                self.updateActiveSubtitle(at: self.currentTime)
+            }
+        }
+    }
+
+    func loadExternalSubtitle(from subtitleURL: URL) {
+        subtitleLoadTask?.cancel()
+        externalSubtitleURL = subtitleURL
+        guard let content = try? String(contentsOf: subtitleURL, encoding: .utf8) else {
+            subtitleItems = []
+            hasSubtitles = false
+            subtitleSourceLabel = nil
+            updateActiveSubtitle(at: currentTime)
+            return
+        }
+        let cues = SubtitleParser.parse(content)
+        let dummyID = UUID()
+        subtitleItems = cues.enumerated().map { idx, cue in
+            AlignedSentenceItem(
+                id: "ext:\(idx)",
+                segmentID: dummyID,
+                chunkIndex: 0,
+                sentenceNumber: idx + 1,
+                startTime: cue.startTime,
+                endTime: cue.endTime,
+                originalText: cue.text,
+                translatedText: cue.text
+            )
+        }
+        hasSubtitles = !subtitleItems.isEmpty
+        subtitleSourceLabel = subtitleURL.lastPathComponent
+        subtitlesEnabled = true
+        updateActiveSubtitle(at: currentTime)
+    }
+
+    func clearExternalSubtitle(preferredLanguage: String, preferredTranslationModel: String) {
+        externalSubtitleURL = nil
+        loadSubtitles(preferredLanguage: preferredLanguage, preferredTranslationModel: preferredTranslationModel)
+    }
+
+    private func updateActiveSubtitle(at time: TimeInterval) {
+        guard !subtitleItems.isEmpty,
+              let index = SentenceAlignmentGrouper.activeIndex(in: subtitleItems, at: time) else {
+            if !activeOriginalSubtitle.isEmpty { activeOriginalSubtitle = "" }
+            if activeTranslationSubtitle != nil { activeTranslationSubtitle = nil }
+            return
+        }
+        let item = subtitleItems[index]
+        if activeOriginalSubtitle != item.originalText { activeOriginalSubtitle = item.originalText }
+        if activeTranslationSubtitle != item.translatedText { activeTranslationSubtitle = item.translatedText }
+    }
+
+    private nonisolated static func discoverSubtitleItems(
+        for mediaURL: URL,
+        preferredLanguage: String,
+        preferredTranslationModel: String
+    ) -> (items: [AlignedSentenceItem], label: String?) {
+        let language = preferredLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 1) 앱이 생성한 .videolingo 사이드카(원본 옆 + 앱 관리 Results 폴더) 우선 탐색
+        if let sidecar = try? MediaSidecarStore.discoverResults(
+            for: mediaURL,
+            preferredLanguage: language.isEmpty ? "ko" : language,
+            preferredTranslationModel: preferredTranslationModel
+        ), !sidecar.transcripts.isEmpty {
+            let translationMap: [UUID: TranslationSegment] = language.isEmpty
+                ? [:]
+                : Dictionary(uniqueKeysWithValues: sidecar.translations.map { ($0.transcriptID, $0) })
+            let items = SentenceAlignmentGrouper.group(
+                transcript: sidecar.transcripts,
+                translations: translationMap
+            )
+            let label = (!language.isEmpty && !translationMap.isEmpty) ? "\(language.uppercased()) 번역" : "STT 원문"
+            return (items, label)
+        }
+
+        // 2) 영상 옆 같은 이름의 .srt / .vtt 파일 자동 감지
+        let base = mediaURL.deletingPathExtension()
+        let fm = FileManager.default
+        var candidates: [URL] = []
+        if !language.isEmpty {
+            candidates.append(URL(fileURLWithPath: "\(base.path).\(language).srt"))
+            candidates.append(URL(fileURLWithPath: "\(base.path).\(language).vtt"))
+        }
+        candidates.append(base.appendingPathExtension("srt"))
+        candidates.append(base.appendingPathExtension("vtt"))
+
+        for fileURL in candidates where fm.fileExists(atPath: fileURL.path) {
+            if let text = try? String(contentsOf: fileURL, encoding: .utf8) {
+                let cues = SubtitleParser.parse(text)
+                if !cues.isEmpty {
+                    let dummyID = UUID()
+                    let items = cues.enumerated().map { idx, cue in
+                        AlignedSentenceItem(
+                            id: "side:\(idx)",
+                            segmentID: dummyID,
+                            chunkIndex: 0,
+                            sentenceNumber: idx + 1,
+                            startTime: cue.startTime,
+                            endTime: cue.endTime,
+                            originalText: cue.text,
+                            translatedText: cue.text
+                        )
+                    }
+                    return (items, fileURL.pathExtension.uppercased())
+                }
+            }
+        }
+        return ([], nil)
+    }
+
     func teardown() {
         durationTask?.cancel()
         durationTask = nil
+        subtitleLoadTask?.cancel()
+        subtitleLoadTask = nil
         cleanupObservers()
         player.pause()
         player.replaceCurrentItem(with: nil)
@@ -187,6 +353,12 @@ final class ViewingMultiViewController {
     var maximizedTileID: UUID?
     var alwaysShowTileControls = true
     var autoArrangeOnCountChange = true
+    /// 멀티 뷰 전체 자막 표시 여부 (추가/제외 토글)
+    var subtitlesEnabled = true
+    /// 자막 표시 시 원문 STT와 번역 자막을 함께 볼지 여부
+    var showOriginalWithTranslation = false
+    /// 멀티 뷰 자막 언어 코드 (비어 있으면 원문 STT만 표시)
+    var subtitleLanguage: String = UserDefaults.standard.string(forKey: "selectedLanguage") ?? "ko"
     var statusBanner: String?
 
     @ObservationIgnored private var nextZIndex: Double = 1
@@ -195,6 +367,7 @@ final class ViewingMultiViewController {
     var remainingSlots: Int { max(0, Self.maxTiles - tiles.count) }
     var anyPlaying: Bool { tiles.contains(where: \.isPlaying) }
     var allMuted: Bool { !tiles.isEmpty && tiles.allSatisfy(\.isMuted) }
+    var subtitlesActiveCount: Int { tiles.filter(\.subtitlesEnabled).count }
 
     func contains(url: URL) -> Bool {
         let std = url.standardizedFileURL
@@ -233,7 +406,10 @@ final class ViewingMultiViewController {
                 rect: initialRect,
                 zIndex: nextZIndex,
                 volume: 0.85,
-                isMuted: !isFirst // 첫 번째 영상만 기본 소리 ON, 추가 영상은 혼선 방지를 위해 음소거 시작
+                isMuted: !isFirst, // 첫 번째 영상만 기본 소리 ON, 추가 영상은 혼선 방지를 위해 음소거 시작
+                subtitlesEnabled: subtitlesEnabled,
+                preferredLanguage: subtitleLanguage,
+                preferredTranslationModel: UserDefaults.standard.string(forKey: "translationModel") ?? ""
             )
             tiles.append(tile)
             selectedTileID = tile.id
@@ -274,8 +450,50 @@ final class ViewingMultiViewController {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        tile.load(url: url, autoPlay: true)
+        tile.load(
+            url: url,
+            autoPlay: true,
+            preferredLanguage: subtitleLanguage,
+            preferredTranslationModel: UserDefaults.standard.string(forKey: "translationModel") ?? ""
+        )
         bringToFront(tileID)
+    }
+
+    func importExternalSubtitleWithPanel(tileID: UUID) {
+        guard let tile = tiles.first(where: { $0.id == tileID }) else { return }
+        let panel = NSOpenPanel()
+        panel.title = "자막 파일 추가 (.srt / .vtt)"
+        panel.allowedContentTypes = [
+            UTType(filenameExtension: "srt") ?? .plainText,
+            UTType(filenameExtension: "vtt") ?? .plainText
+        ]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        tile.loadExternalSubtitle(from: url)
+        subtitlesEnabled = true
+        bringToFront(tileID)
+    }
+
+    func setAllSubtitlesEnabled(_ enabled: Bool) {
+        subtitlesEnabled = enabled
+        for tile in tiles {
+            tile.subtitlesEnabled = enabled
+        }
+    }
+
+    func setSubtitleLanguage(_ language: String, preferredTranslationModel: String) {
+        subtitleLanguage = language
+        reloadAllSubtitles(preferredTranslationModel: preferredTranslationModel)
+    }
+
+    func reloadAllSubtitles(preferredTranslationModel: String) {
+        for tile in tiles {
+            tile.loadSubtitles(
+                preferredLanguage: subtitleLanguage,
+                preferredTranslationModel: preferredTranslationModel
+            )
+        }
     }
 
     func removeTile(_ id: UUID) {
