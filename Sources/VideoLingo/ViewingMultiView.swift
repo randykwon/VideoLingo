@@ -574,6 +574,30 @@ final class ViewingMultiViewController {
         for tile in tiles { tile.pause() }
     }
 
+    func togglePlayPauseAll() {
+        if anyPlaying { pauseAll() } else { playAll() }
+    }
+
+    /// 모든 영상을 0초로 맞춘 뒤 한꺼번에 동시에 시작합니다.
+    func restartAllFromBeginning() {
+        for tile in tiles {
+            tile.seek(to: 0)
+            tile.play()
+        }
+    }
+
+    /// 모든 영상을 일시 정지하고 0초 위치로 되돌립니다.
+    func stopAll() {
+        for tile in tiles {
+            tile.pause()
+            tile.seek(to: 0)
+        }
+    }
+
+    func seekAll(by delta: TimeInterval) {
+        for tile in tiles { tile.seek(by: delta) }
+    }
+
     func muteAll() {
         for tile in tiles { tile.isMuted = true }
     }
@@ -720,14 +744,22 @@ struct ViewingMultiViewWorkspace: View {
 
             Divider().frame(height: 18)
 
-            // 전체 재생/음소거 제어
+            // 전체 화면 한꺼번에 시작 / 중지 / 처음부터 동시 시작 컨트롤
             HStack(spacing: 4) {
-                Button("모두 재생", systemImage: "play.fill") { controller.playAll() }
+                Button("전체 시작", systemImage: "play.fill") { controller.playAll() }
+                    .buttonStyle(.borderedProminent)
+                    .help("열린 모든 화면을 한꺼번에 시작 (Space)")
+                Button("전체 중지", systemImage: "pause.fill") { controller.pauseAll() }
+                    .buttonStyle(.bordered)
+                    .help("열린 모든 화면을 한꺼번에 중지 (Space)")
+                Button("처음부터 동시 시작", systemImage: "backward.end.fill") { controller.restartAllFromBeginning() }
                     .labelStyle(.iconOnly)
-                    .help("열린 모든 영상 재생")
-                Button("모두 일시 정지", systemImage: "pause.fill") { controller.pauseAll() }
+                    .buttonStyle(.bordered)
+                    .help("모든 화면을 0초로 맞춰 한꺼번에 시작")
+                Button("전체 0초 정지", systemImage: "stop.fill") { controller.stopAll() }
                     .labelStyle(.iconOnly)
-                    .help("열린 모든 영상 일시 정지")
+                    .buttonStyle(.bordered)
+                    .help("모든 화면을 중지하고 0초로 초기화")
                 Button(
                     controller.allMuted ? "모두 소리 켜기" : "모두 음소거",
                     systemImage: controller.allMuted ? "speaker.wave.2.fill" : "speaker.slash.fill"
@@ -735,11 +767,70 @@ struct ViewingMultiViewWorkspace: View {
                     if controller.allMuted { controller.unmuteAll() } else { controller.muteAll() }
                 }
                 .labelStyle(.iconOnly)
+                .buttonStyle(.bordered)
                 .help(controller.allMuted ? "모든 영상 음소거 해제" : "모든 영상 음소거")
             }
-            .buttonStyle(.bordered)
             .controlSize(.small)
             .disabled(controller.tiles.isEmpty)
+
+            Divider().frame(height: 18)
+
+            // 자막 전체 추가/제외 토글 + 언어/원문 설정 메뉴
+            HStack(spacing: 4) {
+                Button(
+                    controller.subtitlesEnabled ? "자막 켜짐" : "자막 제외",
+                    systemImage: controller.subtitlesEnabled ? "captions.bubble.fill" : "captions.bubble"
+                ) {
+                    controller.setAllSubtitlesEnabled(!controller.subtitlesEnabled)
+                }
+                .buttonStyle(.bordered)
+                .tint(controller.subtitlesEnabled ? Color.accentColor : nil)
+                .help(controller.subtitlesEnabled ? "클릭해 모든 화면에서 자막 제외" : "클릭해 모든 화면에 자막 표시")
+
+                Menu {
+                    Button("모든 화면에 자막 추가(표시)", systemImage: "captions.bubble.fill") {
+                        controller.setAllSubtitlesEnabled(true)
+                    }
+                    Button("모든 화면에서 자막 제외", systemImage: "captions.bubble") {
+                        controller.setAllSubtitlesEnabled(false)
+                    }
+                    Divider()
+                    Toggle("원문과 번역 함께 보기", isOn: $controller.showOriginalWithTranslation)
+                    Menu("자막 언어 · \(controller.subtitleLanguage.isEmpty ? "원문 STT" : controller.subtitleLanguage.uppercased())") {
+                        Button {
+                            controller.setSubtitleLanguage("", preferredTranslationModel: model.translationModel)
+                        } label: {
+                            if controller.subtitleLanguage.isEmpty {
+                                Label("원문 STT만", systemImage: "checkmark")
+                            } else {
+                                Text("원문 STT만")
+                            }
+                        }
+                        ForEach(model.languages, id: \.self) { lang in
+                            Button {
+                                controller.setSubtitleLanguage(lang, preferredTranslationModel: model.translationModel)
+                            } label: {
+                                if controller.subtitleLanguage == lang {
+                                    Label(lang.uppercased(), systemImage: "checkmark")
+                                } else {
+                                    Text(lang.uppercased())
+                                }
+                            }
+                        }
+                    }
+                    Divider()
+                    Button("저장된 자막 다시 불러오기", systemImage: "arrow.clockwise") {
+                        controller.reloadAllSubtitles(preferredTranslationModel: model.translationModel)
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.caption2)
+                }
+                .menuStyle(.borderedButton)
+                .fixedSize()
+                .help("자막 언어 · 원문 함께 보기 · 전체 추가/제외 설정")
+            }
+            .controlSize(.small)
 
             Divider().frame(height: 18)
 
@@ -892,6 +983,9 @@ private struct MultiViewTileCard: View {
                     tileHeaderBar
                 }
                 Spacer(minLength: 0)
+                if controller.subtitlesEnabled && tile.subtitlesEnabled {
+                    tileSubtitleOverlay
+                }
                 if showChrome {
                     tileBottomControls
                 }
@@ -933,6 +1027,27 @@ private struct MultiViewTileCard: View {
             }
             Button(tile.isMuted ? "음소거 해제" : "음소거", systemImage: tile.isMuted ? "speaker.wave.2" : "speaker.slash") {
                 tile.toggleMute()
+            }
+            Divider()
+            Button(
+                tile.subtitlesEnabled ? "이 화면 자막 제외" : "이 화면 자막 표시",
+                systemImage: tile.subtitlesEnabled ? "captions.bubble" : "captions.bubble.fill"
+            ) {
+                tile.subtitlesEnabled.toggle()
+                if tile.subtitlesEnabled && !controller.subtitlesEnabled {
+                    controller.subtitlesEnabled = true
+                }
+            }
+            Button("외부 자막 파일 추가 (.srt/.vtt)…", systemImage: "doc.badge.plus") {
+                controller.importExternalSubtitleWithPanel(tileID: tile.id)
+            }
+            if tile.externalSubtitleURL != nil {
+                Button("외부 자막 제거", systemImage: "trash") {
+                    tile.clearExternalSubtitle(
+                        preferredLanguage: controller.subtitleLanguage,
+                        preferredTranslationModel: model.translationModel
+                    )
+                }
             }
             Divider()
             Button("메인 화면으로 강조", systemImage: "rectangle.split.2x1") {
@@ -989,6 +1104,22 @@ private struct MultiViewTileCard: View {
             .help(isMaximized ? tile.title : "드래그해 화면 위치를 자유롭게 이동하세요")
 
             HStack(spacing: 4) {
+                Button {
+                    tile.subtitlesEnabled.toggle()
+                    if tile.subtitlesEnabled && !controller.subtitlesEnabled {
+                        controller.subtitlesEnabled = true
+                    }
+                } label: {
+                    Image(systemName: (controller.subtitlesEnabled && tile.subtitlesEnabled) ? "captions.bubble.fill" : "captions.bubble")
+                        .font(.caption)
+                        .foregroundStyle((controller.subtitlesEnabled && tile.subtitlesEnabled) ? (tile.hasSubtitles ? Color.accentColor : Color.white) : Color.white.opacity(0.45))
+                }
+                .help(
+                    (controller.subtitlesEnabled && tile.subtitlesEnabled)
+                        ? "이 화면 자막 제외 (\(tile.subtitleSourceLabel ?? "자막 없음"))"
+                        : "이 화면 자막 표시"
+                )
+
                 if !isMaximized && controller.tiles.count > 1 {
                     Button {
                         withAnimation(.snappy) { controller.promoteToMain(tile.id) }
@@ -1025,7 +1156,19 @@ private struct MultiViewTileCard: View {
                     }
                     Toggle("반복 재생", isOn: Binding(get: { tile.isLooping }, set: { tile.isLooping = $0 }))
                     Toggle("화면 꽉 채우기", isOn: Binding(get: { tile.fillsFrame }, set: { tile.fillsFrame = $0 }))
+                    Toggle("이 화면 자막 표시", isOn: Binding(get: { tile.subtitlesEnabled }, set: { tile.subtitlesEnabled = $0 }))
                     Divider()
+                    Button("외부 자막 파일 추가 (.srt/.vtt)…", systemImage: "doc.badge.plus") {
+                        controller.importExternalSubtitleWithPanel(tileID: tile.id)
+                    }
+                    if tile.externalSubtitleURL != nil {
+                        Button("외부 자막 제거", systemImage: "trash") {
+                            tile.clearExternalSubtitle(
+                                preferredLanguage: controller.subtitleLanguage,
+                                preferredTranslationModel: model.translationModel
+                            )
+                        }
+                    }
                     Button("다른 영상으로 교체…", systemImage: "arrow.triangle.2.circlepath") {
                         controller.replaceVideoWithPanel(tileID: tile.id)
                     }
@@ -1051,6 +1194,39 @@ private struct MultiViewTileCard: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
         .background(Color.black.opacity(0.62))
+    }
+
+    @ViewBuilder
+    private var tileSubtitleOverlay: some View {
+        let primaryText = tile.activeTranslationSubtitle ?? tile.activeOriginalSubtitle
+        let showOriginalLine = controller.showOriginalWithTranslation
+            && tile.activeTranslationSubtitle != nil
+            && !tile.activeOriginalSubtitle.isEmpty
+            && tile.activeOriginalSubtitle != tile.activeTranslationSubtitle
+        if !primaryText.isEmpty {
+            let tileHeight = isMaximized ? canvasSize.height : CGFloat(tile.rect.height) * canvasSize.height
+            let fontSize = max(10, min(18, tileHeight * 0.048))
+            VStack(spacing: 2) {
+                Text(primaryText)
+                    .font(.system(size: fontSize, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                if showOriginalLine {
+                    Text(tile.activeOriginalSubtitle)
+                        .font(.system(size: max(9, fontSize * 0.82)))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .padding(.horizontal, 10)
+            .padding(.bottom, 6)
+            .allowsHitTesting(false)
+        }
     }
 
     private var tileBottomControls: some View {
