@@ -1090,7 +1090,7 @@ struct UnifiedModelManagerSheet: View {
         }
     }
 
-    private func saveKey(_ value: String, account: KeychainAccount, label: String) {
+    private func saveKey(_ value: String, account: APIKeyStore.Account, label: String) {
         do {
             try APIKeyStore.write(value, account: account)
             AppModel.notifyAPIKeysUpdated()
