@@ -826,7 +826,7 @@ struct ViewingMultiViewWorkspace: View {
                     Image(systemName: "chevron.down")
                         .font(.caption2)
                 }
-                .menuStyle(.borderedButton)
+                .menuStyle(.button)
                 .fixedSize()
                 .help("자막 언어 · 원문 함께 보기 · 전체 추가/제외 설정")
             }

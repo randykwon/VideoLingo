@@ -724,7 +724,14 @@ final class AppModel {
         let target = url.standardizedFileURL
         liveModels.removeAll { $0.model == nil }
         for box in liveModels {
-            guard let model = box.model, model.mediaURL?.standardizedFileURL == target else { continue }
+            guard let model = box.model else { continue }
+            for tile in model.multiView.tiles where tile.url == target {
+                tile.loadSubtitles(
+                    preferredLanguage: model.multiView.subtitleLanguage,
+                    preferredTranslationModel: model.translationModel
+                )
+            }
+            guard model.mediaURL?.standardizedFileURL == target else { continue }
             model.refreshResults()
         }
     }
