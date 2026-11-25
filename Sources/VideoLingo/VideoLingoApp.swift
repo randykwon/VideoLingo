@@ -16,6 +16,7 @@ extension FocusedValues {
 private final class VideoLingoAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         ManagedRuntimeManager.shared.shutdown()
+        LocalCodecStreamProxy.shared.shutdown()
     }
 }
 

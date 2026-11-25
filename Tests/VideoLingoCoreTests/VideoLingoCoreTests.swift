@@ -1299,3 +1299,55 @@ import Testing
     #expect(abs(vttCues[0].startTime - 10.5) < 0.001)
     #expect(vttCues[0].text == "Hello world!")
 }
+
+@Test func videoCodecCompatibilityAdvisorDetectsBrokenBFramesInterlacingAndBuildsVODPlaylist() {
+    let healthy = VideoCodecCompatibilityAdvisor.assess(VideoStreamProbeInfo(
+        fileExtension: "mp4",
+        codecName: "h264",
+        pixelFormat: "yuv420p",
+        fieldOrder: "progressive",
+        frameRate: 30000.0 / 1001.0,
+        duration: 120,
+        sampledFrames: 25,
+        backwardsPTSCount: 0
+    ))
+    #expect(!healthy.needsCompatibilityProxy)
+
+    let jittery = VideoCodecCompatibilityAdvisor.assess(VideoStreamProbeInfo(
+        fileExtension: "mp4",
+        codecName: "h264",
+        pixelFormat: "yuv420p",
+        fieldOrder: "progressive",
+        frameRate: 30000.0 / 1001.0,
+        duration: 3600,
+        sampledFrames: 25,
+        backwardsPTSCount: 14
+    ))
+    #expect(jittery.needsCompatibilityProxy)
+    #expect(jittery.issues.contains(.brokenFrameOrder))
+    #expect(jittery.badgeTitle == "떨림 보정")
+    #expect(VideoCodecCompatibilityAdvisor.videoFilterChain(for: jittery).contains("setpts=N/"))
+
+    let interlacedMKV = VideoCodecCompatibilityAdvisor.assess(VideoStreamProbeInfo(
+        fileExtension: "mkv",
+        codecName: "vp9",
+        pixelFormat: "yuv420p",
+        fieldOrder: "tt",
+        duration: 10
+    ))
+    #expect(interlacedMKV.issues.contains(.unsupportedContainer))
+    #expect(interlacedMKV.issues.contains(.unsupportedCodec))
+    #expect(interlacedMKV.issues.contains(.interlaced))
+    #expect(VideoCodecCompatibilityAdvisor.videoFilterChain(for: interlacedMKV).contains("yadif="))
+
+    let playlist = VideoCodecCompatibilityAdvisor.buildVODPlaylist(duration: 10.0, segmentDuration: 4.0)
+    #expect(playlist.contains("#EXT-X-PLAYLIST-TYPE:VOD"))
+    #expect(playlist.contains("seg_0.ts"))
+    #expect(playlist.contains("seg_2.ts"))
+    #expect(playlist.contains("#EXT-X-ENDLIST"))
+
+    let seg2 = VideoCodecCompatibilityAdvisor.segmentBounds(index: 2, duration: 10.0, segmentDuration: 4.0)
+    #expect(seg2?.start == 8.0)
+    #expect(seg2?.length == 2.0)
+    #expect(VideoCodecCompatibilityAdvisor.segmentBounds(index: 3, duration: 10.0, segmentDuration: 4.0) == nil)
+}
