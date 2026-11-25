@@ -3587,7 +3587,7 @@ private func sttModelName(_ modelID: String) -> String {
 }
 
 /// 외부 LLM 서버 접속 정보를 입력받습니다. 좁은 사이드바에서도 잘리지 않도록 프리셋은 메뉴로 제공합니다.
-private struct ExternalServerFields: View {
+struct ExternalServerFields: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {

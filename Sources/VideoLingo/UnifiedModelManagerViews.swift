@@ -582,8 +582,8 @@ struct UnifiedModelManagerSheet: View {
                             xpcModelRow(
                                 kind: .stt,
                                 modelID: id,
-                                title: ModelCatalog.whisperKitDescriptor(for: id)?.displayName ?? id,
-                                subtitle: ModelCatalog.whisperKitDescriptor(for: id).map { "\($0.sizeLabel) · \($0.note)" } ?? "사용자 추가 WhisperKit 모델",
+                                title: ModelCatalog.whisperKitDescriptor(for: id)?.pickerLabel ?? id,
+                                subtitle: ModelCatalog.whisperKitDescriptor(for: id)?.note ?? "사용자 추가 WhisperKit 모델",
                                 isSelected: model.sttModel == id
                             ) {
                                 model.sttEngine = .whisperKit
@@ -693,8 +693,8 @@ struct UnifiedModelManagerSheet: View {
                             xpcModelRow(
                                 kind: .translation,
                                 modelID: id,
-                                title: ModelCatalog.mlxDescriptor(for: id)?.displayName ?? id,
-                                subtitle: ModelCatalog.mlxDescriptor(for: id).map { "\($0.sizeLabel) · \($0.note)" } ?? "사용자 추가 Hugging Face MLX 모델",
+                                title: ModelCatalog.mlxDescriptor(for: id)?.pickerLabel ?? id,
+                                subtitle: ModelCatalog.mlxDescriptor(for: id)?.note ?? "사용자 추가 Hugging Face MLX 모델",
                                 isSelected: model.translationModel == id
                             ) {
                                 model.translationEngine = .mlx
