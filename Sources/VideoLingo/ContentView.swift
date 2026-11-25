@@ -560,12 +560,35 @@ private struct ViewingSidebarView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+
+                Picker("감상 화면", selection: Binding(
+                    get: { model.isViewingMultiView },
+                    set: { model.setViewingMultiView($0) }
+                )) {
+                    Label("단일 보기", systemImage: "rectangle").tag(false)
+                    Label("멀티 뷰 (\(model.multiView.tiles.count)/8)", systemImage: "rectangle.grid.2x2").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .help("최대 8개 영상을 동시에 재생하고 화면 크기·배치·음량을 각각 조절합니다 (⌘⇧G)")
+
                 HStack(spacing: 8) {
-                    Button("영상 열기…", systemImage: "film") { model.openVideo() }
+                    if model.isViewingMultiView {
+                        Button("영상 추가…", systemImage: "plus.rectangle.on.rectangle") {
+                            model.multiView.openVideosWithPanel()
+                        }
+                        .disabled(!model.multiView.canAddMore)
+                        .help(model.multiView.canAddMore ? "멀티 뷰에 영상 추가 (최대 8개)" : "최대 8개 영상이 열려 있습니다")
+                    } else {
+                        Button("영상 열기…", systemImage: "film") { model.openVideo() }
+                    }
                     Button("폴더 열기…", systemImage: "folder") { model.openVideoFolder() }
                 }
                 .buttonStyle(.bordered)
-                if let url = model.mediaURL {
+                if model.isViewingMultiView {
+                    Text("목록에서 영상을 클릭하면 멀티 뷰에 바로 추가됩니다. (\(model.multiView.tiles.count)/\(ViewingMultiViewController.maxTiles))")
+                        .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                } else if let url = model.mediaURL {
                     Text(url.lastPathComponent)
                         .font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
@@ -578,7 +601,11 @@ private struct ViewingSidebarView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             VStack(alignment: .leading, spacing: 12) {
-                ViewingSidebarTransport()
+                if model.isViewingMultiView {
+                    ViewingMultiViewSidebarTransport()
+                } else {
+                    ViewingSidebarTransport()
+                }
                 HStack(spacing: 8) {
                     Button("자막·화면 설정", systemImage: "gearshape") { showSettings.toggle() }
                     Button("모자이크 제거…", systemImage: "wand.and.stars") {
@@ -628,6 +655,33 @@ private struct ViewingSidebarView: View {
                     }
             }
             .padding(12)
+        }
+    }
+}
+
+/// 멀티 뷰 활성 상태일 때 왼쪽 사이드바 하단의 전체 제어 컨트롤입니다.
+private struct ViewingMultiViewSidebarTransport: View {
+    @Environment(AppModel.self) private var model
+
+    private var controller: ViewingMultiViewController { model.multiView }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Button(controller.anyPlaying ? "모두 일시 정지" : "모두 재생", systemImage: controller.anyPlaying ? "pause.fill" : "play.fill") {
+                    if controller.anyPlaying { controller.pauseAll() } else { controller.playAll() }
+                }
+                .buttonStyle(.borderedProminent)
+                Button(controller.allMuted ? "소리 켜기" : "모두 음소거", systemImage: controller.allMuted ? "speaker.wave.2.fill" : "speaker.slash.fill") {
+                    if controller.allMuted { controller.unmuteAll() } else { controller.muteAll() }
+                }
+                .labelStyle(.iconOnly)
+                .help(controller.allMuted ? "모든 영상 음소거 해제" : "모든 영상 음소거")
+            }
+            .disabled(controller.tiles.isEmpty)
+            Text("열린 영상 \(controller.tiles.count)개 · 재생 중 \(controller.tiles.filter(\.isPlaying).count)개")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
         }
     }
 }

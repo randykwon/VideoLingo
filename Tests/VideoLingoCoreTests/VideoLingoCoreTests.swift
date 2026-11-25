@@ -1232,3 +1232,40 @@ import Testing
     #expect(SentenceAlignmentGrouper.activeIndex(in: items, at: 10.5) == 2)
     #expect(SentenceAlignmentGrouper.activeIndex(in: items, at: 15.0) == nil)
 }
+
+@Test func multiViewLayoutEngineComputesValidBoundsFor1To8TilesAndClampsDragResize() {
+    for count in 1...8 {
+        for preset in MultiViewLayoutPreset.allCases {
+            let rects = MultiViewLayoutEngine.rects(for: count, preset: preset)
+            #expect(rects.count == count)
+            for rect in rects {
+                #expect(rect.x >= -0.0001 && rect.y >= -0.0001)
+                #expect(rect.width > 0.05 && rect.height > 0.05)
+                #expect(rect.x + rect.width <= 1.0001)
+                #expect(rect.y + rect.height <= 1.0001)
+            }
+        }
+    }
+
+    // 8개 상한 초과 시 8개로 클램프
+    #expect(MultiViewLayoutEngine.rects(for: 12, preset: .autoGrid).count == 8)
+
+    // 메인 강조 모드에서 1번 타일이 보조 타일보다 넓어야 함
+    let spotlight6 = MultiViewLayoutEngine.rects(for: 6, preset: .spotlight)
+    #expect(spotlight6[0].width > spotlight6[1].width)
+    #expect(spotlight6[0].height > spotlight6[1].height)
+
+    // 자유 이동·리사이즈 경계 클램핑 검증
+    let base = MultiViewNormalizedRect(x: 0.2, y: 0.2, width: 0.4, height: 0.4)
+    let movedRight = base.moved(dx: 0.9, dy: -0.5)
+    #expect(abs(movedRight.x - 0.6) < 0.0001)
+    #expect(abs(movedRight.y - 0.0) < 0.0001)
+
+    let shrunk = base.resized(dw: -0.9, dh: -0.9)
+    #expect(shrunk.width >= 0.16)
+    #expect(shrunk.height >= 0.16)
+
+    let expanded = base.resized(dw: 2.0, dh: 2.0)
+    #expect(expanded.x + expanded.width <= 1.0001)
+    #expect(expanded.y + expanded.height <= 1.0001)
+}

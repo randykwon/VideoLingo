@@ -195,6 +195,18 @@ private struct VideoLingoCommands: Commands {
                 Label("번역 모드", systemImage: model?.playerMode == .translation ? "checkmark" : "character.book.closed")
             }
             .disabled(model == nil)
+            Divider()
+            Button {
+                guard let model else { return }
+                model.setViewingMultiView(!model.isViewingMultiView)
+            } label: {
+                Label(
+                    model?.isViewingMultiView == true ? "멀티 뷰 종료 (단일 보기)" : "멀티 뷰 (1~8개 동시 재생)",
+                    systemImage: "rectangle.grid.2x2"
+                )
+            }
+            .keyboardShortcut("g", modifiers: [.command, .shift])
+            .disabled(model == nil)
         }
         CommandMenu("보기") {
             Button("전체화면 전환") { model?.toggleFullScreen() }

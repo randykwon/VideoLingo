@@ -47,16 +47,23 @@ struct PlayerMediaLibraryView: View {
             .map { items[$0] }
     }
 
+    private var isViewingMultiView: Bool {
+        model.playerMode == .viewing && model.isViewingMultiView
+    }
+
     private var playbackSelection: Binding<String?> {
         Binding(
             get: {
-                (isTranslationMode && clickToBackgroundTranslate)
-                    ? nil
-                    : model.mediaURL?.standardizedFileURL.path(percentEncoded: false)
+                if (isTranslationMode && clickToBackgroundTranslate) || isViewingMultiView {
+                    return nil
+                }
+                return model.mediaURL?.standardizedFileURL.path(percentEncoded: false)
             },
             set: { selected in
                 guard let item = visibleItems.first(where: { $0.id == selected }) else { return }
-                if isTranslationMode && clickToBackgroundTranslate {
+                if isViewingMultiView {
+                    model.multiView.addVideos([item.videoURL], autoPlay: true)
+                } else if isTranslationMode && clickToBackgroundTranslate {
                     startBackgroundTranslation(for: item)
                 } else {
                     model.playLibraryVideo(item.videoURL)
@@ -228,7 +235,26 @@ struct PlayerMediaLibraryView: View {
                 }
             }
             Spacer(minLength: 4)
-            if isTranslationMode {
+            if isViewingMultiView {
+                if let slot = model.multiView.slotNumber(for: item.videoURL) {
+                    Text("#\(slot)")
+                        .font(.caption2.weight(.bold).monospacedDigit())
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.accentColor.opacity(0.18), in: Capsule())
+                        .foregroundStyle(Color.accentColor)
+                } else {
+                    Button {
+                        model.multiView.addVideos([item.videoURL], autoPlay: true)
+                    } label: {
+                        Image(systemName: "plus.rectangle.on.rectangle")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(!model.multiView.canAddMore)
+                    .help(model.multiView.canAddMore ? "멀티 뷰에 추가" : "최대 8개 영상이 열려 있습니다")
+                }
+            } else if isTranslationMode {
                 rowBackgroundAction(for: item, job: bgJob)
             }
         }
@@ -236,6 +262,11 @@ struct PlayerMediaLibraryView: View {
         .help(item.videoURL.path)
         .contextMenu {
             Button("재생", systemImage: "play.fill") { model.playLibraryVideo(item.videoURL) }
+            Button("멀티 뷰에 추가 (1~8)", systemImage: "rectangle.grid.2x2") {
+                model.setViewingMultiView(true)
+                model.multiView.addVideos([item.videoURL], autoPlay: true)
+            }
+            .disabled(!model.multiView.canAddMore && !model.multiView.contains(url: item.videoURL))
             if let bgJob, bgJob.isActive {
                 Button("백그라운드 STT·번역 중지", systemImage: "stop.circle", role: .destructive) {
                     backgroundManager.cancel(url: item.videoURL)
