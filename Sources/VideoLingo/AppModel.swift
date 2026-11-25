@@ -397,6 +397,11 @@ final class AppModel {
     /// 영상 감상 모드에서 1~8개 동시 재생 멀티 뷰를 활성화할지 여부입니다.
     var isViewingMultiView = false
     let multiView = ViewingMultiViewController()
+    /// 단일 플레이어에서 FFmpeg 코덱/떨림 보정 호환 스트림이 활성화되었는지 여부입니다.
+    private(set) var isUsingCompatibilityStream = false
+    private(set) var compatibilityAssessment: VideoCompatibilityAssessment?
+    @ObservationIgnored private var compatibilitySessionID: String?
+    @ObservationIgnored private var compatibilityCheckTask: Task<Void, Never>?
 
     func setViewingMultiView(_ enabled: Bool) {
         if enabled {
@@ -1113,6 +1118,89 @@ final class AppModel {
     func selectVideoFolder(_ folder: URL) {
         playerFolderPath = folder.standardizedFileURL.path(percentEncoded: false)
         MediaLibrary.shared.addFolders([folder])
+    }
+
+    func setCompatibilityStreamEnabled(_ enabled: Bool) {
+        guard let mediaURL, enabled != isUsingCompatibilityStream else { return }
+        if enabled {
+            if let existing = compatibilityAssessment {
+                activateCompatibilityStream(for: mediaURL, using: existing)
+            } else {
+                let targetURL = mediaURL
+                let fallbackDuration = max(duration, 4)
+                compatibilityCheckTask?.cancel()
+                compatibilityCheckTask = Task { [weak self] in
+                    let probed = await VideoCompatibilityInspector.shared.inspect(url: targetURL)
+                    guard let self, self.mediaURL == targetURL, !Task.isCancelled else { return }
+                    let assessment = probed ?? VideoCompatibilityAssessment(
+                        info: VideoStreamProbeInfo(fileExtension: targetURL.pathExtension, codecName: "h264", duration: fallbackDuration),
+                        issues: [.brokenFrameOrder]
+                    )
+                    self.compatibilityAssessment = assessment
+                    self.activateCompatibilityStream(for: targetURL, using: assessment)
+                }
+            }
+        } else {
+            let resumeTime = currentTime
+            let wasPlaying = player.timeControlStatus == .playing || isPlaying
+            releaseCompatibilitySession()
+            isUsingCompatibilityStream = false
+            let item = AVPlayerItem(url: mediaURL)
+            videoOutput = nil
+            player.replaceCurrentItem(with: item)
+            configureVideoOutput()
+            applyVideoAppearance()
+            if resumeTime > 0.5 {
+                player.seek(to: CMTime(seconds: resumeTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+            }
+            if wasPlaying { player.play() }
+        }
+    }
+
+    private func scheduleCompatibilityInspection(for url: URL) {
+        compatibilityCheckTask?.cancel()
+        compatibilityCheckTask = Task { [weak self] in
+            guard let assessment = await VideoCompatibilityInspector.shared.inspect(url: url),
+                  !Task.isCancelled else { return }
+            guard let self, self.mediaURL?.standardizedFileURL == url.standardizedFileURL, !self.playerWindowClosed else { return }
+            self.compatibilityAssessment = assessment
+            if self.duration <= 0 && assessment.info.duration > 0 {
+                self.duration = assessment.info.duration
+            }
+            if assessment.needsCompatibilityProxy {
+                self.activateCompatibilityStream(for: url, using: assessment)
+            }
+        }
+    }
+
+    private func activateCompatibilityStream(for url: URL, using assessment: VideoCompatibilityAssessment) {
+        let resumeTime = currentTime
+        let wasPlaying = player.timeControlStatus == .playing || isPlaying
+        releaseCompatibilitySession()
+        guard let session = try? LocalCodecStreamProxy.shared.openSession(for: url, assessment: assessment) else { return }
+        compatibilitySessionID = session.id
+        isUsingCompatibilityStream = true
+        if duration <= 0 && assessment.info.duration > 0 {
+            duration = assessment.info.duration
+        }
+        let item = AVPlayerItem(url: session.playlistURL)
+        videoOutput = nil
+        player.replaceCurrentItem(with: item)
+        configureVideoOutput()
+        applyVideoAppearance()
+        if resumeTime > 0.5 {
+            player.seek(to: CMTime(seconds: resumeTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        }
+        if wasPlaying { player.play() }
+    }
+
+    private func releaseCompatibilitySession() {
+        compatibilityCheckTask?.cancel()
+        compatibilityCheckTask = nil
+        if let id = compatibilitySessionID {
+            LocalCodecStreamProxy.shared.releaseSession(id)
+            compatibilitySessionID = nil
+        }
     }
 
     func playLibraryVideo(_ url: URL) {
@@ -2183,6 +2271,9 @@ final class AppModel {
             return
         }
         statusTask?.cancel()
+        releaseCompatibilitySession()
+        isUsingCompatibilityStream = false
+        compatibilityAssessment = nil
         currentRequest = nil
         demosaicManualRegions.removeAll()
         mediaURL = url
@@ -2192,6 +2283,7 @@ final class AppModel {
         player.replaceCurrentItem(with: item)
         configureVideoOutput()
         applyVideoAppearance()
+        scheduleCompatibilityInspection(for: url)
         duration = 0
         // 길이는 비동기로 결정되므로, 확정되면 반영해 정지 상태에서도 타임라인이 동작하게 합니다.
         Task { [weak self] in

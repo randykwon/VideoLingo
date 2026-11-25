@@ -965,6 +965,15 @@ private struct PlayerPane: View {
                             systemImage: model.subtitlesEnabled ? "captions.bubble.fill" : "captions.bubble"
                         )
                     }
+                    Button {
+                        model.setCompatibilityStreamEnabled(!model.isUsingCompatibilityStream)
+                    } label: {
+                        Label(
+                            model.isUsingCompatibilityStream ? "떨림 보정 · 코덱 호환 끄기" : "떨림 보정 · 코덱 호환 켜기 (FFmpeg)",
+                            systemImage: "waveform.path.ecg"
+                        )
+                    }
+                    .disabled(model.mediaURL == nil || !FFmpegToolLocator.isAvailable)
                 }
             if model.playerMode == .translation && !model.isSimpleMode && !model.hideTranscriptPanel {
                 PanelResizeHandle(height: $transcriptPanelHeight)

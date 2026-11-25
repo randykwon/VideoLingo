@@ -1193,6 +1193,15 @@ private struct MultiViewTileCard: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                if tile.isUsingCompatibilityStream {
+                    Text(tile.compatibilityAssessment?.badgeTitle ?? "떨림 보정")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.green.opacity(0.8), in: Capsule())
+                        .foregroundStyle(.white)
+                        .help("FFmpeg VideoToolbox 호환 스트림 활성 · \(tile.compatibilityAssessment?.summary ?? "타임스탬프·코덱 보정 중")")
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -1253,6 +1262,11 @@ private struct MultiViewTileCard: View {
                     Toggle("반복 재생", isOn: Binding(get: { tile.isLooping }, set: { tile.isLooping = $0 }))
                     Toggle("화면 꽉 채우기", isOn: Binding(get: { tile.fillsFrame }, set: { tile.fillsFrame = $0 }))
                     Toggle("이 화면 자막 표시", isOn: Binding(get: { tile.subtitlesEnabled }, set: { tile.subtitlesEnabled = $0 }))
+                    Toggle("떨림 보정 · 코덱 호환 (FFmpeg)", isOn: Binding(
+                        get: { tile.isUsingCompatibilityStream },
+                        set: { tile.setCompatibilityStreamEnabled($0) }
+                    ))
+                    .disabled(!FFmpegToolLocator.isAvailable)
                     Divider()
                     Button("외부 자막 파일 추가 (.srt/.vtt)…", systemImage: "doc.badge.plus") {
                         controller.importExternalSubtitleWithPanel(tileID: tile.id)
