@@ -49,6 +49,12 @@ final class MultiViewTileModel: Identifiable {
     private(set) var activeTranslationSubtitle: String?
     private(set) var externalSubtitleURL: URL?
 
+    // MARK: - 슬롯별 코덱·떨림 보정 호환 스트림 상태
+    private(set) var isUsingCompatibilityStream = false
+    private(set) var compatibilityAssessment: VideoCompatibilityAssessment?
+    @ObservationIgnored private var compatibilitySessionID: String?
+    @ObservationIgnored private var compatibilityCheckTask: Task<Void, Never>?
+
     @ObservationIgnored private var subtitleItems: [AlignedSentenceItem] = []
     @ObservationIgnored private var subtitleLoadTask: Task<Void, Never>?
     @ObservationIgnored private nonisolated(unsafe) var timeObserver: Any?
@@ -89,6 +95,7 @@ final class MultiViewTileModel: Identifiable {
         preferredTranslationModel: String = ""
     ) {
         cleanupObservers()
+        releaseCompatibilitySession()
         self.url = newURL.standardizedFileURL
         self.title = newURL.lastPathComponent
         self.currentTime = 0
@@ -99,21 +106,30 @@ final class MultiViewTileModel: Identifiable {
         self.subtitleSourceLabel = nil
         self.activeOriginalSubtitle = ""
         self.activeTranslationSubtitle = nil
+        self.compatibilityAssessment = nil
+        self.isUsingCompatibilityStream = false
 
-        let asset = AVURLAsset(url: self.url)
+        installPlayerItem(url: self.url, startTime: 0, autoPlay: autoPlay)
+        loadSubtitles(preferredLanguage: preferredLanguage, preferredTranslationModel: preferredTranslationModel)
+        scheduleCompatibilityInspection(for: self.url)
+    }
+
+    private func installPlayerItem(url itemURL: URL, startTime: TimeInterval, autoPlay: Bool) {
+        cleanupObservers()
+        let asset = AVURLAsset(url: itemURL)
         let item = AVPlayerItem(asset: asset)
         player.replaceCurrentItem(with: item)
         player.volume = volume
         player.isMuted = isMuted
 
         durationTask?.cancel()
-        durationTask = Task { [weak self] in
-            if let loaded = try? await asset.load(.duration), loaded.seconds.isFinite, loaded.seconds > 0 {
-                self?.duration = loaded.seconds
+        if duration <= 0 {
+            durationTask = Task { [weak self] in
+                if let loaded = try? await asset.load(.duration), loaded.seconds.isFinite, loaded.seconds > 0 {
+                    self?.duration = loaded.seconds
+                }
             }
         }
-
-        loadSubtitles(preferredLanguage: preferredLanguage, preferredTranslationModel: preferredTranslationModel)
 
         let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
@@ -150,10 +166,82 @@ final class MultiViewTileModel: Identifiable {
             }
         }
 
+        if startTime > 0.5 {
+            player.seek(to: CMTime(seconds: startTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        }
         if autoPlay {
             play()
         } else {
             isPlaying = false
+        }
+    }
+
+    private func scheduleCompatibilityInspection(for videoURL: URL) {
+        compatibilityCheckTask?.cancel()
+        compatibilityCheckTask = Task { [weak self] in
+            guard let assessment = await VideoCompatibilityInspector.shared.inspect(url: videoURL),
+                  !Task.isCancelled else { return }
+            guard let self, self.url == videoURL else { return }
+            self.compatibilityAssessment = assessment
+            if self.duration <= 0 && assessment.info.duration > 0 {
+                self.duration = assessment.info.duration
+            }
+            if assessment.needsCompatibilityProxy {
+                self.activateCompatibilityStream(using: assessment)
+            }
+        }
+    }
+
+    func setCompatibilityStreamEnabled(_ enabled: Bool) {
+        guard enabled != isUsingCompatibilityStream else { return }
+        if enabled {
+            if let existing = compatibilityAssessment {
+                activateCompatibilityStream(using: existing)
+            } else {
+                let videoURL = self.url
+                let fallbackDuration = max(duration, 4)
+                compatibilityCheckTask?.cancel()
+                compatibilityCheckTask = Task { [weak self] in
+                    let probed = await VideoCompatibilityInspector.shared.inspect(url: videoURL)
+                    guard let self, self.url == videoURL, !Task.isCancelled else { return }
+                    let assessment = probed ?? VideoCompatibilityAssessment(
+                        info: VideoStreamProbeInfo(fileExtension: videoURL.pathExtension, codecName: "h264", duration: fallbackDuration),
+                        issues: [.brokenFrameOrder]
+                    )
+                    self.compatibilityAssessment = assessment
+                    self.activateCompatibilityStream(using: assessment)
+                }
+            }
+        } else {
+            let resumeTime = currentTime
+            let wasPlaying = isPlaying
+            releaseCompatibilitySession()
+            isUsingCompatibilityStream = false
+            installPlayerItem(url: self.url, startTime: resumeTime, autoPlay: wasPlaying)
+        }
+    }
+
+    private func activateCompatibilityStream(using assessment: VideoCompatibilityAssessment) {
+        let resumeTime = currentTime
+        let wasPlaying = isPlaying || player.rate != 0
+        releaseCompatibilitySession()
+        guard let session = try? LocalCodecStreamProxy.shared.openSession(for: self.url, assessment: assessment) else {
+            return
+        }
+        compatibilitySessionID = session.id
+        isUsingCompatibilityStream = true
+        if duration <= 0 && assessment.info.duration > 0 {
+            duration = assessment.info.duration
+        }
+        installPlayerItem(url: session.playlistURL, startTime: resumeTime, autoPlay: wasPlaying)
+    }
+
+    private func releaseCompatibilitySession() {
+        compatibilityCheckTask?.cancel()
+        compatibilityCheckTask = nil
+        if let id = compatibilitySessionID {
+            LocalCodecStreamProxy.shared.releaseSession(id)
+            compatibilitySessionID = nil
         }
     }
 
@@ -323,6 +411,7 @@ final class MultiViewTileModel: Identifiable {
         durationTask = nil
         subtitleLoadTask?.cancel()
         subtitleLoadTask = nil
+        releaseCompatibilitySession()
         cleanupObservers()
         player.pause()
         player.replaceCurrentItem(with: nil)
@@ -1049,6 +1138,13 @@ private struct MultiViewTileCard: View {
                     )
                 }
             }
+            Button(
+                tile.isUsingCompatibilityStream ? "떨림 보정 · 코덱 호환 끄기" : "떨림 보정 · 코덱 호환 켜기 (FFmpeg)",
+                systemImage: "waveform.path.ecg"
+            ) {
+                tile.setCompatibilityStreamEnabled(!tile.isUsingCompatibilityStream)
+            }
+            .disabled(!FFmpegToolLocator.isAvailable)
             Divider()
             Button("메인 화면으로 강조", systemImage: "rectangle.split.2x1") {
                 withAnimation(.snappy) { controller.promoteToMain(tile.id) }
