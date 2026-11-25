@@ -1186,9 +1186,11 @@ import Testing
 }
 
 @Test func sentenceAlignmentGrouperMergesFragmentsSplitsMultiSentenceAndTracksPlayback() throws {
+    let jobID = UUID()
     let seg1ID = UUID()
     let seg1 = TranscriptSegment(
         id: seg1ID,
+        jobID: jobID,
         chunkIndex: 0,
         startTime: 0,
         endTime: 18,
@@ -1201,7 +1203,8 @@ import Testing
     )
     let tr1 = TranslationSegment(
         transcriptID: seg1ID,
-        language: "ko",
+        jobID: jobID,
+        targetLanguage: "ko",
         modelID: "mlx-community/Qwen3-8B-4bit",
         text: "[화자 1] 여러분 안녕하세요,\n[화자 1] 데모에 오신 것을 환영합니다.\n[화자 2] 초대해 주셔서 감사합니다! 잘 지내시나요?"
     )
