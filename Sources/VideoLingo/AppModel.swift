@@ -340,6 +340,17 @@ final class AppModel {
     var demosaicManualRegions: [DemosaicRegion] = []
     /// 플레이어 창에서 모자이크 제거·복원 테스트 시트를 표시할지 여부입니다.
     var isShowingDemosaicSheet = false
+    /// 플레이어 창에서 통합 STT·번역 LLM 선택/관리 시트를 표시할지 여부입니다.
+    var isShowingModelManagerSheet = false
+    /// 통합 모델 관리 시트를 열 때 기본으로 선택할 탭입니다 ("stt" 또는 "translation").
+    var modelManagerInitialSection = "stt"
+
+    func openModelManager(section: String = "stt") {
+        modelManagerInitialSection = section
+        isShowingModelManagerSheet = true
+        refreshModelManager()
+        ManagedRuntimeManager.shared.refreshInstalled()
+    }
 
     static func firstPlayerModelWithMedia() -> AppModel? {
         liveModels.compactMap(\.model).first { $0.mediaURL != nil }
@@ -871,8 +882,8 @@ final class AppModel {
     }
 
     /// 접힌 `모델·고급 설정` 헤더에 표시할 한 줄 요약입니다.
-    var advancedSettingsSummary: String {
-        let sttLabel: String = switch sttEngine {
+    var activeSTTDisplayName: String {
+        switch sttEngine {
         case .whisperKit:
             ModelCatalog.whisperKitDescriptor(for: sttModel)?.displayName ?? sttModel
         case .managedWhisper:
@@ -882,7 +893,10 @@ final class AppModel {
         case .deepgram:
             "Deepgram \(deepgramModel)"
         }
-        let translationLabel: String = switch translationEngine {
+    }
+
+    var activeTranslationDisplayName: String {
+        switch translationEngine {
         case .mlx:
             ModelCatalog.mlxDescriptor(for: translationModel)?.displayName ?? translationModel
         case .appleTranslation:
@@ -892,18 +906,25 @@ final class AppModel {
         case .appleFoundation:
             "Apple Intelligence"
         case .azure:
-            "Azure"
+            "Azure 번역"
         case .localAPI:
             "로컬 API"
         case .externalOpenAI:
             externalServerModel.isEmpty ? "외부 서버" : externalServerModel
         }
+    }
+
+    var hasDownloadingManagedModels: Bool {
+        managedModels.contains { $0.state == .downloading }
+    }
+
+    var advancedSettingsSummary: String {
         let qualityLabel: String = switch qualityMode {
         case .fast: "빠름"
         case .enhanced: "품질 강화"
         case .maximum: "최고 품질"
         }
-        return "\(sttLabel) · \(translationLabel) · \(qualityLabel)"
+        return "\(activeSTTDisplayName) · \(activeTranslationDisplayName) · \(qualityLabel)"
     }
 
     /// 선택한 STT 엔진을 바로 실행하기 전에 확인이 필요한 항목을 알려줍니다.
