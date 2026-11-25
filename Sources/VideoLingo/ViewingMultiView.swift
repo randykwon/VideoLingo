@@ -193,7 +193,7 @@ final class ViewingMultiViewController {
 
     var canAddMore: Bool { tiles.count < Self.maxTiles }
     var remainingSlots: Int { max(0, Self.maxTiles - tiles.count) }
-    var anyPlaying: Bool { tiles.contains(\.isPlaying) }
+    var anyPlaying: Bool { tiles.contains(where: \.isPlaying) }
     var allMuted: Bool { !tiles.isEmpty && tiles.allSatisfy(\.isMuted) }
 
     func contains(url: URL) -> Bool {
