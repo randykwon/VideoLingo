@@ -41,6 +41,7 @@
 		76CC2D41CBE1755C0EF376A9 /* VideoLingoMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56207C7826B10154A0FE4983 /* VideoLingoMobileApp.swift */; };
 		7801A494162B37D90C22C492 /* VideoRestorationCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C15D356E320CB977268C06A /* VideoRestorationCatalog.swift */; };
 		7B6E4D6AB96969EA70E57110 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A5043D4A8F25D593601FB90 /* UniformTypeIdentifiers.framework */; };
+		7CF6AA1E40C7AE59B49931E3 /* UnifiedModelManagerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0185723CAD109424B462A9A6 /* UnifiedModelManagerViews.swift */; };
 		7E46AF02273F3CDD5CF48F7A /* TranslationQuality.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF19A8EA6074F776A8208B37 /* TranslationQuality.swift */; };
 		7ED19338E2E1FBC5B5FD6B20 /* DemosaicPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C832255181DE453DEE6FEEB /* DemosaicPipeline.swift */; };
 		7FAC6B27E39ACC79C646D2A2 /* MultiEngineClients.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AF3E7072D21501D3FE5E3EE /* MultiEngineClients.swift */; };
@@ -162,6 +163,7 @@
 
 /* Begin PBXFileReference section */
 		00E982581C456AC1B34C2068 /* MediaLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibrary.swift; sourceTree = "<group>"; };
+		0185723CAD109424B462A9A6 /* UnifiedModelManagerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedModelManagerViews.swift; sourceTree = "<group>"; };
 		030837DF8066B9905C335525 /* MediaPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPipeline.swift; sourceTree = "<group>"; };
 		035614FDC96E1C02E6607D5C /* MobileVideoLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileVideoLibrary.swift; sourceTree = "<group>"; };
 		06DE0FDEAB3FF7BDD7ACC311 /* EngineAndRuntimeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineAndRuntimeViews.swift; sourceTree = "<group>"; };
@@ -327,6 +329,7 @@
 				45FA6A183D82B1561541968F /* RemoteWorkerInstaller.swift */,
 				45F5D328BCCFF44DB68B115B /* RemoteWorkerPool.swift */,
 				DED4EBD517BE61BC093C449E /* Theme.swift */,
+				0185723CAD109424B462A9A6 /* UnifiedModelManagerViews.swift */,
 				A621AD1148967FF9AFA69679 /* VideoEnhancerSetupManager.swift */,
 				72ED8A6BCA7371F5C1F61EB0 /* VideoLingo.entitlements */,
 				9DD89FEABFD63CD5DDE25032 /* VideoLingoApp.swift */,
@@ -726,6 +729,7 @@
 				A94967282F5BAD8D0265DBC8 /* RemoteWorkerInstaller.swift in Sources */,
 				F435B1B1439F6747A2191990 /* RemoteWorkerPool.swift in Sources */,
 				010D9A1AF38E0CBA1C30A84B /* Theme.swift in Sources */,
+				7CF6AA1E40C7AE59B49931E3 /* UnifiedModelManagerViews.swift in Sources */,
 				F331E69AC775238E04520ECB /* VideoEnhancerSetupManager.swift in Sources */,
 				96D173351507CA322D5DBE16 /* VideoLingoApp.swift in Sources */,
 				5B587B4492F8F7AB42842A21 /* VideoLingoPackage.swift in Sources */,
