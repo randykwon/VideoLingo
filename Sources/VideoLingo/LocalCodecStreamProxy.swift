@@ -249,11 +249,14 @@ final class LocalCodecStreamProxy: @unchecked Sendable {
             return existing
         }
 
+        final class StartErrorBox: @unchecked Sendable {
+            var error: Error?
+        }
         let params = NWParameters.tcp
         params.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: .any)
         let newListener = try NWListener(using: params)
         let readySem = DispatchSemaphore(value: 0)
-        var startError: Error?
+        let errorBox = StartErrorBox()
 
         newListener.stateUpdateHandler = { [weak self] state in
             switch state {
@@ -266,7 +269,7 @@ final class LocalCodecStreamProxy: @unchecked Sendable {
                 }
                 readySem.signal()
             case .failed(let err):
-                startError = err
+                errorBox.error = err
                 readySem.signal()
             default:
                 break
@@ -279,7 +282,7 @@ final class LocalCodecStreamProxy: @unchecked Sendable {
         newListener.start(queue: queue)
         _ = readySem.wait(timeout: .now() + 3)
 
-        if let startError { throw startError }
+        if let startError = errorBox.error { throw startError }
         guard let boundPort = lock.withLock({ port }) else {
             throw VideoLingoError.serviceUnavailable
         }
