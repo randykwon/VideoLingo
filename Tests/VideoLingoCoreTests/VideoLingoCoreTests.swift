@@ -1269,3 +1269,33 @@ import Testing
     #expect(expanded.x + expanded.width <= 1.0001)
     #expect(expanded.y + expanded.height <= 1.0001)
 }
+
+@Test func subtitleParserParsesSRTAndWebVTTCleanly() {
+    let srt = """
+    1
+    00:00:01,500 --> 00:00:04,250
+    <i>안녕하세요</i>
+    두 번째 줄입니다.
+
+    2
+    00:00:05,000 --> 00:00:08,000
+    반갑습니다.
+    """
+    let srtCues = SubtitleParser.parse(srt)
+    #expect(srtCues.count == 2)
+    #expect(abs(srtCues[0].startTime - 1.5) < 0.001)
+    #expect(abs(srtCues[0].endTime - 4.25) < 0.001)
+    #expect(srtCues[0].text == "안녕하세요\n두 번째 줄입니다.")
+    #expect(srtCues[1].text == "반갑습니다.")
+
+    let vtt = """
+    WEBVTT
+
+    00:10.500 --> 00:14.000 align:start
+    Hello world!
+    """
+    let vttCues = SubtitleParser.parse(vtt)
+    #expect(vttCues.count == 1)
+    #expect(abs(vttCues[0].startTime - 10.5) < 0.001)
+    #expect(vttCues[0].text == "Hello world!")
+}

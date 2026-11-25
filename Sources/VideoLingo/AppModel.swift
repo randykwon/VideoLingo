@@ -1147,6 +1147,10 @@ final class AppModel {
     }
 
     func seekVideo(by seconds: TimeInterval) {
+        if playerMode == .viewing && isViewingMultiView {
+            multiView.seekAll(by: seconds)
+            return
+        }
         guard player.currentItem != nil else { return }
         let current = player.currentTime().seconds
         guard current.isFinite else { return }
@@ -1176,6 +1180,10 @@ final class AppModel {
     }
 
     func togglePlayback() {
+        if playerMode == .viewing && isViewingMultiView {
+            multiView.togglePlayPauseAll()
+            return
+        }
         guard player.currentItem != nil else { return }
         if player.timeControlStatus == .playing {
             player.pause()

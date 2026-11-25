@@ -159,15 +159,16 @@ private struct VideoLingoCommands: Commands {
             .keyboardShortcut("b", modifiers: [.command, .shift])
         }
         CommandMenu("재생 제어") {
-            Button("재생/일시 정지") { model?.togglePlayback() }
+            let hasPlayable = model?.mediaURL != nil || (model?.isViewingMultiView == true && !(model?.multiView.tiles.isEmpty ?? true))
+            Button(model?.isViewingMultiView == true ? "멀티 뷰 전체 시작/중지" : "재생/일시 정지") { model?.togglePlayback() }
                 .keyboardShortcut(shortcuts[.playPause].keyEquivalent, modifiers: shortcuts[.playPause].modifiers)
-                .disabled(model?.mediaURL == nil)
+                .disabled(!hasPlayable)
             Button("10초 뒤로") { model?.seekVideo(by: -10) }
                 .keyboardShortcut(shortcuts[.seekBackward].keyEquivalent, modifiers: shortcuts[.seekBackward].modifiers)
-                .disabled(model?.mediaURL == nil)
+                .disabled(!hasPlayable)
             Button("10초 앞으로") { model?.seekVideo(by: 10) }
                 .keyboardShortcut(shortcuts[.seekForward].keyEquivalent, modifiers: shortcuts[.seekForward].modifiers)
-                .disabled(model?.mediaURL == nil)
+                .disabled(!hasPlayable)
             Divider()
             Button("음량 크게 (\(volumeStepPercent)%)") {
                 guard let model else { return }

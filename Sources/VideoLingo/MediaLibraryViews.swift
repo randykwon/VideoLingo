@@ -237,12 +237,24 @@ struct PlayerMediaLibraryView: View {
             Spacer(minLength: 4)
             if isViewingMultiView {
                 if let slot = model.multiView.slotNumber(for: item.videoURL) {
-                    Text("#\(slot)")
-                        .font(.caption2.weight(.bold).monospacedDigit())
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Color.accentColor.opacity(0.18), in: Capsule())
-                        .foregroundStyle(Color.accentColor)
+                    HStack(spacing: 4) {
+                        Text("#\(slot)")
+                            .font(.caption2.weight(.bold).monospacedDigit())
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.accentColor.opacity(0.18), in: Capsule())
+                            .foregroundStyle(Color.accentColor)
+                        Button {
+                            if let tile = model.multiView.tiles.first(where: { $0.url == item.videoURL.standardizedFileURL }) {
+                                model.multiView.removeTile(tile.id)
+                            }
+                        } label: {
+                            Image(systemName: "minus.circle")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("멀티 뷰에서 제외")
+                    }
                 } else {
                     Button {
                         model.multiView.addVideos([item.videoURL], autoPlay: true)
@@ -262,11 +274,17 @@ struct PlayerMediaLibraryView: View {
         .help(item.videoURL.path)
         .contextMenu {
             Button("재생", systemImage: "play.fill") { model.playLibraryVideo(item.videoURL) }
-            Button("멀티 뷰에 추가 (1~8)", systemImage: "rectangle.grid.2x2") {
-                model.setViewingMultiView(true)
-                model.multiView.addVideos([item.videoURL], autoPlay: true)
+            if let existingTile = model.multiView.tiles.first(where: { $0.url == item.videoURL.standardizedFileURL }) {
+                Button("멀티 뷰에서 제외", systemImage: "minus.circle", role: .destructive) {
+                    model.multiView.removeTile(existingTile.id)
+                }
+            } else {
+                Button("멀티 뷰에 추가 (1~8)", systemImage: "rectangle.grid.2x2") {
+                    model.setViewingMultiView(true)
+                    model.multiView.addVideos([item.videoURL], autoPlay: true)
+                }
+                .disabled(!model.multiView.canAddMore)
             }
-            .disabled(!model.multiView.canAddMore && !model.multiView.contains(url: item.videoURL))
             if let bgJob, bgJob.isActive {
                 Button("백그라운드 STT·번역 중지", systemImage: "stop.circle", role: .destructive) {
                     backgroundManager.cancel(url: item.videoURL)

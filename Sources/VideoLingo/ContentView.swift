@@ -667,19 +667,50 @@ private struct ViewingMultiViewSidebarTransport: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Button(controller.anyPlaying ? "모두 일시 정지" : "모두 재생", systemImage: controller.anyPlaying ? "pause.fill" : "play.fill") {
-                    if controller.anyPlaying { controller.pauseAll() } else { controller.playAll() }
+            HStack(spacing: 6) {
+                Button("전체 시작", systemImage: "play.fill") {
+                    controller.playAll()
                 }
                 .buttonStyle(.borderedProminent)
-                Button(controller.allMuted ? "소리 켜기" : "모두 음소거", systemImage: controller.allMuted ? "speaker.wave.2.fill" : "speaker.slash.fill") {
-                    if controller.allMuted { controller.unmuteAll() } else { controller.muteAll() }
+                .controlSize(.small)
+                Button("전체 중지", systemImage: "pause.fill") {
+                    controller.pauseAll()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                Button("처음부터 동시 시작", systemImage: "backward.end.fill") {
+                    controller.restartAllFromBeginning()
                 }
                 .labelStyle(.iconOnly)
-                .help(controller.allMuted ? "모든 영상 음소거 해제" : "모든 영상 음소거")
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("모든 영상을 0초부터 동시에 시작")
             }
             .disabled(controller.tiles.isEmpty)
-            Text("열린 영상 \(controller.tiles.count)개 · 재생 중 \(controller.tiles.filter(\.isPlaying).count)개")
+
+            HStack(spacing: 6) {
+                Button(
+                    controller.subtitlesEnabled ? "자막 끄기" : "자막 켜기",
+                    systemImage: controller.subtitlesEnabled ? "captions.bubble.fill" : "captions.bubble"
+                ) {
+                    controller.setAllSubtitlesEnabled(!controller.subtitlesEnabled)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help(controller.subtitlesEnabled ? "모든 멀티 뷰 화면에서 자막 제외" : "모든 멀티 뷰 화면에 자막 표시")
+
+                Button(
+                    controller.allMuted ? "소리 켜기" : "음소거",
+                    systemImage: controller.allMuted ? "speaker.wave.2.fill" : "speaker.slash.fill"
+                ) {
+                    if controller.allMuted { controller.unmuteAll() } else { controller.muteAll() }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(controller.tiles.isEmpty)
+            }
+
+            Text("열린 영상 \(controller.tiles.count)개 · 재생 중 \(controller.tiles.filter(\.isPlaying).count)개 · 자막 \(controller.subtitlesEnabled ? "켜짐" : "제외")")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
