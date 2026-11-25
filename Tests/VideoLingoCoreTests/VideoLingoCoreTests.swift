@@ -1184,3 +1184,48 @@ import Testing
     #expect(customStr.contains("clip.mp4"))
     #expect(customStr.contains("mask.mp4"))
 }
+
+@Test func sentenceAlignmentGrouperMergesFragmentsSplitsMultiSentenceAndTracksPlayback() throws {
+    let seg1ID = UUID()
+    let seg1 = TranscriptSegment(
+        id: seg1ID,
+        chunkIndex: 0,
+        startTime: 0,
+        endTime: 18,
+        text: "[화자 1] Hello everyone,\n[화자 1] welcome to the demo.\n[화자 2] Thanks for having me! How are you?",
+        cues: [
+            TranscriptCue(startTime: 0.0, endTime: 2.0, text: "[화자 1] Hello everyone,"),
+            TranscriptCue(startTime: 2.2, endTime: 4.5, text: "[화자 1] welcome to the demo."),
+            TranscriptCue(startTime: 5.0, endTime: 11.0, text: "[화자 2] Thanks for having me! How are you?")
+        ]
+    )
+    let tr1 = TranslationSegment(
+        transcriptID: seg1ID,
+        language: "ko",
+        modelID: "mlx-community/Qwen3-8B-4bit",
+        text: "[화자 1] 여러분 안녕하세요,\n[화자 1] 데모에 오신 것을 환영합니다.\n[화자 2] 초대해 주셔서 감사합니다! 잘 지내시나요?"
+    )
+
+    let items = SentenceAlignmentGrouper.group(transcript: [seg1], translations: [seg1ID: tr1])
+    // 앞의 2개 조각은 1문장으로 병합되고, 마지막 2문장 큐는 2문장으로 분리되어 총 3문장이 됩니다.
+    #expect(items.count == 3)
+
+    #expect(items[0].startTime == 0.0)
+    #expect(items[0].endTime == 4.5)
+    #expect(items[0].originalText == "[화자 1] Hello everyone, welcome to the demo.")
+    #expect(items[0].translatedText == "[화자 1] 여러분 안녕하세요, 데모에 오신 것을 환영합니다.")
+
+    #expect(items[1].speaker == "[화자 2]")
+    #expect(items[1].originalText.contains("Thanks for having me!"))
+    #expect(items[1].translatedText?.contains("감사합니다!") == true)
+
+    #expect(items[2].speaker == "[화자 2]")
+    #expect(items[2].originalText.contains("How are you?"))
+    #expect(items[2].translatedText?.contains("잘 지내시나요?") == true)
+
+    // 재생 시각 이진 탐색 검증
+    #expect(SentenceAlignmentGrouper.activeIndex(in: items, at: 3.0) == 0)
+    #expect(SentenceAlignmentGrouper.activeIndex(in: items, at: 5.5) == 1)
+    #expect(SentenceAlignmentGrouper.activeIndex(in: items, at: 10.5) == 2)
+    #expect(SentenceAlignmentGrouper.activeIndex(in: items, at: 15.0) == nil)
+}

@@ -2079,14 +2079,27 @@ private enum ResultDisplayMode: String, CaseIterable, Identifiable {
     var id: Self { self }
 }
 
+private enum ResultGroupingMode: String, CaseIterable, Identifiable {
+    case sentence = "문장별"
+    case chunk = "청크별"
+
+    var id: Self { self }
+}
+
 private struct TranscriptInspector: View {
     @State private var showRegenerateConfirmation = false
 
     @Environment(AppModel.self) private var model
     @Environment(ThemeManager.self) private var theme
     @State private var displayMode: ResultDisplayMode = .both
+    @AppStorage("transcriptGroupingMode") private var groupingModeRaw = ResultGroupingMode.sentence.rawValue
     @State private var searchText = ""
     @State private var lastAutoScrolledSegmentID: UUID?
+    @State private var lastAutoScrolledSentenceID: String?
+
+    private var groupingMode: ResultGroupingMode {
+        ResultGroupingMode(rawValue: groupingModeRaw) ?? .sentence
+    }
 
     private var filteredSegments: [TranscriptSegment] {
         guard !searchText.isEmpty else { return model.transcript }
@@ -2094,6 +2107,18 @@ private struct TranscriptInspector: View {
             segment.text.localizedCaseInsensitiveContains(searchText)
                 || model.translations[segment.id]?.text.localizedCaseInsensitiveContains(searchText) == true
         }
+    }
+
+    private var filteredSentences: [AlignedSentenceItem] {
+        guard !searchText.isEmpty else { return model.alignedSentences }
+        return model.alignedSentences.filter { item in
+            item.originalText.localizedCaseInsensitiveContains(searchText)
+                || (item.translatedText?.localizedCaseInsensitiveContains(searchText) == true)
+        }
+    }
+
+    private var segmentsByID: [UUID: TranscriptSegment] {
+        Dictionary(uniqueKeysWithValues: model.transcript.map { ($0.id, $0) })
     }
 
     /// 모든 구간의 번역이 채워졌는지. 진행 상태가 아니라 실제 결과를 기준으로 판단합니다.
@@ -2104,9 +2129,13 @@ private struct TranscriptInspector: View {
     private var remainingSegmentCount: Int { model.untranslatedSegments.count }
 
     var body: some View {
+        let groupingBinding = Binding<ResultGroupingMode>(
+            get: { groupingMode },
+            set: { groupingModeRaw = $0.rawValue }
+        )
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 8) {
                             Text("STT·번역 결과 확인")
@@ -2123,9 +2152,13 @@ private struct TranscriptInspector: View {
                                     .foregroundStyle(.orange)
                             }
                         }
-                        Text("STT \(model.transcript.count)개 · \(model.selectedLanguage.uppercased()) 번역 \(model.translations.count)개")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
+                        Text(
+                            groupingMode == .sentence
+                                ? "문장 \(model.alignedSentences.count)개 · STT \(model.transcript.count)청크 · \(model.selectedLanguage.uppercased()) 번역 \(model.translations.count)청크"
+                                : "STT \(model.transcript.count)개 · \(model.selectedLanguage.uppercased()) 번역 \(model.translations.count)개"
+                        )
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Button("삭제 후 다시 생성", systemImage: "trash") {
@@ -2146,6 +2179,15 @@ private struct TranscriptInspector: View {
                     } message: {
                         Text("이 영상의 저장된 결과가 삭제됩니다. 되돌릴 수 없습니다.")
                     }
+                    Picker("묶음 단위", selection: groupingBinding) {
+                        ForEach(ResultGroupingMode.allCases) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 124)
+                    .help("한 문장 단위로 모아서 보거나 60초 청크 단위로 봅니다")
                     Picker("표시 내용", selection: $displayMode) {
                         ForEach(ResultDisplayMode.allCases) { mode in
                             Text(LocalizedStringKey(mode.rawValue)).tag(mode)
@@ -2153,16 +2195,16 @@ private struct TranscriptInspector: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
-                    .frame(width: 280)
+                    .frame(width: 240)
                     TextField("내용 검색", text: $searchText)
                         .textFieldStyle(.roundedBorder)
-                        .frame(width: 180)
+                        .frame(width: 160)
                     Button("현재 재생 위치", systemImage: "scope") {
                         locateCurrentPlayback(using: proxy)
                     }
                     .labelStyle(.iconOnly)
-                    .help("현재 영상 재생 위치의 STT·번역 결과로 이동")
-                    .disabled(model.activeTranscriptSegmentID == nil)
+                    .help("현재 영상 재생 위치의 문장으로 이동")
+                    .disabled(groupingMode == .sentence ? model.activeAlignedSentenceID == nil : model.activeTranscriptSegmentID == nil)
                     Button("새로 고침", systemImage: "arrow.clockwise") {
                         model.refreshResults()
                     }
@@ -2182,24 +2224,48 @@ private struct TranscriptInspector: View {
 
                 Divider()
 
-                List(filteredSegments) { segment in
-                    resultRow(segment)
-                        .id(segment.id)
-                        .listRowBackground(
-                            model.activeTranscriptSegmentID == segment.id
-                                ? Color.accentColor.opacity(0.12)
-                                : Color.clear
-                        )
-                }
-                .listStyle(.inset)
-                .scrollContentBackground(theme.translucent ? .hidden : .automatic)
-                .onChange(of: model.activeTranscriptSegmentID) { _, segmentID in
-                    guard searchText.isEmpty,
-                          let segmentID,
-                          segmentID != lastAutoScrolledSegmentID else { return }
-                    lastAutoScrolledSegmentID = segmentID
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo(segmentID, anchor: .center)
+                if groupingMode == .sentence {
+                    let lookup = segmentsByID
+                    List(filteredSentences) { item in
+                        sentenceRow(item, parentSegment: lookup[item.segmentID])
+                            .id(item.id)
+                            .listRowBackground(
+                                model.activeAlignedSentenceID == item.id
+                                    ? Color.accentColor.opacity(0.12)
+                                    : Color.clear
+                            )
+                    }
+                    .listStyle(.inset)
+                    .scrollContentBackground(theme.translucent ? .hidden : .automatic)
+                    .onChange(of: model.activeAlignedSentenceID) { _, sentenceID in
+                        guard searchText.isEmpty,
+                              let sentenceID,
+                              sentenceID != lastAutoScrolledSentenceID else { return }
+                        lastAutoScrolledSentenceID = sentenceID
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(sentenceID, anchor: .center)
+                        }
+                    }
+                } else {
+                    List(filteredSegments) { segment in
+                        resultRow(segment)
+                            .id(segment.id)
+                            .listRowBackground(
+                                model.activeTranscriptSegmentID == segment.id
+                                    ? Color.accentColor.opacity(0.12)
+                                    : Color.clear
+                            )
+                    }
+                    .listStyle(.inset)
+                    .scrollContentBackground(theme.translucent ? .hidden : .automatic)
+                    .onChange(of: model.activeTranscriptSegmentID) { _, segmentID in
+                        guard searchText.isEmpty,
+                              let segmentID,
+                              segmentID != lastAutoScrolledSegmentID else { return }
+                        lastAutoScrolledSegmentID = segmentID
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(segmentID, anchor: .center)
+                        }
                     }
                 }
             }
@@ -2216,10 +2282,10 @@ private struct TranscriptInspector: View {
                     ContentUnavailableView(
                         "아직 확정된 결과가 없습니다",
                         systemImage: "captions.bubble",
-                        description: Text("STT 청크가 확정되면 원문과 번역 내용이 여기에 추가됩니다.")
+                        description: Text("STT 청크가 확정되면 원문과 번역 문장이 여기에 추가됩니다.")
                     )
                     .padding(.top, 50)
-                } else if filteredSegments.isEmpty {
+                } else if (groupingMode == .sentence ? filteredSentences.isEmpty : filteredSegments.isEmpty) {
                     ContentUnavailableView.search(text: searchText)
                         .padding(.top, 50)
                 }
@@ -2228,16 +2294,139 @@ private struct TranscriptInspector: View {
     }
 
     private func locateCurrentPlayback(using proxy: ScrollViewProxy) {
-        guard let segment = model.activeTranscriptSegment else { return }
         if !searchText.isEmpty {
             searchText = ""
         }
-        Task { @MainActor in
-            await Task.yield()
-            withAnimation {
-                proxy.scrollTo(segment.id, anchor: .center)
+        if groupingMode == .sentence {
+            guard let sentenceID = model.activeAlignedSentenceID else { return }
+            Task { @MainActor in
+                await Task.yield()
+                withAnimation {
+                    proxy.scrollTo(sentenceID, anchor: .center)
+                }
+            }
+        } else {
+            guard let segment = model.activeTranscriptSegment else { return }
+            Task { @MainActor in
+                await Task.yield()
+                withAnimation {
+                    proxy.scrollTo(segment.id, anchor: .center)
+                }
             }
         }
+    }
+
+    @ViewBuilder
+    private func sentenceRow(_ item: AlignedSentenceItem, parentSegment: TranscriptSegment?) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Button {
+                    model.player.seek(to: CMTime(seconds: item.startTime, preferredTimescale: 600))
+                } label: {
+                    Text("\(time(item.startTime))–\(time(item.endTime))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("클릭해 이 문장 시작 위치로 이동")
+                Text("#\(item.sentenceNumber)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+                    .help("원본 청크 #\(item.chunkIndex + 1)")
+                if let status = item.sttQualityStatus, status == .warning {
+                    qualityBadge("STT \(qualityLabel(status))", status: status)
+                        .help(item.sttQualityNotes.joined(separator: "\n"))
+                }
+                if displayMode != .transcript,
+                   let status = item.translationQualityStatus,
+                   status == .warning {
+                    qualityBadge("번역 \(qualityLabel(status))", status: status)
+                        .help(item.translationQualityNotes.joined(separator: "\n"))
+                }
+            }
+            .frame(width: 96, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 5) {
+                if displayMode != .translation {
+                    SpeakerColoredText(text: item.originalText, defaultColor: .primary)
+                        .font(.callout)
+                }
+                if displayMode != .transcript {
+                    if let translated = item.translatedText, !translated.isEmpty {
+                        SpeakerColoredText(text: translated, defaultColor: displayMode == .translation ? .primary : .secondary)
+                            .font(.callout)
+                    } else {
+                        Label("번역 대기 중", systemImage: "clock")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            .textSelection(.enabled)
+
+            Spacer(minLength: 8)
+
+            Button {
+                copySentence(item)
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .buttonStyle(.borderless)
+            .help("이 문장의 원문과 번역 복사")
+
+            if let parentSegment {
+                Button {
+                    model.regenerateSTT(for: parentSegment)
+                } label: {
+                    Image(systemName: "waveform.badge.magnifyingglass")
+                }
+                .buttonStyle(.borderless)
+                .help("이 문장이 속한 청크(#\(item.chunkIndex + 1)) STT 재추출")
+                .disabled(!model.canRegenerateSegment)
+                Button {
+                    model.regenerateTranslation(for: parentSegment)
+                } label: {
+                    Image(systemName: "character.book.closed")
+                }
+                .buttonStyle(.borderless)
+                .help("이 문장이 속한 청크(#\(item.chunkIndex + 1)) 번역 재생성")
+                .disabled(!model.canRegenerateSegment)
+            }
+
+            Button("이동") {
+                model.player.seek(to: CMTime(seconds: item.startTime, preferredTimescale: 600))
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.vertical, 4)
+        .contextMenu {
+            Button("이 문장으로 이동", systemImage: "arrow.right.circle") {
+                model.player.seek(to: CMTime(seconds: item.startTime, preferredTimescale: 600))
+            }
+            Button("원문·번역 복사", systemImage: "doc.on.doc") {
+                copySentence(item)
+            }
+            if let parentSegment {
+                Divider()
+                Button("소속 청크(#\(item.chunkIndex + 1)) STT 재추출", systemImage: "waveform.badge.magnifyingglass") {
+                    model.regenerateSTT(for: parentSegment)
+                }
+                .disabled(!model.canRegenerateSegment)
+                Button("소속 청크(#\(item.chunkIndex + 1)) 번역 재생성", systemImage: "character.book.closed") {
+                    model.regenerateTranslation(for: parentSegment)
+                }
+                .disabled(!model.canRegenerateSegment)
+            }
+        }
+    }
+
+    private func copySentence(_ item: AlignedSentenceItem) {
+        var lines: [String] = []
+        if displayMode != .translation { lines.append(item.originalText) }
+        if displayMode != .transcript, let tr = item.translatedText, !tr.isEmpty { lines.append(tr) }
+        let payload = lines.joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(payload, forType: .string)
     }
 
     @ViewBuilder

@@ -398,11 +398,15 @@ final class AppModel {
         didSet {
             subtitleIndex = PlaybackSubtitleIndex(transcript)
             activeTranscriptSegmentIndex = nil
+            rebuildAlignedSentences()
             updateActiveTranscriptSegment(for: currentTime)
         }
     }
     var translations: [UUID: TranslationSegment] = [:] {
-        didSet { updateSubtitleText() }
+        didSet {
+            rebuildAlignedSentences()
+            updateActiveTranscriptSegment(for: currentTime)
+        }
     }
     var currentTime: TimeInterval = 0 {
         didSet { updateActiveTranscriptSegment(for: currentTime) }
@@ -410,6 +414,10 @@ final class AppModel {
     /// 자막 목록은 이 값만 관찰합니다. 재생 시간은 0.2초마다 변하지만 이 ID는 실제 자막이
     /// 바뀔 때만 변하므로 긴 결과 목록 전체가 불필요하게 다시 그려지지 않습니다.
     private(set) var activeTranscriptSegmentID: UUID?
+    /// 한 문장 단위로 정렬된 STT·번역 목록입니다. transcript/translations가 바뀔 때만 다시 계산합니다.
+    private(set) var alignedSentences: [AlignedSentenceItem] = []
+    /// 현재 재생 시각에 해당하는 단일 문장 ID입니다.
+    private(set) var activeAlignedSentenceID: String?
     @ObservationIgnored private var activeTranscriptSegmentIndex: Int?
     @ObservationIgnored private var translationLinesCache: (id: UUID, text: String, lines: [String])?
     @ObservationIgnored private var subtitleIndex = PlaybackSubtitleIndex([])
@@ -771,11 +779,18 @@ final class AppModel {
         return transcript[index]
     }
 
+    private func rebuildAlignedSentences() {
+        alignedSentences = SentenceAlignmentGrouper.group(transcript: transcript, translations: translations)
+    }
+
     private func updateActiveTranscriptSegment(for time: TimeInterval) {
         let matchedIndex = subtitleIndex.segmentIndex(at: time)
         activeTranscriptSegmentIndex = matchedIndex
         let matchedID = matchedIndex.map { transcript[$0].id }
         if activeTranscriptSegmentID != matchedID { activeTranscriptSegmentID = matchedID }
+        let matchedSentenceID = SentenceAlignmentGrouper.activeIndex(in: alignedSentences, at: time)
+            .map { alignedSentences[$0].id }
+        if activeAlignedSentenceID != matchedSentenceID { activeAlignedSentenceID = matchedSentenceID }
         updateSubtitleText()
     }
 
