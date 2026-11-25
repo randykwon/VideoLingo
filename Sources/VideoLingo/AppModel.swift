@@ -387,7 +387,31 @@ final class AppModel {
     var playerMode = PlayerWorkspaceMode(
         rawValue: UserDefaults.standard.string(forKey: "playerWorkspaceMode") ?? "translation"
     ) ?? .translation {
-        didSet { UserDefaults.standard.set(playerMode.rawValue, forKey: "playerWorkspaceMode") }
+        didSet {
+            UserDefaults.standard.set(playerMode.rawValue, forKey: "playerWorkspaceMode")
+            if playerMode != .viewing && isViewingMultiView {
+                multiView.pauseAll()
+            }
+        }
+    }
+    /// 영상 감상 모드에서 1~8개 동시 재생 멀티 뷰를 활성화할지 여부입니다.
+    var isViewingMultiView = false
+    let multiView = ViewingMultiViewController()
+
+    func setViewingMultiView(_ enabled: Bool) {
+        if enabled {
+            if playerMode != .viewing {
+                playerMode = .viewing
+            }
+            player.pause()
+            if multiView.tiles.isEmpty, let current = mediaURL {
+                multiView.addVideos([current], autoPlay: true)
+            }
+            isViewingMultiView = true
+        } else {
+            multiView.pauseAll()
+            isViewingMultiView = false
+        }
     }
     var isMiniViewer = false
     var hideTranscriptPanel = false
@@ -637,7 +661,10 @@ final class AppModel {
     /// 모든 플레이어 창의 소리를 끕니다.
     static func muteAllWindows() {
         liveModels.removeAll { $0.model == nil }
-        for box in liveModels { box.model?.player.volume = 0 }
+        for box in liveModels {
+            box.model?.player.volume = 0
+            box.model?.multiView.muteAll()
+        }
     }
 
     /// 키체인 API 키 저장 직후 열려 있는 모든 창의 준비 상태 표시를 즉시 갱신합니다.
@@ -704,8 +731,13 @@ final class AppModel {
 
     /// A moved file must not keep playing from an open descriptor in another window.
     static func releaseDeletedVideo(_ url: URL) {
+        let target = url.standardizedFileURL
         for box in liveModels {
-            guard let model = box.model, model.mediaURL?.standardizedFileURL == url.standardizedFileURL else { continue }
+            guard let model = box.model else { continue }
+            for tile in model.multiView.tiles where tile.url == target {
+                model.multiView.removeTile(tile.id)
+            }
+            guard model.mediaURL?.standardizedFileURL == target else { continue }
             model.player.pause()
             model.player.replaceCurrentItem(with: nil)
             model.videoOutput = nil

@@ -24,9 +24,15 @@ struct ContentView: View {
         @Bindable var model = model
         Group {
         if model.isTheaterMode {
-            PlayerPane()
-                .background(Color.black)
-                .ignoresSafeArea()
+            Group {
+                if model.playerMode == .viewing && model.isViewingMultiView {
+                    ViewingMultiViewWorkspace()
+                } else {
+                    PlayerPane()
+                }
+            }
+            .background(Color.black)
+            .ignoresSafeArea()
         } else {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             Group {
@@ -397,8 +403,12 @@ struct ContentView: View {
                 }
             }
         } detail: {
-            // 플레이어·자막·화면글자 번역은 별도 뷰로 분리해, 실시간 갱신이 툴바를 다시 계산하지 않도록 합니다.
-            PlayerPane()
+            if model.playerMode == .viewing && model.isViewingMultiView {
+                ViewingMultiViewWorkspace()
+            } else {
+                // 플레이어·자막·화면글자 번역은 별도 뷰로 분리해, 실시간 갱신이 툴바를 다시 계산하지 않도록 합니다.
+                PlayerPane()
+            }
         }
         }
         }
