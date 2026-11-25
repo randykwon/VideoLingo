@@ -618,6 +618,7 @@ struct ViewingMultiViewWorkspace: View {
 
     private func handleFileDrop(_ providers: [NSItemProvider]) -> Bool {
         let supportedExtensions: Set<String> = ["mp4", "mov", "m4v", "mkv", "avi", "webm", "ts", "mts"]
+        let targetController = controller
         for provider in providers {
             guard provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) else { continue }
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
@@ -628,7 +629,7 @@ struct ViewingMultiViewWorkspace: View {
                 }
                 guard let url, supportedExtensions.contains(url.pathExtension.lowercased()) else { return }
                 Task { @MainActor in
-                    controller.addVideos([url], autoPlay: true)
+                    targetController.addVideos([url], autoPlay: true)
                 }
             }
         }
