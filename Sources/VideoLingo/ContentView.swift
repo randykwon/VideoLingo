@@ -112,6 +112,8 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                     }
+
+                    SidebarModelQuickCard()
                 }
                 .controlSize(.large)
                 .padding(16)
@@ -181,75 +183,23 @@ struct ContentView: View {
                                 .foregroundStyle(.secondary)
                         }
 
-                        // MARK: 1. STT · 번역 엔진 및 모델
-                        Group {
-                            Text("STT · 번역 모델")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                            Picker("STT 엔진", selection: $model.sttEngine) {
-                                ForEach(STTEngineKind.allCases) { Text($0.displayName).tag($0) }
-                            }
-                            if model.sttEngine == .whisperKit {
-                                Picker("WhisperKit STT", selection: $model.sttModel) {
-                                    ForEach(model.models, id: \.self) { id in
-                                        Text(sttModelName(id) + (model.isModelDownloaded(kind: .stt, modelID: id) ? " ✓" : ""))
-                                            .tag(id)
-                                    }
-                                }
-                            } else if model.sttEngine == .managedWhisper {
-                                ManagedRuntimeQuickPicker(role: .stt)
-                            } else if model.sttEngine == .deepgram {
-                                Picker("Deepgram 모델", selection: $model.deepgramModel) {
-                                    ForEach(ModelCatalog.deepgramModels) { Text($0.pickerLabel).tag($0.id) }
-                                }
-                            }
-                            if let warning = model.sttReadinessWarning {
-                                EngineReadinessNotice(message: warning)
-                            }
-
-                            Picker("번역 엔진", selection: $model.translationEngine) {
-                                ForEach(TranslationEngineKind.allCases) { Text($0.displayName).tag($0) }
-                            }
-                            .onChange(of: model.translationEngine) { _, _ in
-                                model.syncTranslationModelForEngine()
-                                if model.canMutateStorage { model.refreshResults() }
-                            }
-                            if model.translationEngine == .mlx {
-                                Picker("MLX 번역 LLM", selection: $model.translationModel) {
-                                    ForEach(model.mlxTranslationModels, id: \.self) { modelID in
-                                        Text(translationModelName(modelID) + (model.isModelDownloaded(kind: .translation, modelID: modelID) ? " ✓" : ""))
-                                            .tag(modelID)
-                                    }
-                                }
-                                .onChange(of: model.translationModel) { _, _ in
-                                    if model.canMutateStorage { model.refreshResults() }
-                                }
-                            } else if model.translationEngine == .managedLlama {
-                                ManagedRuntimeQuickPicker(role: .translation)
-                            } else if model.translationEngine == .externalOpenAI {
-                                ExternalServerFields()
-                            } else if model.translationEngine == .appleTranslation {
-                                HStack(spacing: 6) {
-                                    Text("온디바이스 NMT · 언어 팩은 엔진 설정에서 준비")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                    Spacer()
-                                    SettingsLink {
-                                        Text("설정")
-                                    }
-                                    .controlSize(.mini)
-                                }
-                            } else if model.translationEngine == .localAPI {
-                                Text("주소: \(model.localTranslationAPI.endpoint)")
-                                    .font(.caption2.monospaced())
+                        // MARK: 1. STT · 번역 모델 (통합 관리 시트 바로가기)
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("STT: \(model.activeSTTDisplayName)")
+                                    .font(.caption)
+                                    .lineLimit(1)
+                                Text("번역: \(model.activeTranslationDisplayName)")
+                                    .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                             }
-                            if let warning = model.translationReadinessWarning {
-                                EngineReadinessNotice(message: warning)
+                            Spacer(minLength: 4)
+                            Button("선택 · 관리…") {
+                                model.openModelManager()
                             }
+                            .controlSize(.small)
                         }
-                        .disabled(!model.canMutateStorage)
 
                         Divider()
 
@@ -486,6 +436,10 @@ struct ContentView: View {
             DemosaicSheet()
                 .environment(model)
         }
+        .sheet(isPresented: $model.isShowingModelManagerSheet) {
+            UnifiedModelManagerSheet(initialSection: model.modelManagerInitialSection)
+                .environment(model)
+        }
         .alert("VAutoLang", isPresented: Binding(
             get: { model.errorMessage != nil },
             set: { if !$0 { model.errorMessage = nil } }
@@ -540,6 +494,7 @@ private struct SimpleSidebarView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             VStack(alignment: .leading, spacing: 8) {
+                SidebarModelQuickCard()
                 if isRunning {
                     Button("STT·번역 중지", systemImage: "stop.fill", role: .destructive) { model.cancel() }
                         .buttonStyle(.bordered)
