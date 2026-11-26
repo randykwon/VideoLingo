@@ -1919,6 +1919,19 @@ private struct MultiViewDuplicateManagerSheet: View {
         mode == .sameFilename ? filenameGroups : contentGroups
     }
 
+    private var allSelectablePaths: Set<String> {
+        var result = Set<String>()
+        for url in activeGroups.flatMap(\.urls) where !AppModel.videoIsBeingProcessed(url) {
+            result.insert(url.standardizedFileURL.path(percentEncoded: false))
+        }
+        return result
+    }
+
+    private var isAllSelected: Bool {
+        let selectable = allSelectablePaths
+        return !selectable.isEmpty && selectable.isSubset(of: selectedPaths)
+    }
+
     private var selectedURLs: [URL] {
         let allKnown = Dictionary(uniqueKeysWithValues: activeGroups.flatMap(\.urls).map {
             ($0.standardizedFileURL.path(percentEncoded: false), $0.standardizedFileURL)
@@ -1984,6 +1997,17 @@ private struct MultiViewDuplicateManagerSheet: View {
                         .disabled(candidateURLs.count < 2)
                     }
                 }
+
+                Button(
+                    isAllSelected ? "전체 해제" : "전체 선택",
+                    systemImage: isAllSelected ? "checkmark.square.fill" : "checkmark.square"
+                ) {
+                    toggleSelectAll()
+                }
+                .controlSize(.small)
+                .disabled(allSelectablePaths.isEmpty)
+                .keyboardShortcut("a", modifiers: .command)
+                .help(isAllSelected ? "표시된 모든 중복 영상 선택 해제 (⌘A)" : "표시된 모든 중복 영상 전체 선택 (⌘A)")
 
                 Button("권장 선택 (1개 남김)", systemImage: "checkmark.circle") {
                     selectRecommendedDuplicates()
@@ -2080,6 +2104,19 @@ private struct MultiViewDuplicateManagerSheet: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
+                                let groupPaths = groupSelectablePaths(for: group)
+                                let groupAllSelected = !groupPaths.isEmpty && groupPaths.isSubset(of: selectedPaths)
+                                Button(groupAllSelected ? "묶음 해제" : "묶음 선택") {
+                                    if groupAllSelected {
+                                        selectedPaths.subtract(groupPaths)
+                                    } else {
+                                        selectedPaths.formUnion(groupPaths)
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.mini)
+                                .disabled(groupPaths.isEmpty)
+                                .help(groupAllSelected ? "이 묶음의 모든 파일 선택 해제" : "이 묶음의 모든 파일 선택")
                                 Button("2개 크게 비교", systemImage: "rectangle.split.2x1") {
                                     controller.openForDualComparison(group.urls)
                                     dismiss()
@@ -2137,7 +2174,7 @@ private struct MultiViewDuplicateManagerSheet: View {
             .padding(16)
             .background(.bar)
         }
-        .frame(width: 780, height: 560)
+        .frame(width: 820, height: 560)
         .onDisappear { cancelContentScan() }
         .onChange(of: mode) { _, newMode in
             selectedPaths.removeAll()
@@ -2249,6 +2286,23 @@ private struct MultiViewDuplicateManagerSheet: View {
             .help("Finder에서 보기")
         }
         .padding(.vertical, 2)
+    }
+
+    private func groupSelectablePaths(for group: MediaDuplicateGroup) -> Set<String> {
+        Set(
+            group.urls
+                .filter { !AppModel.videoIsBeingProcessed($0) }
+                .map { $0.standardizedFileURL.path(percentEncoded: false) }
+        )
+    }
+
+    private func toggleSelectAll() {
+        let selectable = allSelectablePaths
+        if !selectable.isEmpty && selectable.isSubset(of: selectedPaths) {
+            selectedPaths.subtract(selectable)
+        } else {
+            selectedPaths.formUnion(selectable)
+        }
     }
 
     private func selectRecommendedDuplicates() {
