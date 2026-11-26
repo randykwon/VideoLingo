@@ -1057,6 +1057,7 @@ private struct LibraryFolderManagerView: View {
 
 private struct LibraryMultiView: View {
     let items: [MediaLibraryItem]
+    var onDeleteFile: (MediaLibraryItem, MediaLibrary.VideoDeleteMode) -> Void = { _, _ in }
     @AppStorage("libraryMultiViewColumns") private var columnCount = 2
     @State private var playingItems: Set<String> = []
 
@@ -1075,6 +1076,12 @@ private struct LibraryMultiView: View {
                     Text("재생할 영상만 체크하면 시스템 부하를 줄일 수 있습니다.")
                         .font(.caption).foregroundStyle(.secondary)
                     Spacer()
+                    Button("2개 크게", systemImage: "rectangle.split.2x1") {
+                        columnCount = 2
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(columnCount == 2 ? Color.accentColor : nil)
+                    .help("두 영상을 나란히 크게 비교합니다")
                     Button(playingItems.isEmpty ? "전체 재생" : "전체 정지",
                            systemImage: playingItems.isEmpty ? "play.fill" : "stop.fill") {
                         playingItems = playingItems.isEmpty ? Set(items.map(\.id)) : []
@@ -1101,7 +1108,11 @@ private struct LibraryMultiView: View {
                                             playingItems.remove(item.id)
                                         }
                                     }
-                                )
+                                ),
+                                onDeleteFile: { mode in
+                                    playingItems.remove(item.id)
+                                    onDeleteFile(item, mode)
+                                }
                             )
                         }
                     }
@@ -1115,8 +1126,10 @@ private struct LibraryMultiView: View {
 private struct LibraryMultiViewTile: View {
     let item: MediaLibraryItem
     @Binding var playsVideo: Bool
+    var onDeleteFile: (MediaLibrary.VideoDeleteMode) -> Void = { _ in }
     @State private var player: AVPlayer?
     @State private var isMuted = true
+    @State private var pendingDeleteMode: MediaLibrary.VideoDeleteMode?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1136,7 +1149,11 @@ private struct LibraryMultiViewTile: View {
             .background(.black)
             HStack(spacing: 8) {
                 Toggle("재생", isOn: $playsVideo).toggleStyle(.checkbox)
-                Text(item.title).font(.callout.weight(.semibold)).lineLimit(1)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.title).font(.callout.weight(.semibold)).lineLimit(1)
+                    Text("\(item.directoryName) · \(ByteCountFormatter.string(fromByteCount: item.size, countStyle: .file))")
+                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
                 Spacer()
                 Button(isMuted ? "소리 켜기" : "소리 끄기", systemImage: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill") {
                     isMuted.toggle()
@@ -1144,6 +1161,26 @@ private struct LibraryMultiViewTile: View {
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
                 .help(isMuted ? "이 영상의 소리 켜기" : "이 영상 음소거")
+
+                Menu {
+                    Button("Finder에서 보기", systemImage: "finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([item.videoURL])
+                    }
+                    Divider()
+                    Button("휴지통으로 이동…", systemImage: "trash", role: .destructive) {
+                        pendingDeleteMode = .moveToTrash
+                    }
+                    Button("영구 삭제 (복구 불가)…", systemImage: "trash.slash.fill", role: .destructive) {
+                        pendingDeleteMode = .permanentlyDelete
+                    }
+                } label: {
+                    Image(systemName: "trash")
+                        .foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .disabled(AppModel.videoIsBeingProcessed(item.videoURL))
+                .help("이 영상 파일 휴지통 이동 또는 디스크에서 영구 삭제")
             }
             .padding(10)
         }
@@ -1152,6 +1189,33 @@ private struct LibraryMultiViewTile: View {
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(playsVideo ? Color.accentColor : Color.secondary.opacity(0.2))
+        }
+        .confirmationDialog(
+            pendingDeleteMode == .permanentlyDelete
+                ? "이 영상 파일을 디스크에서 영구 삭제할까요?"
+                : "이 영상 파일을 휴지통으로 이동할까요?",
+            isPresented: Binding(
+                get: { pendingDeleteMode != nil },
+                set: { if !$0 { pendingDeleteMode = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingDeleteMode
+        ) { mode in
+            Button(
+                mode == .permanentlyDelete ? "디스크에서 영구 삭제" : "휴지통으로 이동",
+                role: .destructive
+            ) {
+                releasePlayer()
+                onDeleteFile(mode)
+            }
+            Button("취소", role: .cancel) {}
+        } message: { mode in
+            let sizeStr = ByteCountFormatter.string(fromByteCount: item.size, countStyle: .file)
+            if mode == .permanentlyDelete {
+                Text("\(item.videoURL.path(percentEncoded: false)) (\(sizeStr))\n\n휴지통을 거치지 않고 디스크에서 즉시 영구 삭제됩니다. 이 작업은 되돌릴 수 없습니다.")
+            } else {
+                Text("\(item.videoURL.path(percentEncoded: false)) (\(sizeStr))\n\nFinder의 휴지통으로 이동하며 복구할 수 있습니다.")
+            }
         }
         .onAppear { updatePlayback() }
         .onDisappear { releasePlayer() }

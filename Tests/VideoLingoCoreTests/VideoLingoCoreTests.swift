@@ -1255,6 +1255,17 @@ import Testing
     #expect(spotlight6[0].width > spotlight6[1].width)
     #expect(spotlight6[0].height > spotlight6[1].height)
 
+    // 2개 크게 보기 모드 검증: 2개일 때 좌우 100% 높이 균등 분할, 5개일 때 상단 2개가 하단 3개보다 훨씬 커야 함
+    let dual2 = MultiViewLayoutEngine.rects(for: 2, preset: .dualSpotlight)
+    #expect(dual2.count == 2)
+    #expect(abs(dual2[0].width - dual2[1].width) < 0.001)
+    #expect(dual2[0].height > 0.95 && dual2[1].height > 0.95)
+    let dual5 = MultiViewLayoutEngine.rects(for: 5, preset: .dualSpotlight)
+    #expect(dual5.count == 5)
+    #expect(dual5[0].height > 0.65 && dual5[1].height > 0.65)
+    #expect(dual5[0].height > dual5[2].height * 2.0)
+    #expect(dual5[0].width > dual5[2].width)
+
     // 자유 이동·리사이즈 경계 클램핑 검증
     let base = MultiViewNormalizedRect(x: 0.2, y: 0.2, width: 0.4, height: 0.4)
     let movedRight = base.moved(dx: 0.9, dy: -0.5)
@@ -1350,4 +1361,38 @@ import Testing
     #expect(seg2?.start == 8.0)
     #expect(seg2?.length == 2.0)
     #expect(VideoCodecCompatibilityAdvisor.segmentBounds(index: 3, duration: 10.0, segmentDuration: 4.0) == nil)
+    #expect(playlist.contains("#EXT-X-INDEPENDENT-SEGMENTS"))
+    #expect(playlist.contains("#EXT-X-DISCONTINUITY"))
+}
+
+@Test func mediaDuplicateDetectorFindsSameFilenameAndIdenticalContentGroups() throws {
+    let dir = FileManager.default.temporaryDirectory.appending(path: "vl-dup-\(UUID().uuidString)")
+    let subA = dir.appending(path: "folderA")
+    let subB = dir.appending(path: "folderB")
+    try FileManager.default.createDirectory(at: subA, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: subB, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    let a1 = subA.appending(path: "Clip.mp4")
+    let b1 = subB.appending(path: "clip.mp4")
+    let b2 = subB.appending(path: "renamed_copy.mp4")
+    let unique = subA.appending(path: "other.mp4")
+
+    let samePayload = Data(repeating: 0x5A, count: 64 * 1024)
+    let diffPayload = Data(repeating: 0x3C, count: 64 * 1024)
+    try samePayload.write(to: a1)
+    try diffPayload.write(to: b1)
+    try samePayload.write(to: b2)
+    try Data(repeating: 0x11, count: 12 * 1024).write(to: unique)
+
+    let nameGroups = MediaFilenameDeduplicator.filenameDuplicateGroups(for: [a1, b1, b2, unique])
+    #expect(nameGroups.count == 1)
+    #expect(nameGroups[0].urls.count == 2)
+    #expect(nameGroups[0].reason == .sameFilename)
+
+    let contentGroups = try MediaFilenameDeduplicator.contentDuplicateGroups(for: [a1, b1, b2, unique], sampleLength: 8192)
+    #expect(contentGroups.count == 1)
+    #expect(contentGroups[0].urls.count == 2)
+    #expect(Set(contentGroups[0].urls.map(\.lastPathComponent)) == Set(["Clip.mp4", "renamed_copy.mp4"]))
+    #expect(contentGroups[0].reclaimableBytes == Int64(samePayload.count))
 }
