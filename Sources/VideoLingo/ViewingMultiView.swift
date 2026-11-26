@@ -1534,7 +1534,11 @@ private struct MultiViewTileCard: View {
 
                 Button {
                     withAnimation(.snappy) {
-                        controller.maximizedTileID = isMaximized ? nil : tile.id
+                        if controller.dualFocusTileIDs != nil {
+                            controller.dualFocusTileIDs = nil
+                        } else {
+                            controller.maximizedTileID = isMaximized ? nil : tile.id
+                        }
                     }
                 } label: {
                     Image(systemName: isMaximized ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
@@ -1565,6 +1569,14 @@ private struct MultiViewTileCard: View {
                     ))
                     .disabled(!FFmpegToolLocator.isAvailable)
                     Divider()
+                    if controller.tiles.count >= 2 {
+                        Button("2개 크게 보기 · 왼쪽(#1)", systemImage: "rectangle.lefthalf.filled") {
+                            withAnimation(.snappy) { controller.promoteToDualSlot(tile.id, slot: 0) }
+                        }
+                        Button("2개 크게 보기 · 오른쪽(#2)", systemImage: "rectangle.righthalf.filled") {
+                            withAnimation(.snappy) { controller.promoteToDualSlot(tile.id, slot: 1) }
+                        }
+                    }
                     Button("외부 자막 파일 추가 (.srt/.vtt)…", systemImage: "doc.badge.plus") {
                         controller.importExternalSubtitleWithPanel(tileID: tile.id)
                     }
@@ -1579,13 +1591,25 @@ private struct MultiViewTileCard: View {
                     Button("다른 영상으로 교체…", systemImage: "arrow.triangle.2.circlepath") {
                         controller.replaceVideoWithPanel(tileID: tile.id)
                     }
+                    Button("Finder에서 파일 보기", systemImage: "finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([tile.url])
+                    }
+                    Divider()
+                    Button("파일 휴지통으로 이동…", systemImage: "trash", role: .destructive) {
+                        pendingDeleteMode = .moveToTrash
+                    }
+                    .disabled(isDeletingFile || AppModel.videoIsBeingProcessed(tile.url))
+                    Button("파일 영구 삭제…", systemImage: "trash.slash.fill", role: .destructive) {
+                        pendingDeleteMode = .permanentlyDelete
+                    }
+                    .disabled(isDeletingFile || AppModel.videoIsBeingProcessed(tile.url))
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .font(.caption)
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                .help("속도 · 반복 · 화면 맞춤 · 영상 교체")
+                .help("속도 · 2개 크게 배치 · 파일 휴지통/영구 삭제")
 
                 Button {
                     withAnimation(.snappy) { controller.removeTile(tile.id) }
@@ -1820,5 +1844,498 @@ private struct MultiViewPlayerSurface: NSViewRepresentable {
         if view.player !== player { view.player = player }
         let gravity: AVLayerVideoGravity = fillsFrame ? .resizeAspectFill : .resizeAspect
         if view.videoGravity != gravity { view.videoGravity = gravity }
+    }
+}
+
+// MARK: - 멀티 뷰 중복 파일 검토 · 비교 · 휴지통/영구 삭제 시트
+
+private struct MultiViewDuplicateManagerSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+
+    let controller: ViewingMultiViewController
+    let initialFocusFilenameKey: String?
+
+    @State private var library = MediaLibrary.shared
+    @State private var mode: MediaDuplicateReason = .sameFilename
+    @State private var scope: ScanScope = .allLibrary
+    @State private var selectedPaths: Set<String> = []
+    @State private var contentGroups: [MediaDuplicateGroup] = []
+    @State private var isScanningContent = false
+    @State private var contentScanTask: Task<Void, Never>?
+    @State private var contentScanMessage = ""
+    @State private var pendingDeleteMode: MediaLibrary.VideoDeleteMode?
+    @State private var isDeleting = false
+    @State private var resultBanner = ""
+
+    private enum ScanScope: String, CaseIterable, Identifiable {
+        case openAndCurrentFolder
+        case allLibrary
+
+        var id: Self { self }
+        var title: String {
+            switch self {
+            case .openAndCurrentFolder: "열린 영상 · 현재 폴더"
+            case .allLibrary: "라이브러리 전체"
+            }
+        }
+    }
+
+    private var candidateURLs: [URL] {
+        var uniqueByPath: [String: URL] = [:]
+        for tile in controller.tiles {
+            let std = tile.url.standardizedFileURL
+            uniqueByPath[std.path(percentEncoded: false)] = std
+        }
+        let folderPath = model.playerFolderPath
+        let folderPrefix = folderPath.hasSuffix("/") ? folderPath : folderPath + "/"
+        for item in library.items {
+            let path = item.videoURL.standardizedFileURL.path(percentEncoded: false)
+            if scope == .openAndCurrentFolder && !folderPath.isEmpty && !path.hasPrefix(folderPrefix) {
+                continue
+            }
+            uniqueByPath[path] = item.videoURL.standardizedFileURL
+        }
+        return Array(uniqueByPath.values)
+    }
+
+    private var libraryItemsByPath: [String: MediaLibraryItem] {
+        Dictionary(uniqueKeysWithValues: library.items.map { ($0.id, $0) })
+    }
+
+    private var filenameGroups: [MediaDuplicateGroup] {
+        let sizesByPath = Dictionary(uniqueKeysWithValues: library.items.map { ($0.id, $0.size) })
+        let all = MediaFilenameDeduplicator.filenameDuplicateGroups(for: candidateURLs, sizesByPath: sizesByPath)
+        guard let focusKey = initialFocusFilenameKey, !focusKey.isEmpty else { return all }
+        return all.sorted { lhs, rhs in
+            let lhsFocus = lhs.id == "name:\(focusKey)"
+            let rhsFocus = rhs.id == "name:\(focusKey)"
+            if lhsFocus != rhsFocus { return lhsFocus }
+            return false
+        }
+    }
+
+    private var activeGroups: [MediaDuplicateGroup] {
+        mode == .sameFilename ? filenameGroups : contentGroups
+    }
+
+    private var selectedURLs: [URL] {
+        let allKnown = Dictionary(uniqueKeysWithValues: activeGroups.flatMap(\.urls).map {
+            ($0.standardizedFileURL.path(percentEncoded: false), $0.standardizedFileURL)
+        })
+        return selectedPaths.compactMap { allKnown[$0] }.sorted { $0.path < $1.path }
+    }
+
+    private var selectedByteCount: Int64 {
+        selectedURLs.reduce(0) { sum, url in
+            let path = url.path(percentEncoded: false)
+            if let size = libraryItemsByPath[path]?.size, size > 0 { return sum + size }
+            let diskSize = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+            return sum + diskSize
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // 헤더
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("중복 영상 정리")
+                        .font(.title2.weight(.semibold))
+                    Text("같은 파일명이나 동일한 내용의 영상을 2개 크게 비교한 뒤 휴지통으로 이동하거나 디스크에서 영구 삭제할 수 있습니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("닫기") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(16)
+
+            // 필터 / 스캔 바
+            HStack(spacing: 12) {
+                Picker("기준", selection: $mode) {
+                    ForEach(MediaDuplicateReason.allCases) { reason in
+                        Text(reason.title).tag(reason)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 260)
+
+                Picker("범위", selection: $scope) {
+                    ForEach(ScanScope.allCases) { item in
+                        Text(item.title).tag(item)
+                    }
+                }
+                .frame(width: 200)
+
+                Spacer()
+
+                if mode == .identicalContent {
+                    if isScanningContent {
+                        ProgressView().controlSize(.small)
+                        Button("취소", role: .cancel) { cancelContentScan() }
+                            .controlSize(.small)
+                    } else {
+                        Button("내용 해시 스캔", systemImage: "magnifyingglass") {
+                            startContentScan()
+                        }
+                        .controlSize(.small)
+                        .disabled(candidateURLs.count < 2)
+                    }
+                }
+
+                Button("권장 선택 (1개 남김)", systemImage: "checkmark.circle") {
+                    selectRecommendedDuplicates()
+                }
+                .controlSize(.small)
+                .disabled(activeGroups.isEmpty)
+                .help("각 중복 묶음에서 STT·번역 결과가 있거나 현재 재생 중인 1개만 남기고 나머지 중복 파일을 자동 선택합니다")
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+
+            if !contentScanMessage.isEmpty && mode == .identicalContent {
+                HStack(spacing: 8) {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.secondary)
+                    Text(contentScanMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+            }
+
+            if !resultBanner.isEmpty {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text(resultBanner)
+                        .font(.caption)
+                    Spacer()
+                    Button("닫기", systemImage: "xmark") { resultBanner = "" }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color.green.opacity(0.1))
+            }
+
+            Divider()
+
+            // 본문 목록
+            if mode == .identicalContent && isScanningContent && contentGroups.isEmpty {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("파일 크기와 앞·중간·뒤 해시를 비교하는 중…")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if activeGroups.isEmpty {
+                ContentUnavailableView {
+                    Label(
+                        mode == .sameFilename ? "같은 파일명의 중복 영상이 없습니다" : "동일 내용의 중복 영상이 없습니다",
+                        systemImage: "checkmark.seal"
+                    )
+                } description: {
+                    Text(
+                        mode == .sameFilename
+                            ? "파일명이 다르지만 내용이 같은 중복 파일을 찾으려면 ‘동일 내용 (크기·해시)’ 탭에서 스캔해 보세요."
+                            : "‘내용 해시 스캔’을 눌러 파일 크기가 같은 영상들의 내용을 비교할 수 있습니다."
+                    )
+                } actions: {
+                    if mode == .identicalContent && !isScanningContent {
+                        Button("내용 해시 스캔 시작") { startContentScan() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(candidateURLs.count < 2)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    ForEach(activeGroups) { group in
+                        Section {
+                            ForEach(group.urls, id: \.path) { url in
+                                duplicateFileRow(url: url, group: group)
+                            }
+                        } header: {
+                            HStack(spacing: 8) {
+                                Text(group.title)
+                                    .font(.headline)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Text("\(group.urls.count)개")
+                                    .font(.caption.weight(.semibold).monospacedDigit())
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 1)
+                                    .background(Color.orange.opacity(0.18), in: Capsule())
+                                    .foregroundStyle(.orange)
+                                if group.reclaimableBytes > 0 {
+                                    Text("정리 시 \(ByteCountFormatter.string(fromByteCount: group.reclaimableBytes, countStyle: .file)) 확보")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button("2개 크게 비교", systemImage: "rectangle.split.2x1") {
+                                    controller.openForDualComparison(group.urls)
+                                    dismiss()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.mini)
+                                .help("이 묶음의 영상을 멀티뷰 2개 크게 보기로 바로 열어 화질·자막을 비교합니다")
+                            }
+                        }
+                    }
+                }
+                .listStyle(.inset)
+            }
+
+            Divider()
+
+            // 하단 삭제 액션 바
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("묶음 \(activeGroups.count)개 · 선택 \(selectedURLs.count)개")
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                    if selectedByteCount > 0 {
+                        Text("선택 용량 \(ByteCountFormatter.string(fromByteCount: selectedByteCount, countStyle: .file))")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Spacer()
+
+                if isDeleting {
+                    ProgressView().controlSize(.small)
+                }
+
+                if !selectedPaths.isEmpty {
+                    Button("선택 해제") { selectedPaths.removeAll() }
+                        .controlSize(.small)
+                }
+
+                Button("휴지통으로 이동…", systemImage: "trash") {
+                    pendingDeleteMode = .moveToTrash
+                }
+                .buttonStyle(.bordered)
+                .disabled(selectedURLs.isEmpty || isDeleting)
+                .help("선택한 중복 파일을 Finder 휴지통으로 이동합니다 (복구 가능)")
+
+                Button("영구 삭제…", systemImage: "trash.slash.fill", role: .destructive) {
+                    pendingDeleteMode = .permanentlyDelete
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .disabled(selectedURLs.isEmpty || isDeleting)
+                .help("선택한 중복 파일을 휴지통을 거치지 않고 디스크에서 즉시 영구 삭제합니다 (복구 불가)")
+            }
+            .padding(16)
+            .background(.bar)
+        }
+        .frame(width: 780, height: 560)
+        .onDisappear { cancelContentScan() }
+        .onChange(of: mode) { _, newMode in
+            selectedPaths.removeAll()
+            if newMode == .identicalContent && contentGroups.isEmpty && !isScanningContent {
+                startContentScan()
+            }
+        }
+        .onChange(of: scope) { _, _ in
+            selectedPaths.removeAll()
+            if mode == .identicalContent {
+                startContentScan()
+            }
+        }
+        .confirmationDialog(
+            pendingDeleteMode == .permanentlyDelete
+                ? "선택한 중복 영상 \(selectedURLs.count)개를 디스크에서 영구 삭제할까요?"
+                : "선택한 중복 영상 \(selectedURLs.count)개를 휴지통으로 이동할까요?",
+            isPresented: Binding(
+                get: { pendingDeleteMode != nil },
+                set: { if !$0 { pendingDeleteMode = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingDeleteMode
+        ) { deleteMode in
+            Button(
+                deleteMode == .permanentlyDelete
+                    ? "\(selectedURLs.count)개 파일 영구 삭제"
+                    : "\(selectedURLs.count)개 파일 휴지통으로 이동",
+                role: .destructive
+            ) {
+                executeDeletion(mode: deleteMode)
+            }
+            Button("취소", role: .cancel) {}
+        } message: { deleteMode in
+            let sizeStr = ByteCountFormatter.string(fromByteCount: selectedByteCount, countStyle: .file)
+            if deleteMode == .permanentlyDelete {
+                Text("총 \(sizeStr) 용량의 파일 \(selectedURLs.count)개가 휴지통을 거치지 않고 디스크에서 즉시 영구 삭제됩니다. 이 작업은 되돌릴 수 없습니다.")
+            } else {
+                Text("총 \(sizeStr) 용량의 파일 \(selectedURLs.count)개를 Finder의 휴지통으로 이동합니다. 휴지통에서 복구할 수 있습니다.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func duplicateFileRow(url: URL, group: MediaDuplicateGroup) -> some View {
+        let path = url.standardizedFileURL.path(percentEncoded: false)
+        let isChecked = selectedPaths.contains(path)
+        let libItem = libraryItemsByPath[path]
+        let slot = controller.slotNumber(for: url)
+        let size = libItem?.size ?? ((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0)
+        let busy = AppModel.videoIsBeingProcessed(url)
+
+        HStack(spacing: 10) {
+            Toggle("", isOn: Binding(
+                get: { isChecked },
+                set: { checked in
+                    if checked { selectedPaths.insert(path) } else { selectedPaths.remove(path) }
+                }
+            ))
+            .labelsHidden()
+            .toggleStyle(.checkbox)
+            .disabled(busy)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(url.lastPathComponent)
+                        .font(.callout.weight(.medium))
+                        .lineLimit(1)
+                    if let slot {
+                        Text("멀티뷰 #\(slot)")
+                            .font(.caption2.weight(.bold).monospacedDigit())
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.accentColor.opacity(0.18), in: Capsule())
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    if libItem?.hasResults == true {
+                        Label("번역 결과 있음", systemImage: "checkmark.circle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.green)
+                    }
+                    if busy {
+                        Label("처리 중", systemImage: "lock.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                }
+                Text(url.deletingLastPathComponent().path(percentEncoded: false))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer(minLength: 8)
+
+            if size > 0 {
+                Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } label: {
+                Image(systemName: "finder")
+            }
+            .buttonStyle(.borderless)
+            .help("Finder에서 보기")
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func selectRecommendedDuplicates() {
+        var recommended = Set<String>()
+        for group in activeGroups where group.urls.count > 1 {
+            // 번역 결과가 있거나 멀티뷰 앞 슬롯에 열린 원본 1개를 보존 대상으로 우선 선택합니다.
+            let ranked = group.urls.sorted { lhs, rhs in
+                let lhsPath = lhs.standardizedFileURL.path(percentEncoded: false)
+                let rhsPath = rhs.standardizedFileURL.path(percentEncoded: false)
+                let lhsHasResults = libraryItemsByPath[lhsPath]?.hasResults == true
+                let rhsHasResults = libraryItemsByPath[rhsPath]?.hasResults == true
+                if lhsHasResults != rhsHasResults { return lhsHasResults }
+                let lhsSlot = controller.slotNumber(for: lhs) ?? Int.max
+                let rhsSlot = controller.slotNumber(for: rhs) ?? Int.max
+                if lhsSlot != rhsSlot { return lhsSlot < rhsSlot }
+                return lhsPath.localizedStandardCompare(rhsPath) == .orderedAscending
+            }
+            for redundant in ranked.dropFirst() where !AppModel.videoIsBeingProcessed(redundant) {
+                recommended.insert(redundant.standardizedFileURL.path(percentEncoded: false))
+            }
+        }
+        selectedPaths = recommended
+    }
+
+    private func startContentScan() {
+        cancelContentScan()
+        let urls = candidateURLs
+        guard urls.count >= 2 else {
+            contentGroups = []
+            contentScanMessage = "비교할 영상이 2개 이상 필요합니다."
+            return
+        }
+        isScanningContent = true
+        contentScanMessage = "\(urls.count)개 영상의 크기와 내용 해시를 비교하는 중…"
+        contentScanTask = Task {
+            let worker = Task.detached(priority: .userInitiated) {
+                try MediaFilenameDeduplicator.contentDuplicateGroups(for: urls)
+            }
+            do {
+                let found = try await withTaskCancellationHandler {
+                    try await worker.value
+                } onCancel: {
+                    worker.cancel()
+                }
+                guard !Task.isCancelled else { return }
+                contentGroups = found
+                let removable = found.reduce(0) { $0 + max(0, $1.urls.count - 1) }
+                contentScanMessage = found.isEmpty
+                    ? "내용이 완전히 같은 중복 영상을 찾지 못했습니다."
+                    : "동일 내용 \(found.count)묶음 · 정리 가능 \(removable)개"
+            } catch is CancellationError {
+                contentScanMessage = "내용 스캔을 취소했습니다."
+            } catch {
+                contentScanMessage = "스캔 오류: \(error.localizedDescription)"
+            }
+            isScanningContent = false
+        }
+    }
+
+    private func cancelContentScan() {
+        contentScanTask?.cancel()
+        contentScanTask = nil
+        isScanningContent = false
+    }
+
+    private func executeDeletion(mode deleteMode: MediaLibrary.VideoDeleteMode) {
+        let targets = selectedURLs
+        guard !targets.isEmpty, !isDeleting else { return }
+        isDeleting = true
+        Task {
+            defer { isDeleting = false }
+            let outcome = await controller.deleteVideoFiles(urls: targets, mode: deleteMode)
+            let deletedPaths = Set(outcome.deletedURLs.map { $0.standardizedFileURL.path(percentEncoded: false) })
+            selectedPaths.subtract(deletedPaths)
+            // 삭제된 항목을 내용 중복 목록에서도 즉시 반영
+            contentGroups = contentGroups.compactMap { group in
+                let remaining = group.urls.filter { !deletedPaths.contains($0.standardizedFileURL.path(percentEncoded: false)) }
+                guard remaining.count > 1 else { return nil }
+                return MediaDuplicateGroup(
+                    id: group.id,
+                    reason: group.reason,
+                    title: remaining[0].lastPathComponent,
+                    byteCount: group.byteCount,
+                    urls: remaining
+                )
+            }
+            resultBanner = outcome.summaryMessage
+        }
     }
 }

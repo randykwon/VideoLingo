@@ -21,7 +21,8 @@ struct PlayerMediaLibraryView: View {
     @State private var backgroundManager = BackgroundTranslationManager.shared
     @AppStorage("playerLibraryClickToBackgroundTranslate") private var clickToBackgroundTranslate = false
     @State private var searchText = ""
-    @State private var pendingTrash: MediaLibraryItem?
+    @State private var pendingDeleteItem: MediaLibraryItem?
+    @State private var pendingDeleteMode: MediaLibrary.VideoDeleteMode = .moveToTrash
     @State private var isTrashing = false
     @State private var trashMessage = ""
 
@@ -169,7 +170,8 @@ struct PlayerMediaLibraryView: View {
                 Spacer(minLength: 0)
                 if isTrashing { ProgressView().controlSize(.small) }
                 Button("삭제…", systemImage: "trash", role: .destructive) {
-                    pendingTrash = selectedItem
+                    pendingDeleteMode = .moveToTrash
+                    pendingDeleteItem = selectedItem
                 }
                 .labelStyle(.titleAndIcon)
                 .disabled(isTrashing || selectedItem == nil || selectedItem.map { AppModel.videoIsBeingProcessed($0.videoURL) } == true)
@@ -177,14 +179,30 @@ struct PlayerMediaLibraryView: View {
             }
         }
         .onChange(of: model.playerFolderPath) { _, _ in searchText = "" }
-        .confirmationDialog("영상 파일을 휴지통으로 이동할까요?", isPresented: Binding(
-            get: { pendingTrash != nil },
-            set: { if !$0 { pendingTrash = nil } }
-        ), titleVisibility: .visible, presenting: pendingTrash) { item in
-            Button("휴지통으로 이동", role: .destructive) { moveToTrash(item) }
+        .confirmationDialog(
+            pendingDeleteMode == .permanentlyDelete
+                ? "영상 파일을 디스크에서 영구 삭제할까요?"
+                : "영상 파일을 휴지통으로 이동할까요?",
+            isPresented: Binding(
+                get: { pendingDeleteItem != nil },
+                set: { if !$0 { pendingDeleteItem = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingDeleteItem
+        ) { item in
+            Button(
+                pendingDeleteMode == .permanentlyDelete ? "디스크에서 영구 삭제" : "휴지통으로 이동",
+                role: .destructive
+            ) {
+                deleteItem(item, mode: pendingDeleteMode)
+            }
             Button("취소", role: .cancel) {}
         } message: { item in
-            Text("\(item.videoURL.path)\n\n선택한 파일 하나만 이동합니다. 숨겨진 동명 파일과 STT·번역 결과는 유지됩니다. Finder의 휴지통에서 복구할 수 있습니다.")
+            if pendingDeleteMode == .permanentlyDelete {
+                Text("\(item.videoURL.path)\n\n선택한 파일 하나를 휴지통을 거치지 않고 디스크에서 즉시 영구 삭제합니다. 이 작업은 되돌릴 수 없습니다.")
+            } else {
+                Text("\(item.videoURL.path)\n\n선택한 파일 하나만 이동합니다. 숨겨진 동명 파일과 STT·번역 결과는 유지됩니다. Finder의 휴지통에서 복구할 수 있습니다.")
+            }
         }
         .alert("영상 파일 정리", isPresented: Binding(
             get: { !trashMessage.isEmpty },
@@ -300,7 +318,13 @@ struct PlayerMediaLibraryView: View {
                 .disabled(!item.hasResults)
             Divider()
             Button("영상 파일 휴지통 이동…", systemImage: "trash", role: .destructive) {
-                pendingTrash = item
+                pendingDeleteMode = .moveToTrash
+                pendingDeleteItem = item
+            }
+            .disabled(isTrashing || AppModel.videoIsBeingProcessed(item.videoURL))
+            Button("영상 파일 영구 삭제…", systemImage: "trash.slash.fill", role: .destructive) {
+                pendingDeleteMode = .permanentlyDelete
+                pendingDeleteItem = item
             }
             .disabled(isTrashing || AppModel.videoIsBeingProcessed(item.videoURL))
         }
@@ -381,19 +405,17 @@ struct PlayerMediaLibraryView: View {
         backgroundManager.enqueue(url: item.videoURL, options: options)
     }
 
-    private func moveToTrash(_ item: MediaLibraryItem) {
+    private func deleteItem(_ item: MediaLibraryItem, mode: MediaLibrary.VideoDeleteMode) {
         guard !isTrashing else { return }
         guard !AppModel.videoIsBeingProcessed(item.videoURL) else {
-            trashMessage = String(localized: "번역 처리 중인 영상은 휴지통으로 이동할 수 없습니다.")
+            trashMessage = String(localized: "번역 처리 중인 영상은 삭제할 수 없습니다.")
             return
         }
         isTrashing = true
         Task {
             defer { isTrashing = false }
-            trashMessage = await library.trashVideos([item])
-            if !FileManager.default.fileExists(atPath: item.videoURL.path) {
-                AppModel.releaseDeletedVideo(item.videoURL)
-            }
+            let outcome = await library.deleteVideos(urls: [item.videoURL], mode: mode)
+            trashMessage = outcome.summaryMessage
         }
     }
 
@@ -413,7 +435,7 @@ struct BatchMediaLibraryView: View {
     @State private var multiViewItems: [MediaLibraryItem] = []
     @State private var pendingFolderRemoval: URL?
     @State private var showingFolderManager = false
-    @State private var showingTrashConfirmation = false
+    @State private var pendingBatchDeleteMode: MediaLibrary.VideoDeleteMode?
     @State private var isTrashingFiles = false
     @State private var fileActionMessage = ""
 
@@ -523,15 +545,31 @@ struct BatchMediaLibraryView: View {
             LibraryFolderManagerView()
         }
         .confirmationDialog(
-            "선택한 영상을 휴지통으로 이동할까요?",
-            isPresented: $showingTrashConfirmation
-        ) {
-            Button("영상 \(selectedItems.count)개를 휴지통으로 이동", role: .destructive) {
-                trashSelectedVideos()
+            pendingBatchDeleteMode == .permanentlyDelete
+                ? "선택한 영상을 디스크에서 영구 삭제할까요?"
+                : "선택한 영상을 휴지통으로 이동할까요?",
+            isPresented: Binding(
+                get: { pendingBatchDeleteMode != nil },
+                set: { if !$0 { pendingBatchDeleteMode = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingBatchDeleteMode
+        ) { mode in
+            Button(
+                mode == .permanentlyDelete
+                    ? "영상 \(selectedItems.count)개 영구 삭제"
+                    : "영상 \(selectedItems.count)개를 휴지통으로 이동",
+                role: .destructive
+            ) {
+                deleteSelectedVideos(mode: mode)
             }
             Button("취소", role: .cancel) {}
-        } message: {
-            Text("STT·번역 결과 파일은 유지됩니다. 영상은 Finder의 휴지통에서 복구할 수 있습니다.")
+        } message: { mode in
+            if mode == .permanentlyDelete {
+                Text("선택한 \(selectedItems.count)개 파일이 휴지통을 거치지 않고 디스크에서 즉시 영구 삭제됩니다. 이 작업은 되돌릴 수 없습니다.")
+            } else {
+                Text("STT·번역 결과 파일은 유지됩니다. 영상은 Finder의 휴지통에서 복구할 수 있습니다.")
+            }
         }
         .onChange(of: sourceSelection) { _, _ in
             selection.removeAll()
@@ -664,7 +702,15 @@ struct BatchMediaLibraryView: View {
                 description: Text(searchText.isEmpty ? "다른 분류나 폴더를 선택하세요." : "다른 검색어를 입력해 보세요.")
             )
         } else if presentation == .multiView {
-            LibraryMultiView(items: multiViewItems)
+            LibraryMultiView(
+                items: multiViewItems,
+                onDeleteFile: { item, mode in
+                    Task {
+                        let outcome = await library.deleteVideos(urls: [item.videoURL], mode: mode)
+                        fileActionMessage = outcome.summaryMessage
+                    }
+                }
+            )
         } else {
             List(selection: $selection) {
                 ForEach(visibleItems) { item in
@@ -708,7 +754,10 @@ struct BatchMediaLibraryView: View {
                     Button("파일 경로 복사", systemImage: "doc.on.doc") { copySelectedPaths() }
                     Divider()
                     Button("휴지통으로 이동…", systemImage: "trash", role: .destructive) {
-                        showingTrashConfirmation = true
+                        pendingBatchDeleteMode = .moveToTrash
+                    }
+                    Button("영구 삭제 (복구 불가)…", systemImage: "trash.slash.fill", role: .destructive) {
+                        pendingBatchDeleteMode = .permanentlyDelete
                     }
                 }
                 .disabled(selection.isEmpty || isTrashingFiles)
@@ -813,12 +862,13 @@ struct BatchMediaLibraryView: View {
         fileActionMessage = "선택한 영상 \(selectedItems.count)개의 경로를 복사했습니다."
     }
 
-    private func trashSelectedVideos() {
+    private func deleteSelectedVideos(mode: MediaLibrary.VideoDeleteMode) {
         let items = selectedItems
         guard !items.isEmpty, !isTrashingFiles else { return }
         isTrashingFiles = true
         Task {
-            fileActionMessage = await library.trashVideos(items)
+            let outcome = await library.deleteVideos(urls: items.map(\.videoURL), mode: mode)
+            fileActionMessage = outcome.summaryMessage
             selection.removeAll()
             isTrashingFiles = false
         }
