@@ -845,12 +845,20 @@ final class ViewingMultiViewController {
 
 struct ViewingMultiViewWorkspace: View {
     @Environment(AppModel.self) private var model
+    @State private var library = MediaLibrary.shared
     @State private var isDropTargeted = false
     @State private var showClearConfirm = false
 
     private var controller: ViewingMultiViewController { model.multiView }
 
+    private var duplicateFileCount: Int {
+        let urls = controller.tiles.map(\.url) + library.items.map(\.videoURL)
+        return MediaFilenameDeduplicator.filenameDuplicateGroups(for: urls)
+            .reduce(0) { $0 + max(0, $1.urls.count - 1) }
+    }
+
     var body: some View {
+        @Bindable var controller = controller
         VStack(spacing: 0) {
             if !model.isTheaterMode {
                 multiViewToolbar
@@ -874,6 +882,24 @@ struct ViewingMultiViewWorkspace: View {
                         )
                         .frame(width: max(120, canvasSize.width - 12), height: max(100, canvasSize.height - 12))
                         .position(x: canvasSize.width / 2, y: canvasSize.height / 2)
+                    } else if let dualTiles = controller.activeDualFocusTiles {
+                        // 2개만 100% 전체 높이로 나란히 크게 비교하는 뷰
+                        let gap: CGFloat = 8
+                        let paneW = max(140, (canvasSize.width - gap * 3) / 2)
+                        let paneH = max(110, canvasSize.height - gap * 2)
+                        ForEach(Array(dualTiles.enumerated()), id: \.element.id) { pairIdx, tile in
+                            let slotNum = (controller.tiles.firstIndex(where: { $0.id == tile.id }) ?? pairIdx) + 1
+                            let centerX = gap + paneW / 2 + CGFloat(pairIdx) * (paneW + gap)
+                            let centerY = gap + paneH / 2
+                            MultiViewTileCard(
+                                tile: tile,
+                                slotNumber: slotNum,
+                                canvasSize: canvasSize,
+                                isMaximized: true
+                            )
+                            .frame(width: paneW, height: paneH)
+                            .position(x: centerX, y: centerY)
+                        }
                     } else {
                         ForEach(Array(controller.tiles.enumerated()), id: \.element.id) { index, tile in
                             let pixelWidth = max(140, CGFloat(tile.rect.width) * canvasSize.width)
@@ -929,6 +955,13 @@ struct ViewingMultiViewWorkspace: View {
                 .padding(.vertical, 6)
                 .background(.bar)
             }
+        }
+        .sheet(isPresented: $controller.showingDuplicateManager) {
+            MultiViewDuplicateManagerSheet(
+                controller: controller,
+                initialFocusFilenameKey: controller.duplicateFocusFilenameKey
+            )
+            .environment(model)
         }
         .confirmationDialog("멀티 뷰의 모든 영상을 닫을까요?", isPresented: $showClearConfirm, titleVisibility: .visible) {
             Button("모두 닫기", role: .destructive) { controller.clearAll() }
@@ -1077,24 +1110,72 @@ struct ViewingMultiViewWorkspace: View {
             .disabled(controller.tiles.isEmpty)
             .help("프리셋으로 즉시 정렬하거나, 각 화면 상단 바를 드래그해 위치·우하단 핸들로 크기를 자유롭게 조절하세요")
 
-            // 자주 쓰는 2개 프리셋 빠른 버튼
+            // 자주 쓰는 3개 프리셋 빠른 버튼 (자동 격자 · 2개 크게 보기 · 메인 강조)
             Button("자동 격자", systemImage: "rectangle.grid.2x2") {
                 withAnimation(.snappy) { controller.applyPreset(.autoGrid) }
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.bordered)
+            .tint(controller.dualFocusTileIDs == nil && controller.activePreset == .autoGrid ? Color.accentColor : nil)
             .controlSize(.small)
             .disabled(controller.tiles.isEmpty)
             .help("1~8개 자동 격자 정렬")
 
-            Button("메인 강조", systemImage: "rectangle.split.2x1") {
+            Button("2개 크게", systemImage: "rectangle.split.2x1") {
+                withAnimation(.snappy) { controller.applyPreset(.dualSpotlight) }
+            }
+            .buttonStyle(.bordered)
+            .tint(controller.dualFocusTileIDs == nil && controller.activePreset == .dualSpotlight ? Color.accentColor : nil)
+            .controlSize(.small)
+            .disabled(controller.tiles.count < 2)
+            .help("1·2번 영상 2개를 동시에 크게 나란히 배치 (3개 이상일 때는 나머지를 하단 스트립에 표시)")
+
+            if controller.tiles.count >= 3 {
+                Button(
+                    controller.dualFocusTileIDs != nil ? "전체 복귀" : "2개만 꽉 차게",
+                    systemImage: controller.dualFocusTileIDs != nil ? "rectangle.grid.2x2" : "rectangle.split.2x1.fill"
+                ) {
+                    withAnimation(.snappy) { controller.toggleDualFullCompare() }
+                }
+                .buttonStyle(.bordered)
+                .tint(controller.dualFocusTileIDs != nil ? Color.accentColor : nil)
+                .controlSize(.small)
+                .help(controller.dualFocusTileIDs != nil ? "숨겨둔 나머지 멀티뷰 화면으로 복귀" : "3개 이상 열려 있을 때도 선택한 2개만 화면 100% 높이로 나란히 비교")
+            }
+
+            Button("메인 강조", systemImage: "rectangle.leadinghalf.inset.filled") {
                 withAnimation(.snappy) { controller.applyPreset(.spotlight) }
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.bordered)
+            .tint(controller.dualFocusTileIDs == nil && controller.activePreset == .spotlight ? Color.accentColor : nil)
             .controlSize(.small)
             .disabled(controller.tiles.count < 2)
             .help("1번 영상을 크게, 나머지를 보조 화면으로 배치")
+
+            Divider().frame(height: 18)
+
+            // 중복 파일 검토 · 휴지통 이동 · 영구 삭제
+            Button {
+                controller.openDuplicateManager(focusing: nil)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "doc.on.doc")
+                    Text("중복 정리")
+                    if duplicateFileCount > 0 {
+                        Text("\(duplicateFileCount)")
+                            .font(.caption2.weight(.bold).monospacedDigit())
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.orange.opacity(0.22), in: Capsule())
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(controller.tiles.isEmpty && library.items.isEmpty)
+            .help("멀티뷰 및 라이브러리의 중복 영상(같은 이름 · 동일 내용)을 비교하고 휴지통 이동 또는 디스크에서 영구 삭제")
 
             Spacer(minLength: 4)
 
@@ -1177,11 +1258,20 @@ private struct MultiViewTileCard: View {
     @State private var moveStartRect: MultiViewNormalizedRect?
     @State private var resizeStartRect: MultiViewNormalizedRect?
     @State private var scrubbingTime: TimeInterval?
+    @State private var pendingDeleteMode: MediaLibrary.VideoDeleteMode?
+    @State private var isDeletingFile = false
 
     private var controller: ViewingMultiViewController { model.multiView }
     private var isSelected: Bool { controller.selectedTileID == tile.id }
     private var showChrome: Bool {
         controller.alwaysShowTileControls || isHovering || isSelected || moveStartRect != nil || resizeStartRect != nil
+    }
+    private var duplicateCount: Int {
+        controller.sameFilenameCount(for: tile.url)
+    }
+    private var tileFileSizeText: String {
+        let size = (try? tile.url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+        return size > 0 ? ByteCountFormatter.string(fromByteCount: size, countStyle: .file) : ""
     }
 
     var body: some View {
@@ -1275,12 +1365,24 @@ private struct MultiViewTileCard: View {
             }
             .disabled(!FFmpegToolLocator.isAvailable)
             Divider()
-            Button("메인 화면으로 강조", systemImage: "rectangle.split.2x1") {
+            Button("2개 크게 보기 · 왼쪽(#1)에 배치", systemImage: "rectangle.lefthalf.filled") {
+                withAnimation(.snappy) { controller.promoteToDualSlot(tile.id, slot: 0) }
+            }
+            .disabled(controller.tiles.count < 2)
+            Button("2개 크게 보기 · 오른쪽(#2)에 배치", systemImage: "rectangle.righthalf.filled") {
+                withAnimation(.snappy) { controller.promoteToDualSlot(tile.id, slot: 1) }
+            }
+            .disabled(controller.tiles.count < 2)
+            Button("메인 화면으로 강조", systemImage: "rectangle.leadinghalf.inset.filled") {
                 withAnimation(.snappy) { controller.promoteToMain(tile.id) }
             }
             Button(isMaximized ? "원래 크기로 복귀" : "이 영상만 크게 보기", systemImage: isMaximized ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right") {
                 withAnimation(.snappy) {
-                    controller.maximizedTileID = isMaximized ? nil : tile.id
+                    if controller.dualFocusTileIDs != nil {
+                        controller.dualFocusTileIDs = nil
+                    } else {
+                        controller.maximizedTileID = isMaximized ? nil : tile.id
+                    }
                 }
             }
             Button(tile.fillsFrame ? "원본 비율 맞춤" : "화면 꽉 채우기", systemImage: "aspectratio") {
@@ -1298,10 +1400,62 @@ private struct MultiViewTileCard: View {
             Button("다른 영상으로 교체…", systemImage: "arrow.triangle.2.circlepath") {
                 controller.replaceVideoWithPanel(tileID: tile.id)
             }
+            Button("Finder에서 파일 보기", systemImage: "finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([tile.url])
+            }
+            if duplicateCount > 1 {
+                Button("중복 파일 비교 · 정리 (\(duplicateCount)개)…", systemImage: "doc.on.doc") {
+                    controller.openDuplicateManager(focusing: tile.url)
+                }
+            }
             Divider()
-            Button("슬롯 닫기", systemImage: "xmark", role: .destructive) {
+            Button("슬롯만 닫기", systemImage: "xmark") {
                 withAnimation(.snappy) { controller.removeTile(tile.id) }
             }
+            Button("파일 휴지통으로 이동…", systemImage: "trash", role: .destructive) {
+                pendingDeleteMode = .moveToTrash
+            }
+            .disabled(isDeletingFile || AppModel.videoIsBeingProcessed(tile.url))
+            Button("파일 영구 삭제 (복구 불가)…", systemImage: "trash.slash.fill", role: .destructive) {
+                pendingDeleteMode = .permanentlyDelete
+            }
+            .disabled(isDeletingFile || AppModel.videoIsBeingProcessed(tile.url))
+        }
+        .confirmationDialog(
+            pendingDeleteMode == .permanentlyDelete
+                ? "이 영상 파일을 디스크에서 영구 삭제할까요?"
+                : "이 영상 파일을 휴지통으로 이동할까요?",
+            isPresented: Binding(
+                get: { pendingDeleteMode != nil },
+                set: { if !$0 { pendingDeleteMode = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingDeleteMode
+        ) { mode in
+            Button(
+                mode == .permanentlyDelete ? "디스크에서 영구 삭제" : "휴지통으로 이동",
+                role: .destructive
+            ) {
+                deleteCurrentTileFile(mode: mode)
+            }
+            Button("취소", role: .cancel) {}
+        } message: { mode in
+            let sizeInfo = tileFileSizeText.isEmpty ? "" : " (\(tileFileSizeText))"
+            if mode == .permanentlyDelete {
+                Text("\(tile.url.path(percentEncoded: false))\(sizeInfo)\n\n휴지통을 거치지 않고 파일 시스템에서 즉시 영구 삭제됩니다. 이 작업은 되돌릴 수 없습니다.")
+            } else {
+                Text("\(tile.url.path(percentEncoded: false))\(sizeInfo)\n\n멀티뷰에서 닫히고 파일이 Finder의 휴지통으로 이동합니다. 휴지통에서 복구할 수 있습니다.")
+            }
+        }
+    }
+
+    private func deleteCurrentTileFile(mode: MediaLibrary.VideoDeleteMode) {
+        guard !isDeletingFile else { return }
+        let targetURL = tile.url
+        isDeletingFile = true
+        Task {
+            defer { isDeletingFile = false }
+            _ = await controller.deleteVideoFiles(urls: [targetURL], mode: mode)
         }
     }
 
@@ -1330,6 +1484,20 @@ private struct MultiViewTileCard: View {
                         .background(Color.green.opacity(0.8), in: Capsule())
                         .foregroundStyle(.white)
                         .help("FFmpeg VideoToolbox 호환 스트림 활성 · \(tile.compatibilityAssessment?.summary ?? "타임스탬프·코덱 보정 중")")
+                }
+                if duplicateCount > 1 {
+                    Button {
+                        controller.openDuplicateManager(focusing: tile.url)
+                    } label: {
+                        Text("중복 \(duplicateCount)")
+                            .font(.caption2.weight(.semibold).monospacedDigit())
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.orange.opacity(0.85), in: Capsule())
+                            .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+                    .help("같은 이름의 영상이 \(duplicateCount)개 있습니다. 클릭해 비교하고 정리하세요.")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
