@@ -177,22 +177,90 @@ final class MediaLibrary {
         NSWorkspace.shared.activateFileViewerSelecting(urls)
     }
 
+    enum VideoDeleteMode: Sendable, Equatable {
+        case moveToTrash
+        case permanentlyDelete
+
+        var actionTitle: String {
+            switch self {
+            case .moveToTrash: "휴지통으로 이동"
+            case .permanentlyDelete: "영구 삭제"
+            }
+        }
+    }
+
+    struct VideoDeletionOutcome: Sendable {
+        let deletedURLs: [URL]
+        let failed: [String]
+        let mode: VideoDeleteMode
+
+        var deletedCount: Int { deletedURLs.count }
+
+        var summaryMessage: String {
+            let verb = mode == .permanentlyDelete ? "디스크에서 영구 삭제했습니다" : "휴지통으로 이동했습니다"
+            if failed.isEmpty {
+                return "영상 \(deletedCount)개를 \(verb)."
+            }
+            let prefix = deletedCount > 0 ? "영상 \(deletedCount)개 처리 · " : ""
+            return "\(prefix)실패 \(failed.count)개: \(failed.prefix(3).joined(separator: ", "))"
+        }
+    }
+
     func isMovingVideo(_ url: URL) -> Bool {
         movingVideoPaths.contains(url.standardizedFileURL.path(percentEncoded: false))
     }
 
     func trashVideos(_ items: [MediaLibraryItem]) async -> String {
-        let urls = items.map(\.videoURL)
-        guard !urls.isEmpty else { return "휴지통으로 이동할 영상이 없습니다." }
-        let paths = Set(urls.map { $0.standardizedFileURL.path(percentEncoded: false) })
-        guard movingVideoPaths.isDisjoint(with: paths) else { return "이미 휴지통으로 이동 중인 영상입니다." }
+        let outcome = await deleteVideos(urls: items.map(\.videoURL), mode: .moveToTrash)
+        return outcome.summaryMessage
+    }
+
+    /// 영상 파일을 휴지통으로 이동하거나 디스크에서 즉시 영구 삭제합니다.
+    /// 삭제 전 열려 있는 플레이어·멀티뷰·호환 스트림 세션을 먼저 해제해 외장 디스크(ExFAT 등)에서도 안전하게 정리합니다.
+    func deleteVideos(urls rawURLs: [URL], mode: VideoDeleteMode) async -> VideoDeletionOutcome {
+        var uniqueByPath: [String: URL] = [:]
+        for url in rawURLs {
+            let std = url.standardizedFileURL
+            uniqueByPath[std.path(percentEncoded: false)] = std
+        }
+        let uniqueURLs = Array(uniqueByPath.values)
+        guard !uniqueURLs.isEmpty else {
+            return VideoDeletionOutcome(deletedURLs: [], failed: ["삭제할 영상이 없습니다."], mode: mode)
+        }
+
+        let paths = Set(uniqueByPath.keys)
+        guard movingVideoPaths.isDisjoint(with: paths) else {
+            return VideoDeletionOutcome(deletedURLs: [], failed: ["이미 삭제 작업이 진행 중인 영상이 포함되어 있습니다."], mode: mode)
+        }
+
+        var deletableURLs: [URL] = []
+        var preFailed: [String] = []
+        for url in uniqueURLs {
+            if AppModel.videoIsBeingProcessed(url) {
+                preFailed.append("\(url.lastPathComponent): 번역 처리 중")
+            } else {
+                deletableURLs.append(url)
+            }
+        }
+        guard !deletableURLs.isEmpty else {
+            return VideoDeletionOutcome(deletedURLs: [], failed: preFailed, mode: mode)
+        }
+
         movingVideoPaths.formUnion(paths)
         defer { movingVideoPaths.subtract(paths) }
+
+        // 파일 디스크립터 및 FFmpeg 호환 프록시 세션을 삭제 전에 먼저 해제합니다.
+        for url in deletableURLs {
+            AppModel.releaseDeletedVideo(url)
+        }
+
+        let targetURLs = deletableURLs
         let result = await Task.detached(priority: .userInitiated) {
-            var removed = 0
+            var deletedURLs: [URL] = []
             var removedPaths: Set<String> = []
             var failed: [String] = []
-            for url in urls {
+            let fm = FileManager.default
+            for url in targetURLs {
                 do {
                     let accessed = url.startAccessingSecurityScopedResource()
                     defer { if accessed { url.stopAccessingSecurityScopedResource() } }
@@ -200,19 +268,30 @@ final class MediaLibrary {
                     guard values.isRegularFile == true, values.isSymbolicLink != true else {
                         throw CocoaError(.fileWriteNoPermission)
                     }
-                    try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-                    removed += 1
+                    switch mode {
+                    case .moveToTrash:
+                        try fm.trashItem(at: url, resultingItemURL: nil)
+                    case .permanentlyDelete:
+                        try fm.removeItem(at: url)
+                    }
+                    deletedURLs.append(url)
                     removedPaths.insert(url.standardizedFileURL.path(percentEncoded: false))
                 } catch {
                     failed.append("\(url.lastPathComponent): \(error.localizedDescription)")
                 }
             }
-            return (removed: removed, failed: failed, removedPaths: removedPaths)
+            return (deletedURLs: deletedURLs, failed: failed, removedPaths: removedPaths)
         }.value
-        self.items.removeAll { result.removedPaths.contains($0.id) }
-        refresh()
-        if result.failed.isEmpty { return "영상 \(result.removed)개를 휴지통으로 이동했습니다." }
-        return "영상 \(result.removed)개 이동 · 실패 \(result.failed.count)개: \(result.failed.prefix(3).joined(separator: ", "))"
+
+        if !result.removedPaths.isEmpty {
+            self.items.removeAll { result.removedPaths.contains($0.id) }
+            refresh()
+        }
+        return VideoDeletionOutcome(
+            deletedURLs: result.deletedURLs,
+            failed: preFailed + result.failed,
+            mode: mode
+        )
     }
 
     func revealResults(_ item: MediaLibraryItem) {

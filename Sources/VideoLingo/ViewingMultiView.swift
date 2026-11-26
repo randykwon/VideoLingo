@@ -139,7 +139,8 @@ final class MultiViewTileModel: Identifiable {
                 let clamped = max(0, sec)
                 self.currentTime = clamped
                 self.updateActiveSubtitle(at: clamped)
-                let running = self.player.rate != 0
+                // HLS 버퍼링 중에는 rate가 잠시 0일 수 있으므로 timeControlStatus != .paused로 재생 의도를 유지합니다.
+                let running = self.player.timeControlStatus != .paused
                 if self.isPlaying != running { self.isPlaying = running }
                 if self.duration <= 0,
                    let itemDuration = self.player.currentItem?.duration.seconds,
@@ -158,8 +159,7 @@ final class MultiViewTileModel: Identifiable {
                 guard let self else { return }
                 if self.isLooping {
                     self.player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
-                    self.player.playImmediately(atRate: self.playbackRate)
-                    self.isPlaying = true
+                    self.play()
                 } else {
                     self.isPlaying = false
                 }
@@ -223,8 +223,8 @@ final class MultiViewTileModel: Identifiable {
 
     private func activateCompatibilityStream(using assessment: VideoCompatibilityAssessment) {
         let resumeTime = currentTime
-        let wasPlaying = isPlaying || player.rate != 0
-        releaseCompatibilitySession()
+        let wasPlaying = isPlaying || player.timeControlStatus != .paused
+        releaseCompatibilitySession(cancelCheckTask: false)
         guard let session = try? LocalCodecStreamProxy.shared.openSession(for: self.url, assessment: assessment) else {
             return
         }
@@ -236,9 +236,11 @@ final class MultiViewTileModel: Identifiable {
         installPlayerItem(url: session.playlistURL, startTime: resumeTime, autoPlay: wasPlaying)
     }
 
-    private func releaseCompatibilitySession() {
-        compatibilityCheckTask?.cancel()
-        compatibilityCheckTask = nil
+    private func releaseCompatibilitySession(cancelCheckTask: Bool = true) {
+        if cancelCheckTask {
+            compatibilityCheckTask?.cancel()
+            compatibilityCheckTask = nil
+        }
         if let id = compatibilitySessionID {
             LocalCodecStreamProxy.shared.releaseSession(id)
             compatibilitySessionID = nil
@@ -246,7 +248,14 @@ final class MultiViewTileModel: Identifiable {
     }
 
     func play() {
-        player.playImmediately(atRate: playbackRate)
+        player.automaticallyWaitsToMinimizeStalling = true
+        player.defaultRate = playbackRate
+        if isUsingCompatibilityStream {
+            // HLS 온디맨드 스트림은 첫 세그먼트 버퍼링을 기다리도록 play()를 사용해야 멈추지 않습니다.
+            player.play()
+        } else {
+            player.playImmediately(atRate: playbackRate)
+        }
         isPlaying = true
     }
 
@@ -440,6 +449,8 @@ final class ViewingMultiViewController {
     var activePreset: MultiViewLayoutPreset = .autoGrid
     var selectedTileID: UUID?
     var maximizedTileID: UUID?
+    /// 3개 이상 열려 있을 때도 선택한 2개 영상만 캔버스 100% 높이로 나란히 크게 비교하는 모드입니다.
+    var dualFocusTileIDs: [UUID]?
     var alwaysShowTileControls = true
     var autoArrangeOnCountChange = true
     /// 멀티 뷰 전체 자막 표시 여부 (추가/제외 토글)
@@ -449,6 +460,9 @@ final class ViewingMultiViewController {
     /// 멀티 뷰 자막 언어 코드 (비어 있으면 원문 STT만 표시)
     var subtitleLanguage: String = UserDefaults.standard.string(forKey: "selectedLanguage") ?? "ko"
     var statusBanner: String?
+    /// 타일/툴바에서 중복 정리 시트를 열기 위한 트리거
+    var showingDuplicateManager = false
+    var duplicateFocusFilenameKey: String?
 
     @ObservationIgnored private var nextZIndex: Double = 1
 
@@ -590,6 +604,10 @@ final class ViewingMultiViewController {
         let removed = tiles.remove(at: idx)
         removed.teardown()
         if maximizedTileID == id { maximizedTileID = nil }
+        if var dual = dualFocusTileIDs {
+            dual.removeAll { $0 == id }
+            dualFocusTileIDs = dual.count >= 2 ? Array(dual.prefix(2)) : nil
+        }
         if selectedTileID == id { selectedTileID = tiles.last?.id }
         if autoArrangeOnCountChange && !tiles.isEmpty {
             applyPreset(activePreset, resetAutoArrange: false)
@@ -602,6 +620,7 @@ final class ViewingMultiViewController {
         tiles.removeAll()
         selectedTileID = nil
         maximizedTileID = nil
+        dualFocusTileIDs = nil
         statusBanner = nil
     }
 
@@ -611,6 +630,7 @@ final class ViewingMultiViewController {
             autoArrangeOnCountChange = true
         }
         maximizedTileID = nil
+        dualFocusTileIDs = nil
         let rects = MultiViewLayoutEngine.rects(for: tiles.count, preset: preset)
         for (idx, tile) in tiles.enumerated() where idx < rects.count {
             tile.rect = rects[idx]
@@ -634,6 +654,115 @@ final class ViewingMultiViewController {
         }
         applyPreset(.spotlight)
         bringToFront(id)
+    }
+
+    /// 선택한 영상을 2개 크게 보기(왼쪽 #1 또는 오른쪽 #2) 슬롯으로 배치합니다.
+    func promoteToDualSlot(_ id: UUID, slot: Int) {
+        let clampedSlot = min(1, max(0, slot))
+        guard tiles.count >= 2, let idx = tiles.firstIndex(where: { $0.id == id }) else {
+            applyPreset(.dualSpotlight)
+            return
+        }
+        if idx != clampedSlot {
+            tiles.swapAt(clampedSlot, idx)
+        }
+        if dualFocusTileIDs != nil {
+            dualFocusTileIDs = [tiles[0].id, tiles[1].id]
+        } else {
+            applyPreset(.dualSpotlight)
+        }
+        bringToFront(id)
+    }
+
+    /// 3개 이상 열려 있을 때 2개 영상만 100% 화면 높이로 나란히 크게 비교하거나 전체 보기로 복귀합니다.
+    func toggleDualFullCompare() {
+        if dualFocusTileIDs != nil {
+            dualFocusTileIDs = nil
+            return
+        }
+        guard tiles.count >= 2 else { return }
+        maximizedTileID = nil
+        // 선택된 타일이 있으면 그 타일을 우선 포함해 2개를 구성합니다.
+        if let selectedID = selectedTileID,
+           let selectedTile = tiles.first(where: { $0.id == selectedID }),
+           let companion = tiles.first(where: { $0.id != selectedID }) {
+            dualFocusTileIDs = [selectedTile.id, companion.id]
+        } else {
+            dualFocusTileIDs = [tiles[0].id, tiles[1].id]
+        }
+    }
+
+    var activeDualFocusTiles: [MultiViewTileModel]? {
+        guard let ids = dualFocusTileIDs, ids.count == 2 else { return nil }
+        let matched = ids.compactMap { id in tiles.first(where: { $0.id == id }) }
+        return matched.count == 2 ? matched : nil
+    }
+
+    /// 중복 비교용으로 선택한 영상 묶음을 멀티뷰에 올리고 2개 크게 보기 배치로 즉시 전환합니다.
+    func openForDualComparison(_ urls: [URL]) {
+        let targets = urls.map(\.standardizedFileURL)
+        guard !targets.isEmpty else { return }
+        // 이미 열려 있지 않은 항목이 슬롯 한도를 넘으면 앞 2개 우선 열기
+        var prioritized: [URL] = []
+        for u in targets {
+            if !prioritized.contains(u) { prioritized.append(u) }
+        }
+        // 자리가 부족하면 첫 2개를 넣을 수 있도록 기존 비대상 슬롯을 정리하지 않고 안내만 하거나 여유분만큼 추가
+        if !canAddMore {
+            let needed = prioritized.prefix(2).filter { !contains(url: $0) }.count
+            if needed > 0 {
+                // 가장 오래된(마지막) 비대상 슬롯을 닫아 비교 공간 확보
+                let targetSet = Set(prioritized.prefix(2))
+                for _ in 0..<needed {
+                    if let victim = tiles.last(where: { !targetSet.contains($0.url) }) {
+                        removeTile(victim.id)
+                    }
+                }
+            }
+        }
+        addVideos(Array(prioritized.prefix(Self.maxTiles)), autoPlay: true)
+        let matchingTiles = prioritized.compactMap { url in tiles.first(where: { $0.url == url }) }
+        if matchingTiles.count >= 2 {
+            // 1번·2번 위치로 올려 두 영상을 나란히 크게 배치합니다.
+            if let idx0 = tiles.firstIndex(where: { $0.id == matchingTiles[0].id }), idx0 != 0 {
+                tiles.swapAt(0, idx0)
+            }
+            if let idx1 = tiles.firstIndex(where: { $0.id == matchingTiles[1].id }), idx1 != 1 {
+                tiles.swapAt(1, idx1)
+            }
+            applyPreset(.dualSpotlight)
+            if tiles.count > 2 {
+                dualFocusTileIDs = [tiles[0].id, tiles[1].id]
+            }
+        } else {
+            applyPreset(.dualSpotlight)
+        }
+    }
+
+    /// 지정한 영상 URL을 휴지통으로 이동하거나 디스크에서 영구 삭제하고 상태 배너를 갱신합니다.
+    func deleteVideoFiles(urls: [URL], mode: MediaLibrary.VideoDeleteMode) async -> MediaLibrary.VideoDeletionOutcome {
+        let outcome = await MediaLibrary.shared.deleteVideos(urls: urls, mode: mode)
+        statusBanner = outcome.summaryMessage
+        return outcome
+    }
+
+    /// 현재 열린 멀티뷰 타일 + 라이브러리에서 같은 파일명을 가진 파일 수(자신 포함)를 반환합니다.
+    func sameFilenameCount(for url: URL) -> Int {
+        let key = MediaFilenameDeduplicator.canonicalFilenameKey(for: url)
+        var uniquePaths = Set<String>()
+        uniquePaths.insert(url.standardizedFileURL.path(percentEncoded: false))
+        for tile in tiles where MediaFilenameDeduplicator.canonicalFilenameKey(for: tile.url) == key {
+            uniquePaths.insert(tile.url.standardizedFileURL.path(percentEncoded: false))
+        }
+        for item in MediaLibrary.shared.items where MediaFilenameDeduplicator.canonicalFilenameKey(for: item.videoURL) == key {
+            uniquePaths.insert(item.videoURL.standardizedFileURL.path(percentEncoded: false))
+        }
+        return uniquePaths.count
+    }
+
+    func openDuplicateManager(focusing url: URL? = nil) {
+        duplicateFocusFilenameKey = url.map { MediaFilenameDeduplicator.canonicalFilenameKey(for: $0) }
+        showingDuplicateManager = true
     }
 
     func moveTileOrder(_ id: UUID, offset: Int) {
