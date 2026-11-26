@@ -289,14 +289,72 @@ final class LocalCodecStreamProxy: @unchecked Sendable {
         return boundPort
     }
 
+    /// 동시 FFmpeg 세그먼트 인코딩 수를 제한해 멀티뷰(최대 8개)에서도 VideoToolbox/디스크 경합으로 멈추지 않게 합니다.
+    private actor RenderConcurrencyGate {
+        private let limit: Int
+        private var active = 0
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+
+        init(limit: Int) {
+            self.limit = max(1, limit)
+        }
+
+        func acquire() async {
+            if active < limit {
+                active += 1
+                return
+            }
+            await withCheckedContinuation { continuation in
+                waiters.append(continuation)
+            }
+        }
+
+        func release() {
+            if !waiters.isEmpty {
+                let next = waiters.removeFirst()
+                next.resume()
+            } else {
+                active = max(0, active - 1)
+            }
+        }
+    }
+
+    private static let renderGate = RenderConcurrencyGate(limit: 3)
+
     private func handleConnection(_ connection: NWConnection) {
         connection.start(queue: queue)
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) { [weak self] data, _, _, error in
-            guard let self, error == nil, let data, let requestText = String(data: data, encoding: .utf8) else {
+        receiveHTTPRequest(on: connection, buffer: Data())
+    }
+
+    private func receiveHTTPRequest(on connection: NWConnection, buffer: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) { [weak self] data, _, isComplete, error in
+            guard let self else {
                 connection.cancel()
                 return
             }
-            let firstLine = requestText.split(separator: "\r\n", maxSplits: 1).first ?? ""
+            if error != nil {
+                connection.cancel()
+                return
+            }
+            var accumulated = buffer
+            if let data, !data.isEmpty {
+                accumulated.append(data)
+            }
+            let headerDelimiter = Data("\r\n\r\n".utf8)
+            let hasCompleteHeaders = accumulated.range(of: headerDelimiter) != nil
+            if !hasCompleteHeaders && !isComplete && accumulated.count < 32_768 {
+                self.receiveHTTPRequest(on: connection, buffer: accumulated)
+                return
+            }
+            guard let requestText = String(data: accumulated, encoding: .utf8), !requestText.isEmpty else {
+                connection.cancel()
+                return
+            }
+            let lines = requestText.components(separatedBy: "\r\n")
+            guard let firstLine = lines.first else {
+                self.sendResponse(connection, status: "400 Bad Request", contentType: "text/plain", body: Data())
+                return
+            }
             let parts = firstLine.split(separator: " ")
             guard parts.count >= 2 else {
                 self.sendResponse(connection, status: "400 Bad Request", contentType: "text/plain", body: Data())
@@ -305,14 +363,22 @@ final class LocalCodecStreamProxy: @unchecked Sendable {
             let method = String(parts[0]).uppercased()
             let path = String(parts[1]).split(separator: "?", maxSplits: 1).first.map(String.init) ?? ""
             let isHead = (method == "HEAD")
+            var rangeHeader: String?
+            for line in lines.dropFirst() {
+                if line.isEmpty { break }
+                if line.lowercased().hasPrefix("range:") {
+                    rangeHeader = line.dropFirst("range:".count).trimmingCharacters(in: .whitespaces)
+                    break
+                }
+            }
 
             Task.detached(priority: .userInitiated) {
-                await self.route(path: path, headOnly: isHead, connection: connection)
+                await self.route(path: path, headOnly: isHead, rangeHeader: rangeHeader, connection: connection)
             }
         }
     }
 
-    private func route(path: String, headOnly: Bool, connection: NWConnection) async {
+    private func route(path: String, headOnly: Bool, rangeHeader: String?, connection: NWConnection) async {
         // /hls/<sessionID>/index.m3u8 또는 /hls/<sessionID>/seg_<N>.ts
         let comps = path.split(separator: "/").map(String.init)
         guard comps.count == 3, comps[0] == "hls" else {
@@ -333,12 +399,12 @@ final class LocalCodecStreamProxy: @unchecked Sendable {
                 segmentDuration: state.segmentDuration
             )
             let body = Data(playlist.utf8)
-            sendResponse(
+            sendDataResponse(
                 connection,
-                status: "200 OK",
                 contentType: "application/vnd.apple.mpegurl",
-                body: headOnly ? Data() : body,
-                contentLengthOverride: body.count
+                fullData: body,
+                headOnly: headOnly,
+                rangeHeader: rangeHeader
             )
             return
         }
@@ -356,12 +422,12 @@ final class LocalCodecStreamProxy: @unchecked Sendable {
             }
             do {
                 let tsData = try await fetchOrRenderSegment(sessionID: sessionID, index: index)
-                sendResponse(
+                sendDataResponse(
                     connection,
-                    status: "200 OK",
                     contentType: "video/mp2t",
-                    body: headOnly ? Data() : tsData,
-                    contentLengthOverride: tsData.count
+                    fullData: tsData,
+                    headOnly: headOnly,
+                    rangeHeader: rangeHeader
                 )
                 // 다음 세그먼트를 백그라운드에서 미리 준비해 재생 경계 지연을 없앱니다.
                 prefetchSegmentIfValid(sessionID: sessionID, index: index + 1)
@@ -454,6 +520,10 @@ final class LocalCodecStreamProxy: @unchecked Sendable {
             throw VideoLingoError.invalidPayload
         }
 
+        await renderGate.acquire()
+        defer { Task { await renderGate.release() } }
+        try Task.checkCancellation()
+
         let tempFile = FileManager.default.temporaryDirectory
             .appending(path: "vl-hls-\(UUID().uuidString).ts")
         defer { try? FileManager.default.removeItem(at: tempFile) }
@@ -471,6 +541,7 @@ final class LocalCodecStreamProxy: @unchecked Sendable {
             "-vf", filterChain,
             "-c:v", "h264_videotoolbox",
             "-b:v", "\(targetBitrateK)k",
+            "-bf", "0",
             "-allow_sw", "1"
         ]
         if assessment.info.hasAudio {
@@ -492,30 +563,42 @@ final class LocalCodecStreamProxy: @unchecked Sendable {
         ]
 
         try await runProcess(executable: ffmpeg, arguments: args)
-        return try Data(contentsOf: tempFile)
+        let rendered = try Data(contentsOf: tempFile)
+        guard !rendered.isEmpty else {
+            throw VideoLingoError.modelUnavailable("ffmpeg가 빈 세그먼트를 생성했습니다.")
+        }
+        return rendered
     }
 
     private static func runProcess(executable: URL, arguments: [String]) async throws {
         final class ProcBox: @unchecked Sendable {
             let process: Process
-            init(_ p: Process) { self.process = p }
+            let errPipe: Pipe
+            init(_ p: Process, errPipe: Pipe) {
+                self.process = p
+                self.errPipe = errPipe
+            }
         }
         let proc = Process()
+        let errPipe = Pipe()
         proc.executableURL = executable
         proc.arguments = arguments
         proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = FileHandle.nullDevice
-        let box = ProcBox(proc)
+        proc.standardError = errPipe
+        let box = ProcBox(proc, errPipe: errPipe)
 
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 box.process.terminationHandler = { finished in
+                    let stderrText = String(data: box.errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     if finished.terminationStatus == 0 {
                         continuation.resume()
                     } else if finished.terminationReason == .uncaughtSignal {
                         continuation.resume(throwing: CancellationError())
                     } else {
-                        continuation.resume(throwing: VideoLingoError.modelUnavailable("ffmpeg 세그먼트 변환 실패 (코드 \(finished.terminationStatus))"))
+                        let detail = stderrText.isEmpty ? "코드 \(finished.terminationStatus)" : stderrText
+                        continuation.resume(throwing: VideoLingoError.modelUnavailable("ffmpeg 세그먼트 변환 실패 (\(detail))"))
                     }
                 }
                 do {
@@ -529,19 +612,86 @@ final class LocalCodecStreamProxy: @unchecked Sendable {
         }
     }
 
+    private func sendDataResponse(
+        _ connection: NWConnection,
+        contentType: String,
+        fullData: Data,
+        headOnly: Bool,
+        rangeHeader: String?
+    ) {
+        if let rangeHeader, let byteRange = Self.parseByteRange(rangeHeader, totalLength: fullData.count) {
+            let slice = headOnly ? Data() : fullData.subdata(in: byteRange.lowerBound..<(byteRange.upperBound + 1))
+            let sliceLength = byteRange.upperBound - byteRange.lowerBound + 1
+            sendResponse(
+                connection,
+                status: "206 Partial Content",
+                contentType: contentType,
+                body: slice,
+                contentLengthOverride: sliceLength,
+                extraHeaders: ["Content-Range: bytes \(byteRange.lowerBound)-\(byteRange.upperBound)/\(fullData.count)"]
+            )
+            return
+        }
+        sendResponse(
+            connection,
+            status: "200 OK",
+            contentType: contentType,
+            body: headOnly ? Data() : fullData,
+            contentLengthOverride: fullData.count
+        )
+    }
+
+    private static func parseByteRange(_ header: String, totalLength: Int) -> ClosedRange<Int>? {
+        guard totalLength > 0 else { return nil }
+        let trimmed = header.trimmingCharacters(in: .whitespaces).lowercased()
+        guard trimmed.hasPrefix("bytes=") else { return nil }
+        let spec = trimmed.dropFirst("bytes=".count).split(separator: ",", maxSplits: 1).first.map(String.init) ?? ""
+        let bounds = spec.split(separator: "-", omittingEmptySubsequences: false).map(String.init)
+        guard bounds.count == 2 else { return nil }
+        if bounds[0].isEmpty, let suffix = Int(bounds[1]), suffix > 0 {
+            let start = max(0, totalLength - suffix)
+            return start...(totalLength - 1)
+        }
+        guard let start = Int(bounds[0]), start >= 0, start < totalLength else { return nil }
+        let end: Int
+        if bounds[1].isEmpty {
+            end = totalLength - 1
+        } else if let parsedEnd = Int(bounds[1]), parsedEnd >= start {
+            end = min(totalLength - 1, parsedEnd)
+        } else {
+            return nil
+        }
+        return start...end
+    }
+
     private func sendResponse(
         _ connection: NWConnection,
         status: String,
         contentType: String,
         body: Data,
-        contentLengthOverride: Int? = nil
+        contentLengthOverride: Int? = nil,
+        extraHeaders: [String] = []
     ) {
         let length = contentLengthOverride ?? body.count
-        let header = "HTTP/1.1 \(status)\r\nContent-Type: \(contentType)\r\nContent-Length: \(length)\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
+        var headerLines = [
+            "HTTP/1.1 \(status)",
+            "Content-Type: \(contentType)",
+            "Content-Length: \(length)",
+            "Accept-Ranges: bytes",
+            "Cache-Control: no-cache",
+            "Connection: close"
+        ]
+        headerLines.append(contentsOf: extraHeaders)
+        let header = headerLines.joined(separator: "\r\n") + "\r\n\r\n"
         var payload = Data(header.utf8)
         payload.append(body)
-        connection.send(content: payload, completion: .contentProcessed { _ in
-            connection.cancel()
-        })
+        // connection.cancel()은 TCP RST를 보내 대용량 .ts 세그먼트 수신 중 AVPlayer가 멈출 수 있으므로
+        // 반드시 .finalMessage + isComplete: true로 정상 TCP FIN을 전송합니다.
+        connection.send(
+            content: payload,
+            contentContext: .finalMessage,
+            isComplete: true,
+            completion: .contentProcessed { _ in }
+        )
     }
 }

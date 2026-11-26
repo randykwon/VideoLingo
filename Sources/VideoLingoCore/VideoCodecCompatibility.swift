@@ -157,12 +157,17 @@ public enum VideoCodecCompatibilityAdvisor {
             "#EXTM3U",
             "#EXT-X-VERSION:3",
             "#EXT-X-PLAYLIST-TYPE:VOD",
+            "#EXT-X-INDEPENDENT-SEGMENTS",
             "#EXT-X-TARGETDURATION:\(targetDuration)",
             "#EXT-X-MEDIA-SEQUENCE:0"
         ]
         for index in 0..<count {
             let start = Double(index) * safeSeg
             let remaining = max(0.25, min(safeSeg, safeDuration - start))
+            if index > 0 {
+                // 각 세그먼트가 독립된 FFmpeg 호출로 인코딩되므로 세그먼트 경계의 PCR/AAC 프라이밍 리셋을 AVPlayer에 명시합니다.
+                lines.append("#EXT-X-DISCONTINUITY")
+            }
             lines.append(String(format: "#EXTINF:%.3f,", remaining))
             lines.append("\(segmentURLPrefix)seg_\(index).ts")
         }

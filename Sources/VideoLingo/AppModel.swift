@@ -123,7 +123,8 @@ final class AppModel {
         guard let item = player.currentItem else { return }
         let settings = videoAppearance
         let context = Self.playbackImageContext
-        if !videoAppearanceEnabled || settings == VideoAppearance() {
+        // HLS 호환 스트림은 AVVideoComposition을 지원하지 않으며 적용 시 재생이 멈출 수 있습니다.
+        if isUsingCompatibilityStream || !videoAppearanceEnabled || settings == VideoAppearance() {
             item.videoComposition = nil
         } else {
             item.videoComposition = AVVideoComposition(asset: item.asset, applyingCIFiltersWithHandler: { request in
@@ -750,6 +751,9 @@ final class AppModel {
                 model.multiView.removeTile(tile.id)
             }
             guard model.mediaURL?.standardizedFileURL == target else { continue }
+            model.releaseCompatibilitySession()
+            model.isUsingCompatibilityStream = false
+            model.compatibilityAssessment = nil
             model.player.pause()
             model.player.replaceCurrentItem(with: nil)
             model.videoOutput = nil
@@ -1175,8 +1179,8 @@ final class AppModel {
 
     private func activateCompatibilityStream(for url: URL, using assessment: VideoCompatibilityAssessment) {
         let resumeTime = currentTime
-        let wasPlaying = player.timeControlStatus == .playing || isPlaying
-        releaseCompatibilitySession()
+        let wasPlaying = player.timeControlStatus != .paused || isPlaying
+        releaseCompatibilitySession(cancelCheckTask: false)
         guard let session = try? LocalCodecStreamProxy.shared.openSession(for: url, assessment: assessment) else { return }
         compatibilitySessionID = session.id
         isUsingCompatibilityStream = true
@@ -1185,18 +1189,24 @@ final class AppModel {
         }
         let item = AVPlayerItem(url: session.playlistURL)
         videoOutput = nil
+        player.automaticallyWaitsToMinimizeStalling = true
         player.replaceCurrentItem(with: item)
         configureVideoOutput()
         applyVideoAppearance()
         if resumeTime > 0.5 {
             player.seek(to: CMTime(seconds: resumeTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         }
-        if wasPlaying { player.play() }
+        if wasPlaying {
+            player.play()
+            isPlaying = true
+        }
     }
 
-    private func releaseCompatibilitySession() {
-        compatibilityCheckTask?.cancel()
-        compatibilityCheckTask = nil
+    private func releaseCompatibilitySession(cancelCheckTask: Bool = true) {
+        if cancelCheckTask {
+            compatibilityCheckTask?.cancel()
+            compatibilityCheckTask = nil
+        }
         if let id = compatibilitySessionID {
             LocalCodecStreamProxy.shared.releaseSession(id)
             compatibilitySessionID = nil
