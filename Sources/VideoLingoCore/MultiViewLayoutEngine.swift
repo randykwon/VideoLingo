@@ -3,6 +3,7 @@ import Foundation
 /// 영상 감상 모드 멀티 뷰에서 1~8개 타일을 배치하는 프리셋입니다.
 public enum MultiViewLayoutPreset: String, Codable, Sendable, CaseIterable, Identifiable {
     case autoGrid       // 1→1×1, 2→2×1, 3~4→2×2, 5~6→3×2, 7~8→4×2
+    case dualSpotlight  // 2개 큰 화면 나란히(상단 72% 또는 2개일 때 100%) + 나머지 하단 보조 스트립
     case spotlight      // 1개 큰 메인 화면 + 나머지 보조 화면
     case twoColumns     // 2열 균등 배치
     case threeColumns   // 3열 균등 배치
@@ -15,6 +16,7 @@ public enum MultiViewLayoutPreset: String, Codable, Sendable, CaseIterable, Iden
     public var title: String {
         switch self {
         case .autoGrid: "자동 격자"
+        case .dualSpotlight: "2개 크게 보기"
         case .spotlight: "메인 강조"
         case .twoColumns: "2열"
         case .threeColumns: "3열"
@@ -27,7 +29,8 @@ public enum MultiViewLayoutPreset: String, Codable, Sendable, CaseIterable, Iden
     public var symbol: String {
         switch self {
         case .autoGrid: "rectangle.grid.2x2"
-        case .spotlight: "rectangle.split.2x1"
+        case .dualSpotlight: "rectangle.split.2x1"
+        case .spotlight: "rectangle.leadinghalf.inset.filled"
         case .twoColumns: "square.grid.2x2"
         case .threeColumns: "rectangle.grid.3x2"
         case .fourColumns: "square.grid.4x3.fill"
@@ -97,6 +100,9 @@ public enum MultiViewLayoutEngine {
             let cols = recommendedColumns(for: clampedCount)
             return gridRects(count: clampedCount, columns: cols, gap: gap)
 
+        case .dualSpotlight:
+            return dualSpotlightRects(count: clampedCount, gap: gap)
+
         case .twoColumns:
             return gridRects(count: clampedCount, columns: min(2, clampedCount), gap: gap)
 
@@ -146,6 +152,37 @@ public enum MultiViewLayoutEngine {
             result.append(MultiViewNormalizedRect(x: x, y: y, width: cellW, height: cellH).clamped(minWidth: 0.08, minHeight: 0.08))
         }
         return result
+    }
+
+    /// 1번·2번 타일을 좌우로 크게 나란히 배치하고, 3개 이상일 때는 나머지를 하단 스트립에 배치합니다.
+    private static func dualSpotlightRects(count: Int, gap: Double) -> [MultiViewNormalizedRect] {
+        let topW = (1.0 - gap * 3) / 2.0
+        if count <= 2 {
+            let fullH = 1.0 - gap * 2
+            return [
+                MultiViewNormalizedRect(x: gap, y: gap, width: topW, height: fullH),
+                MultiViewNormalizedRect(x: gap * 2 + topW, y: gap, width: topW, height: fullH)
+            ]
+        }
+        // 3~8개: 상단 72%에 2개 큰 화면 나란히 + 하단 28%에 나머지 1~6개 보조 스트립
+        let topH = 0.72 - gap * 1.5
+        let bottomY = gap * 2 + topH
+        let bottomH = 1.0 - bottomY - gap
+        let bottomCount = count - 2
+        let bottomW = (1.0 - gap * Double(bottomCount + 1)) / Double(bottomCount)
+
+        var rects = [
+            MultiViewNormalizedRect(x: gap, y: gap, width: topW, height: topH),
+            MultiViewNormalizedRect(x: gap * 2 + topW, y: gap, width: topW, height: topH)
+        ]
+        for i in 0..<bottomCount {
+            let x = gap + Double(i) * (bottomW + gap)
+            rects.append(
+                MultiViewNormalizedRect(x: x, y: bottomY, width: bottomW, height: bottomH)
+                    .clamped(minWidth: 0.08, minHeight: 0.08)
+            )
+        }
+        return rects
     }
 
     /// 1번 타일을 큰 메인 화면으로 배치하고, 나머지 1~7개를 우측(또는 우측+하단)에 배치합니다.
