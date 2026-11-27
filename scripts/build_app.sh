@@ -7,7 +7,7 @@ xcodebuild \
   -project VideoLingo.xcodeproj \
   -scheme VideoLingo \
   -configuration Release \
-  -destination 'platform=macOS' \
+  -destination 'generic/platform=macOS' \
   -derivedDataPath .build/DerivedData \
   CODE_SIGN_IDENTITY=- \
   DEVELOPMENT_TEAM= \
